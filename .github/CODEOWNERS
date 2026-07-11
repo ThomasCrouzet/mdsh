@@ -1,0 +1,8 @@
+# Code owners - auto-assigné aux reviews PR.
+# Cf. https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Note : ce fichier ne s'applique qu'au mirror GitHub. Si le projet est hébergé
+# ailleurs (ex. Gitea), le mécanisme d'assignation peut différer ou ne pas exister.
+
+# Maintainer principal sur tout le repo.
+* @ThomasCrouzet

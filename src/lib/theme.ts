@@ -1,0 +1,35 @@
+// §2.1 - Pure theme logic (no rune, testable in isolation).
+//
+// Three user preferences: `system` (follows the OS), `light`, `dark`.
+// The preference is persisted as-is; the EFFECTIVE theme applied to the DOM
+// (`data-theme`) is resolved on the store side via `resolveTheme` - which lets
+// the CSS carry only a single set of overrides (`[data-theme='light']`), dark
+// remaining the `@theme` default.
+
+export type ThemePref = 'system' | 'light' | 'dark';
+export type EffectiveTheme = 'light' | 'dark';
+
+export const THEME_STORAGE_KEY = 'mdsh:theme';
+
+/** System bar color (PWA / mobile) per effective theme. */
+export const THEME_COLORS: Record<EffectiveTheme, string> = {
+	light: '#fbfbfa',
+	dark: '#14161a'
+};
+
+/** Type guard: validates a value read from localStorage. */
+export function isThemePref(v: unknown): v is ThemePref {
+	return v === 'system' || v === 'light' || v === 'dark';
+}
+
+/** Resolves the preference into an effective theme, per the current system state. */
+export function resolveTheme(pref: ThemePref, systemPrefersLight: boolean): EffectiveTheme {
+	if (pref === 'light') return 'light';
+	if (pref === 'dark') return 'dark';
+	return systemPrefersLight ? 'light' : 'dark';
+}
+
+/** Cycle system → light → dark → system (for a single toggle). */
+export function nextThemePref(pref: ThemePref): ThemePref {
+	return pref === 'system' ? 'light' : pref === 'light' ? 'dark' : 'system';
+}

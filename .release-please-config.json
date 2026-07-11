@@ -1,0 +1,16 @@
+{
+	"release-type": "node",
+	"include-component-in-tag": false,
+	"bump-minor-pre-major": true,
+	"bump-patch-for-minor-pre-major": false,
+	"draft": false,
+	"prerelease": false,
+	"packages": {
+		".": {
+			"release-type": "node",
+			"package-name": "mdsh",
+			"changelog-path": "CHANGELOG.md"
+		}
+	},
+	"$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
+}

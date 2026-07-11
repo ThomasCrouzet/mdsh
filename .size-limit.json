@@ -1,0 +1,20 @@
+[
+	{
+		"name": "Entry bundle (app + start)",
+		"path": "build/_app/immutable/entry/*.js",
+		"limit": "12 KB",
+		"gzip": true
+	},
+	{
+		"name": "Page chunk (layout + composants non-lazy)",
+		"path": "build/_app/immutable/nodes/2.*.js",
+		"limit": "60 KB",
+		"gzip": true
+	},
+	{
+		"name": "CSS total",
+		"path": "build/_app/immutable/assets/*.css",
+		"limit": "120 KB",
+		"gzip": true
+	}
+]

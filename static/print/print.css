@@ -1,0 +1,495 @@
+/* ============================================================================
+   mdsh - stylesheet d'impression / export PDF
+   Charte light, typographie serif pour la lecture, @page A4, pagination propre.
+   ============================================================================ */
+
+:root {
+	--text: #1a1a1a;
+	--text-muted: #4a4a4a;
+	--text-faint: #7a7a7a;
+	--bg: #ffffff;
+	--bg-alt: #f7f7f8;
+	--border: #e2e2e4;
+	--border-strong: #b0b0b4;
+	--accent: #1a6f4a;
+	--code-bg: #f6f8fa;
+	--code-border: #d0d7de;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	background: var(--bg);
+	color: var(--text);
+}
+
+body {
+	margin: 0 auto;
+	padding: 2cm 1.8cm 2.5cm;
+	max-width: 21cm;
+	font:
+		11.5pt/1.6 'Iowan Old Style',
+		'Apple Garamond',
+		'Palatino Linotype',
+		Baskerville,
+		'Times New Roman',
+		Georgia,
+		serif;
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	hyphens: auto;
+}
+
+/* --- Hiérarchie des titres ----------------------------------------------- */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family:
+		-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, ui-sans-serif, sans-serif;
+	color: var(--text);
+	letter-spacing: -0.01em;
+	line-height: 1.25;
+	font-weight: 700;
+	break-after: avoid;
+	page-break-after: avoid;
+}
+h1 {
+	font-size: 22pt;
+	margin: 0 0 0.6em;
+	padding-bottom: 0.3em;
+	border-bottom: 1px solid var(--border);
+	letter-spacing: -0.02em;
+}
+h2 {
+	font-size: 16pt;
+	margin: 1.5em 0 0.5em;
+	letter-spacing: -0.015em;
+}
+h3 {
+	font-size: 13pt;
+	margin: 1.3em 0 0.4em;
+}
+h4 {
+	font-size: 11.5pt;
+	margin: 1.1em 0 0.3em;
+	font-weight: 600;
+}
+h5,
+h6 {
+	font-size: 10.5pt;
+	margin: 1em 0 0.3em;
+	font-weight: 600;
+	color: var(--text-muted);
+}
+
+/* --- Paragraphes --------------------------------------------------------- */
+p {
+	margin: 0 0 0.8em;
+	orphans: 3;
+	widows: 3;
+}
+
+/* --- Liens --------------------------------------------------------------- */
+a {
+	color: var(--accent);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	text-decoration-thickness: 0.06em;
+}
+
+/* --- Listes -------------------------------------------------------------- */
+ul,
+ol {
+	padding-left: 1.5em;
+	margin: 0.4em 0 0.9em;
+}
+li {
+	margin: 0.2em 0;
+}
+li > p {
+	margin: 0.2em 0;
+}
+/* Checklists GFM */
+ul li input[type='checkbox'] {
+	margin: 0 0.35em 0 -1.25em;
+	vertical-align: middle;
+}
+ul.contains-task-list,
+ul:has(> li > input[type='checkbox']) {
+	padding-left: 1.5em;
+	list-style: none;
+}
+
+/* --- Blockquotes --------------------------------------------------------- */
+blockquote {
+	border-left: 3px solid var(--border-strong);
+	padding: 0.1em 1em;
+	margin: 1em 0;
+	color: var(--text-muted);
+	font-style: italic;
+}
+blockquote > p {
+	margin: 0.3em 0;
+}
+
+/* --- Séparateur ---------------------------------------------------------- */
+hr {
+	border: none;
+	border-top: 1px solid var(--border);
+	margin: 1.6em 0;
+}
+
+/* --- Code ---------------------------------------------------------------- */
+code {
+	font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', ui-monospace, monospace;
+	font-size: 0.88em;
+	background: var(--code-bg);
+	border: 1px solid var(--code-border);
+	padding: 0.1em 0.35em;
+	border-radius: 3px;
+	word-break: break-word;
+}
+pre {
+	font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', ui-monospace, monospace;
+	font-size: 9.5pt;
+	line-height: 1.55;
+	background: var(--code-bg);
+	border: 1px solid var(--code-border);
+	border-radius: 6px;
+	padding: 0.85em 1em;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	break-inside: avoid;
+	page-break-inside: avoid;
+	margin: 0.8em 0;
+}
+pre code {
+	background: transparent;
+	border: none;
+	padding: 0;
+	font-size: inherit;
+	border-radius: 0;
+	color: inherit;
+	word-break: normal;
+}
+
+/* --- Tables -------------------------------------------------------------- */
+table {
+	border-collapse: collapse;
+	width: 100%;
+	margin: 1em 0;
+	font-size: 10pt;
+	break-inside: avoid;
+	page-break-inside: avoid;
+}
+th,
+td {
+	border: 1px solid var(--border);
+	padding: 0.45em 0.7em;
+	text-align: left;
+	vertical-align: top;
+}
+th {
+	background: var(--bg-alt);
+	font-weight: 600;
+}
+tr:nth-child(even) td {
+	background: #fafafa;
+}
+
+/* --- Images -------------------------------------------------------------- */
+img {
+	max-width: 100%;
+	height: auto;
+	break-inside: avoid;
+	page-break-inside: avoid;
+	margin: 0.8em 0;
+}
+
+/* --- Mermaid diagrams ---------------------------------------------------- */
+.mermaid-block {
+	margin: 1.2em 0;
+	text-align: center;
+	break-inside: avoid;
+	page-break-inside: avoid;
+	overflow: hidden;
+}
+.mermaid-block svg {
+	max-width: 100%;
+	height: auto;
+	display: inline-block;
+}
+.mermaid-error {
+	background: #fdf2f2;
+	border: 1px solid #f5d6d6;
+	color: #8a2020;
+	padding: 0.8em 1em;
+	border-radius: 6px;
+	margin: 1em 0;
+	break-inside: avoid;
+	page-break-inside: avoid;
+}
+.mermaid-error pre {
+	background: transparent;
+	border: none;
+	color: inherit;
+	margin: 0.4em 0 0;
+	padding: 0;
+	font-size: 0.9em;
+}
+.mermaid-source-fallback {
+	margin-top: 0.5em;
+	color: var(--text-muted);
+}
+
+/* --- Math (KaTeX) -------------------------------------------------------- */
+.math-block {
+	margin: 1em 0;
+	break-inside: avoid;
+	page-break-inside: avoid;
+	text-align: center;
+	overflow-x: auto;
+}
+.katex-display {
+	margin: 0;
+}
+.katex {
+	font-size: 1.05em;
+}
+.math-error,
+.math-error-display {
+	color: #b33b3b;
+	background: #fdf2f2;
+	border: 1px solid #f5d6d6;
+	padding: 0.1em 0.4em;
+	border-radius: 3px;
+	font-family: 'SF Mono', Menlo, Consolas, monospace;
+	font-size: 0.88em;
+}
+.math-error-display {
+	display: block;
+	margin: 0.8em 0;
+	padding: 0.5em 0.8em;
+}
+
+/* ============================================================================
+   Highlight.js - thème GitHub light, inline (pas de requête réseau)
+   ============================================================================ */
+.hljs {
+	color: #24292f;
+	background: transparent;
+}
+.hljs-doctag,
+.hljs-keyword,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable.language_ {
+	color: #cf222e;
+}
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-title.function_ {
+	color: #8250df;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-literal,
+.hljs-meta,
+.hljs-number,
+.hljs-operator,
+.hljs-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
+	color: #0550ae;
+}
+.hljs-regexp,
+.hljs-string,
+.hljs-meta .hljs-string {
+	color: #0a3069;
+}
+.hljs-built_in,
+.hljs-symbol {
+	color: #953800;
+}
+.hljs-code,
+.hljs-comment,
+.hljs-formula {
+	color: #6e7781;
+	font-style: italic;
+}
+.hljs-name,
+.hljs-quote,
+.hljs-selector-pseudo,
+.hljs-selector-tag {
+	color: #116329;
+}
+.hljs-subst {
+	color: #24292f;
+}
+.hljs-section {
+	color: #0550ae;
+	font-weight: 700;
+}
+.hljs-bullet {
+	color: #735c0f;
+}
+.hljs-emphasis {
+	color: #24292f;
+	font-style: italic;
+}
+.hljs-strong {
+	color: #24292f;
+	font-weight: 700;
+}
+.hljs-addition {
+	color: #116329;
+	background-color: #dafbe1;
+}
+.hljs-deletion {
+	color: #82071e;
+	background-color: #ffebe9;
+}
+
+/* ============================================================================
+   §5.1 Front-matter - bloc métadonnées discret en tête du document
+   ============================================================================ */
+.mdsh-frontmatter {
+	margin: 0 0 1.2em;
+	padding: 0.5em 0.9em;
+	background: var(--bg-alt);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+	font-size: 9pt;
+	color: var(--text-muted);
+	font-style: italic;
+	break-inside: avoid;
+	page-break-inside: avoid;
+}
+.mdsh-frontmatter dl {
+	margin: 0;
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 0.15em 0.7em;
+}
+.mdsh-frontmatter-row {
+	display: contents;
+}
+.mdsh-frontmatter dt {
+	color: var(--text-faint);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	font-size: 0.85em;
+	font-style: normal;
+	align-self: center;
+}
+.mdsh-frontmatter dd {
+	margin: 0;
+	color: var(--text);
+}
+.mdsh-frontmatter-tag {
+	display: inline-block;
+	margin-right: 0.3em;
+	padding: 0 0.4em;
+	border-radius: 999px;
+	background: #ffffff;
+	border: 1px solid var(--border);
+	color: var(--text-muted);
+	font-style: normal;
+	font-family: 'SF Mono', Menlo, Consolas, ui-monospace, monospace;
+	font-size: 0.85em;
+}
+
+/* §5.2 Wiki-links - ligne pointillée pour différencier des liens externes.
+   Pas de URL après en mode print (le lien est interne au workspace mdsh). */
+.wiki-link {
+	color: var(--accent);
+	border-bottom: 1px dashed currentColor;
+	text-decoration: none;
+}
+@media print {
+	a.wiki-link[href^='#']:after {
+		content: '';
+	}
+}
+
+/* ============================================================================
+   Page header (optionnel - nom du document)
+   ============================================================================ */
+.print-header {
+	margin: 0 0 1em;
+	padding: 0 0 0.6em;
+	border-bottom: 1px solid var(--border);
+}
+.print-header .print-kicker {
+	font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+	color: var(--text-faint);
+	font-size: 8.5pt;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	margin: 0 0 0.3em;
+}
+
+/* ============================================================================
+   Règles d'impression
+   ============================================================================ */
+@media print {
+	html,
+	body {
+		background: #ffffff !important;
+	}
+	body {
+		padding: 0;
+		max-width: none;
+	}
+	/* Afficher les URLs après les liens externes dans le PDF */
+	a[href^='http']:after {
+		content: ' (' attr(href) ')';
+		font-size: 0.8em;
+		color: var(--text-faint);
+		word-break: break-all;
+	}
+	a[href^='#']:after,
+	a[href^='mailto:']:after {
+		content: '';
+	}
+	pre,
+	blockquote,
+	table,
+	img,
+	.math-block,
+	.katex-display {
+		break-inside: avoid;
+		page-break-inside: avoid;
+	}
+	h1,
+	h2,
+	h3,
+	h4,
+	h5,
+	h6 {
+		break-after: avoid;
+		page-break-after: avoid;
+	}
+	.print-header {
+		margin-bottom: 1em;
+	}
+}
+
+/* Format de page : A4 standard avec marges typographiques */
+@page {
+	size: A4;
+	margin: 1.8cm 1.6cm 2.2cm;
+}

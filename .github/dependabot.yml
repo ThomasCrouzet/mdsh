@@ -1,0 +1,53 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    # Groupement : on ouvre UNE seule PR par semaine pour tous les patch/minor
+    # (sauf les libs figées suivies manuellement pour éviter les breaking API).
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+        # Libs figées : Milkdown et lucide-svelte ont un historique de
+        # breaking API sur les minor → review manuelle.
+        exclude-patterns:
+          - '@milkdown/*'
+          - 'lucide-svelte'
+    # Note : les upgrades MAJEURES ne sont PAS ignorées - elles ouvrent chacune
+    # une PR séparée (hors du groupe minor/patch), volontairement non auto-mergée
+    # (cf. dependabot-automerge.yml qui ne fusionne que patch/minor) pour revue
+    # manuelle. Auparavant un `ignore: version-update:semver-major` les masquait
+    # complètement, ce qui contredisait l'intention « PR séparée ».
+    ignore:
+      # js-yaml 5 supprime l'export DEFAULT_SCHEMA utilisé dans frontmatter.ts -
+      # pas de migration prévue tant que le parsing fail-soft actuel
+      # (js-yaml 4.x) suffit.
+      - dependency-name: 'js-yaml'
+        update-types:
+          - 'version-update:semver-major'
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    groups:
+      github-actions:
+        update-types:
+          - minor
+          - patch

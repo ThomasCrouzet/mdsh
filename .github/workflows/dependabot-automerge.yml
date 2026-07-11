@@ -1,0 +1,42 @@
+name: Dependabot auto-merge
+
+# Fusionne automatiquement les PRs Dependabot patch/minor une fois la CI verte.
+# Les upgrades majeures sont exclues et requièrent une revue manuelle.
+# Ref : https://docs.github.com/fr/code-security/dependabot/working-with-dependabot/automating-dependabot-with-github-actions
+#
+# ⚠️ SÛRETÉ - dépendance à une protection de branche (réglage GitHub, NON
+# versionné) : `gh pr merge --auto` n'attend les checks CI que si `main` a une
+# branch protection avec les checks requis (check / e2e / build). Sans elle,
+# l'auto-merge fusionnerait AVANT la fin de la CI. Garde-fou requis sur le dépôt :
+# Settings → Branches → `main` → Require status checks (check, e2e, build).
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    # Uniquement sur les PRs Dependabot
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Récupérer les métadonnées Dependabot
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Auto-merge pour les bumps patch et minor uniquement.
+      # Les bumps major sont volontairement exclus (breaking changes potentiels).
+      - name: Auto-merge patch/minor
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

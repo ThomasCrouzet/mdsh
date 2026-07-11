@@ -1,0 +1,21 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = tab
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+# YAML formel (workflows GitHub Actions, dependabot, etc.) : la spec YAML
+# interdit les tabs comme indentation de structure. On reste en tab pour
+# rester cohérent avec Prettier (`useTabs: true`) sur tout le reste, et on
+# ne formate pas activement les .yml - leur indent reste contrôlé par
+# l'auteur.
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2

@@ -1,0 +1,51 @@
+name: Feature proposal
+description: Suggest a new feature or improvement
+title: '[feat] '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the proposal. Before opening, check that it fits the spirit of the project:
+        minimalism, 100% offline, dark-first, zero telemetry.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What need or frustration does this feature address?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How do you imagine the implementation? (UX, shortcut, placement...)
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Did you consider other approaches? Why is this one the best?
+
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Compatibility with project principles
+      description: Check everything that applies
+      options:
+        - label: Works 100% offline (no network request)
+        - label: No telemetry or tracking
+        - label: Respects dark-first and accessibility (WCAG AA)
+        - label: Does not pollute the initial bundle (lazy-load if possible)
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and found no duplicate.
+          required: true

@@ -1,0 +1,125 @@
+/* ==========================================================================
+   Prose base - règles typographiques partagées entre l'éditeur Milkdown
+   (WYSIWYG) et la vue lecture (.mdsh-preview). Tout ce qui est purement
+   structurel (tailles de headings, marges, bordures, code inline, tables)
+   est défini ici une seule fois.
+
+   Particularités :
+   - Sélecteur `:where(...)` pour ne pas ajouter de spécificité - chaque
+     consommateur peut surcharger sans `!important`.
+   - Variables CSS (--color-*) résolues via le thème global dans app.css.
+   - `print.css` N'EST PAS concerné : il utilise une palette light A4 avec
+     des tailles en `pt` et des `@page` rules - extraction à part.
+   ========================================================================== */
+
+:where(.milkdown .ProseMirror, .mdsh-preview) h1 {
+	font-size: 2rem;
+	font-weight: 700;
+	margin: 1.6em 0 0.5em;
+	letter-spacing: -0.02em;
+	line-height: 1.2;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) h2 {
+	font-size: 1.5rem;
+	font-weight: 600;
+	margin: 1.4em 0 0.45em;
+	letter-spacing: -0.015em;
+	line-height: 1.25;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) h3 {
+	font-size: 1.2rem;
+	font-weight: 600;
+	margin: 1.3em 0 0.4em;
+	line-height: 1.3;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) :is(h4, h5, h6) {
+	font-weight: 600;
+	margin: 1.2em 0 0.3em;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) p {
+	margin: 0.6em 0;
+	/* Pas de justify (WCAG 1.4.8 F88 : rivières de blanc). hyphens + break-word
+	   pour gérer les URLs et mots longs sans débordement. */
+	text-align: left;
+	hyphens: auto;
+	overflow-wrap: break-word;
+}
+
+/* Gras : compensation du poids appliquée pour compenser la halation dark
+   (620 au lieu de 700). */
+:where(.milkdown .ProseMirror, .mdsh-preview) :is(strong, b) {
+	font-weight: 620;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) a {
+	color: var(--color-accent);
+	text-underline-offset: 3px;
+	text-decoration: underline;
+	text-decoration-color: color-mix(in oklab, var(--color-accent) 35%, transparent);
+	transition: text-decoration-color 0.15s ease;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) a:hover {
+	text-decoration-color: var(--color-accent);
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) code {
+	font-family: var(--font-mono);
+	font-size: 0.9em;
+	background: var(--color-bg-2);
+	color: var(--color-accent);
+	padding: 0.1em 0.4em;
+	border-radius: var(--radius-xs);
+	border: 1px solid var(--color-border);
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) blockquote {
+	border-left: 3px solid var(--color-border-strong);
+	padding: 0.25em 1.1em;
+	margin: 1em 0;
+	color: var(--color-fg-muted);
+	font-style: italic;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) hr {
+	border: none;
+	border-top: 1px solid var(--color-border);
+	margin: 2em 0;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) :is(ul, ol) {
+	padding-left: 1.5em;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) li {
+	margin: 0.25em 0;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) table {
+	border-collapse: collapse;
+	width: 100%;
+	margin: 1em 0;
+	font-size: 0.95em;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) :is(th, td) {
+	border: 1px solid var(--color-border);
+	padding: 0.5em 0.75em;
+	text-align: left;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) th {
+	background: var(--color-bg-1);
+	font-weight: 600;
+}
+
+:where(.milkdown .ProseMirror, .mdsh-preview) img {
+	max-width: 100%;
+	border-radius: var(--radius-md);
+	display: block;
+	margin: 1em auto;
+}

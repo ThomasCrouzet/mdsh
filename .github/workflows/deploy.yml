@@ -1,0 +1,280 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Scope par ref : un groupe global "pages" (sans suffixe) fait que CHAQUE push
+# (main + toutes les PR confondues) rejoint la meme file d'attente - avec
+# cancel-in-progress=false, seul le dernier run ARRIVE dans la file survit,
+# tous les runs plus anciens (deploy main compris) sont annules avant meme de
+# demarrer un job. Suffixer par ${{ github.ref }} isole chaque branche/PR dans
+# sa propre file.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+# Opt-in Node.js 24 pour les actions JS (actions/cache@v4 tourne sinon sur
+# Node 20, déprécié par GitHub en juin 2026). Anticipe la transition.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # §A4.1 - Cache `node_modules` extrait. `setup-node@v5 cache: npm`
+      # couvre déjà le tarball cache (`~/.npm`), mais l'extract reste à faire
+      # à chaque job (~10-15s × 4 jobs). Cache direct de `node_modules` =
+      # restore ~2s sur cache hit.
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      # §J2 - Gate sécurité bloquant : P0 (deps runtime) est vert, on bloque donc
+      # la CI sur toute vulnérabilité HIGH+ d'une dépendance de PRODUCTION. Les
+      # vulns build/dev (exclues par --omit=dev) restent suivies par Dependabot.
+      - name: Audit des dépendances de production
+        run: npm audit --audit-level=high --omit=dev
+
+      - name: Sync SvelteKit
+        run: npm run prepare
+
+      - name: Type check
+        run: npm run check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+
+  e2e:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # §A4.1 - Cache `node_modules` extrait. `setup-node@v5 cache: npm`
+      # couvre déjà le tarball cache (`~/.npm`), mais l'extract reste à faire
+      # à chaque job (~10-15s × 4 jobs). Cache direct de `node_modules` =
+      # restore ~2s sur cache hit.
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      # Cache des binaires navigateurs Playwright (~/.cache/ms-playwright) :
+      # évite de re-télécharger chromium + webkit (~150 MB) à chaque run. Clé
+      # liée au lockfile (la version @playwright/test y est figée). Sur cache
+      # hit on n'installe que les dépendances système (apt), pas les binaires.
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-pw
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers (+ deps système)
+        if: steps.cache-pw.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Install Playwright deps système (cache hit)
+        if: steps.cache-pw.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium webkit
+
+      # Snapshots visuels (visual.spec.ts) : re-desactives en CI (2026-07-10) -
+      # les baselines generees via le conteneur Playwright officiel divergent
+      # assez du runner ubuntu-latest reel (rendu de police) pour depasser
+      # maxDiffPixelRatio sur "palette" et "mode lecture", faisant echouer des
+      # PR sans rapport (ex. bumps actions/checkout, @types/node). A reprendre
+      # en regenerant la baseline depuis le runner CI lui-meme plutot que
+      # depuis le conteneur Docker local. Les baselines *-chromium-linux.png
+      # restent versionnees en l'etat pour cette future tentative.
+      - name: E2E tests (sans snapshots visuels)
+        run: npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    # `configure-pages` (Setup Pages, étape push-only ci-dessous) interroge l'API
+    # Pages → nécessite `pages: write`. Le job hérite sinon du `contents: read`
+    # global, d'où l'échec « Resource not accessible by integration ». On scope
+    # ici (least-privilege) sans élargir les permissions des autres jobs.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    strategy:
+      # Build en parallèle avec BASE_PATH vide (cas domaine custom) et
+      # /mdsh (cas GitHub Pages sous-chemin). Seule la variante /mdsh remonte
+      # un artifact pour le deploy ; la variante vide sert à détecter les
+      # régressions sur les chemins absolus oubliés.
+      fail-fast: false
+      matrix:
+        include:
+          - base_path: /${{ github.event.repository.name }}
+            upload: true
+          - base_path: ''
+            upload: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # §A4.1 - Cache `node_modules` extrait. `setup-node@v5 cache: npm`
+      # couvre déjà le tarball cache (`~/.npm`), mais l'extract reste à faire
+      # à chaque job (~10-15s × 4 jobs). Cache direct de `node_modules` =
+      # restore ~2s sur cache hit.
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      - name: Build
+        run: npm run build
+        env:
+          BASE_PATH: ${{ matrix.base_path }}
+
+      - name: Check bundle size budget
+        if: matrix.upload == true
+        run: npm run size
+
+      # Étapes Pages réservées au push : sur une PR, le GITHUB_TOKEN n'a pas
+      # accès à l'API Pages (`Resource not accessible by integration`) et aucun
+      # artefact n'est de toute façon déployé depuis une PR (le job `deploy` est
+      # push-only). Le build + size budget restent validés sur PR.
+      - name: Setup Pages
+        if: matrix.upload == true && github.event_name == 'push'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
+      - name: Upload artifact
+        if: matrix.upload == true && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: build/
+
+  lighthouse:
+    # Audit Perf / A11y / BestPractices / SEO sur chaque PR.
+    # Non bloquant pour le deploy (cf. `deploy.needs`) - A11y est en assertion
+    # `error` dans `lighthouserc.json` mais reste isolé du chemin de prod.
+    needs: check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # §A4.1 - Cache `node_modules` extrait. `setup-node@v5 cache: npm`
+      # couvre déjà le tarball cache (`~/.npm`), mais l'extract reste à faire
+      # à chaque job (~10-15s × 4 jobs). Cache direct de `node_modules` =
+      # restore ~2s sur cache hit.
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      # Build avec BASE_PATH vide : `staticDistDir` sert `./build` depuis la
+      # racine, donc les paths absolus du HTML doivent pointer sur `/...` et
+      # pas `/mdsh/...`. C'est aussi la config testée par §9.2.1 (custom
+      # domain) - ce job en couvre incidemment la régression.
+      - name: Build (BASE_PATH vide)
+        run: npm run build
+        env:
+          BASE_PATH: ''
+
+      - name: Lighthouse CI
+        uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # v12
+        with:
+          configPath: ./.github/lighthouserc.json
+          budgetPath: ./.github/lighthouse-budget.json
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+  deploy:
+    # E2E bloquant aussi : pas de prod sans scénarios verts.
+    # Lighthouse n'est pas en `needs` : le job ne tourne que sur PR
+    # (cf. son `if`) - sur push main il est skippé, et `deploy` ne
+    # doit pas attendre un job skippé.
+    needs: [build, e2e]
+    # Skip le deploy sur les PR - on ne veut pas publier du code non mergé.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Moindre privilège : seul ce job a besoin de publier sur Pages.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5

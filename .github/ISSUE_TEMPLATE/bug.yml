@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible bug
+title: '[bug] '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please fill out this form so we can reproduce the problem quickly.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is not working as expected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Steps to reproduce the bug, step by step.
+      placeholder: |
+        1. Open mdsh
+        2. Create a new file
+        3. Paste the following content
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser + version
+      placeholder: 'Chrome 125, Firefox 126, Safari 17.4...'
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: 'macOS 14, Windows 11, Ubuntu 24.04...'
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit / deployment URL
+      description: 'If tested on the deployed site, copy the URL. If tested locally, the commit hash (`git rev-parse HEAD`).'
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors
+      description: Paste any error visible in the DevTools console.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and found no duplicate.
+          required: true
+        - label: The bug is reproducible after a hard refresh (Cmd/Ctrl+Shift+R).
+          required: true

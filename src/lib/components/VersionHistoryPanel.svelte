@@ -1,0 +1,191 @@
+<script lang="ts">
+	// §2.4 - Version history panel for the active file.
+	//
+	// Lists the timestamped snapshots (db.versions), shows a preview of a selected
+	// version's content plus a lightweight diff indicator (+X / -Y lines vs the
+	// current version), and allows restoring a version (with confirmation).
+	// All local (Dexie), no network.
+
+	import { tick } from 'svelte';
+	import { browser } from '$app/environment';
+	import { t } from '$lib/i18n';
+	import { focusTrap } from '$lib/a11y/focusTrap';
+	import { filesStore } from '$lib/files.svelte';
+	import { promptStore } from '$lib/prompt.svelte';
+	import { notify } from '$lib/notify.svelte';
+	import { reportError } from '$lib/report';
+	import { listVersions, lineDiffStats } from '$lib/version-history';
+	import { formatSaveAge } from '$lib/stats';
+	import type { VersionRow } from '$lib/db';
+	import { History, X, RotateCcw } from 'lucide-svelte';
+
+	interface Props {
+		open: boolean;
+		onClose: () => void;
+	}
+
+	let { open, onClose }: Props = $props();
+
+	let versions = $state<VersionRow[]>([]);
+	let loading = $state(true);
+	let selectedId = $state<string | null>(null);
+	let closeButton: HTMLButtonElement | null = $state(null);
+
+	const selected = $derived(versions.find((v) => v.id === selectedId) ?? null);
+	const currentContent = $derived(filesStore.active?.content ?? '');
+	const diff = $derived(selected ? lineDiffStats(currentContent, selected.content) : null);
+
+	$effect(() => {
+		if (!open || !browser) return;
+		loading = true;
+		const id = filesStore.active?.id;
+		if (!id) {
+			versions = [];
+			loading = false;
+			return;
+		}
+		void listVersions(id)
+			.then((rows) => {
+				versions = rows;
+				selectedId = rows[0]?.id ?? null;
+				loading = false;
+				tick().then(() => closeButton?.focus());
+			})
+			.catch((err) => {
+				// Without this .catch, an IDB failure left the "Loading..." spinner
+				// frozen indefinitely. We exit the loading state and notify.
+				versions = [];
+				loading = false;
+				reportError("chargement de l'historique de versions", err, {
+					notifyUser: t('versionHistory.loadError')
+				});
+				tick().then(() => closeButton?.focus());
+			});
+	});
+
+	async function handleRestore(): Promise<void> {
+		const v = selected;
+		const active = filesStore.active;
+		if (!v || !active) return;
+		const ok = await promptStore.confirm({
+			title: t('versionHistory.restoreConfirmTitle'),
+			message: t('versionHistory.restoreConfirmMessage'),
+			confirmLabel: t('versionHistory.restore')
+		});
+		if (!ok) return;
+		filesStore.updateContent(active.id, v.content);
+		notify.success(t('versionHistory.restored'));
+		onClose();
+	}
+</script>
+
+{#if open}
+	<div
+		class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pb-4 backdrop-blur-sm
+		       pt-[max(env(safe-area-inset-top),8vh)]"
+		style:padding-left="max(env(safe-area-inset-left), 1rem)"
+		style:padding-right="max(env(safe-area-inset-right), 1rem)"
+		onclick={(e) => {
+			if (e.target === e.currentTarget) onClose();
+		}}
+		onkeydown={(e) => {
+			if (e.key === 'Escape') onClose();
+		}}
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="history-title"
+		tabindex="-1"
+		use:focusTrap
+	>
+		<div
+			class="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border
+			       bg-bg-1 shadow-2xl animate-fade-in"
+		>
+			<header class="flex items-center gap-2 border-b border-border px-4 py-2.5">
+				<History size={16} class="text-fg-dim" aria-hidden="true" />
+				<h2 id="history-title" class="flex-1 text-sm font-medium text-fg">
+					{t('versionHistory.title')}
+					{#if filesStore.active}<span class="text-fg-dim">- {filesStore.active.name}</span>{/if}
+				</h2>
+				<button
+					bind:this={closeButton}
+					class="rounded p-1 text-fg-dim transition hover:bg-bg-2 hover:text-fg"
+					onclick={onClose}
+					aria-label={t('versionHistory.close')}
+				>
+					<X size={14} />
+				</button>
+			</header>
+
+			{#if !filesStore.active}
+				<p class="px-4 py-8 text-center text-sm text-fg-dim">{t('versionHistory.noFileOpen')}</p>
+			{:else if loading}
+				<p class="px-4 py-8 text-center text-sm text-fg-dim">{t('versionHistory.loading')}</p>
+			{:else if versions.length === 0}
+				<p class="px-4 py-8 text-center text-sm text-fg-dim">
+					{t('versionHistory.empty')}
+				</p>
+			{:else}
+				<div class="flex min-h-0 flex-1">
+					<!-- Version list -->
+					<ul
+						class="w-56 shrink-0 overflow-y-auto border-r border-border py-1"
+						aria-label={t('versionHistory.availableVersions')}
+					>
+						{#each versions as v, i (v.id)}
+							<li>
+								<button
+									class="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm transition"
+									class:bg-bg-2={v.id === selectedId}
+									class:text-fg={v.id === selectedId}
+									class:text-fg-muted={v.id !== selectedId}
+									onclick={() => (selectedId = v.id)}
+									aria-current={v.id === selectedId}
+								>
+									<span>{formatSaveAge(v.createdAt)}</span>
+									<span class="text-[10px] text-fg-dim">
+										{i === 0
+											? t('versionHistory.mostRecent')
+											: t('versionHistory.versionLabel', { n: versions.length - i })}
+									</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
+
+					<!-- Preview of the selected version -->
+					<div class="flex min-w-0 flex-1 flex-col">
+						{#if selected}
+							<div
+								class="flex items-center gap-3 border-b border-border px-3 py-1.5 text-[11px] text-fg-dim"
+							>
+								<span>{t('versionHistory.preview')}</span>
+								{#if diff}
+									<span class="text-accent">+{diff.added}</span>
+									<span class="text-danger">−{diff.removed}</span>
+									<span>{t('versionHistory.vsCurrent')}</span>
+								{/if}
+							</div>
+							<pre
+								class="m-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs text-fg-muted">{selected.content}</pre>
+						{/if}
+					</div>
+				</div>
+
+				<footer class="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
+					<span class="text-[11px] text-fg-dim">
+						{t('versionHistory.kept', { n: versions.length })}
+					</span>
+					<button
+						class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-bg-2 hover:text-fg disabled:opacity-40"
+						onclick={() => void handleRestore()}
+						disabled={!selected}
+					>
+						<RotateCcw size={13} aria-hidden="true" />
+						<span>{t('versionHistory.restoreThisVersion')}</span>
+					</button>
+				</footer>
+			{/if}
+		</div>
+	</div>
+{/if}

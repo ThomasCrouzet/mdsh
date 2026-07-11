@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" class="dark">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<meta name="theme-color" content="#14161a" />
+		<meta name="color-scheme" content="dark" />
+		<meta
+			name="description"
+			content="mdsh - a local-first WYSIWYG markdown editor, 100% dark, offline."
+		/>
+		<meta name="referrer" content="no-referrer" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<meta name="apple-mobile-web-app-title" content="mdsh" />
+		<meta name="mobile-web-app-capable" content="yes" />
+
+		<!-- Open Graph (Facebook, LinkedIn, Discord, Slack…) -->
+		<meta property="og:type" content="website" />
+		<meta property="og:title" content="mdsh - a local-first WYSIWYG markdown editor" />
+		<meta
+			property="og:description"
+			content="WYSIWYG markdown editor, dark mode, PWA, 100% offline. No server, no telemetry."
+		/>
+		<meta property="og:image" content="%sveltekit.assets%/og-image.png" />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta property="og:image:alt" content="mdsh - a local-first markdown editor" />
+		<meta property="og:url" content="https://thomascrouzet.github.io/mdsh/" />
+		<meta property="og:site_name" content="mdsh" />
+		<meta property="og:locale" content="en_US" />
+
+		<!-- Twitter / X -->
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content="mdsh - a local-first WYSIWYG markdown editor" />
+		<meta
+			name="twitter:description"
+			content="WYSIWYG dark mode, PWA, 100 % offline. Open source."
+		/>
+		<meta name="twitter:image" content="%sveltekit.assets%/og-image.png" />
+		<meta name="twitter:image:alt" content="mdsh - a local-first markdown editor" />
+
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
+		<link rel="icon" type="image/x-icon" href="%sveltekit.assets%/favicon.ico" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon-180x180.png" />
+		<link
+			rel="apple-touch-icon-precomposed"
+			href="%sveltekit.assets%/apple-touch-icon-180x180.png"
+		/>
+		<!-- §1.2 - @vite-pwa/sveltekit génère et précache `manifest.webmanifest` mais
+		     n'injecte PAS ce lien dans le document. Sans lui, le navigateur ignore le
+		     manifest : aucun prompt d'installation, et file_handlers / share_target /
+		     launch_handler / shortcuts / standalone restent inertes en production. On
+		     l'ajoute dans le template (présent sur toutes les sorties HTML, fallback
+		     SPA compris). `%sveltekit.assets%` résout le sous-chemin GitHub Pages. -->
+		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+		%sveltekit.head%
+	</head>
+	<body class="bg-bg text-fg antialiased">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

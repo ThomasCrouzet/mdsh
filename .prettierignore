@@ -1,0 +1,6 @@
+build
+coverage
+.svelte-kit
+package-lock.json
+node_modules
+*.md
