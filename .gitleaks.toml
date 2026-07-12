@@ -1,0 +1,7 @@
+# Configuration gitleaks : étend le ruleset par défaut.
+#
+# Ajouter ici les allowlists ciblées (paths, regexes, stopwords) pour
+# neutraliser d'éventuels faux positifs (secrets de test, fixtures, exemples de
+# documentation). Aucun faux positif connu à ce jour.
+[extend]
+useDefault = true
