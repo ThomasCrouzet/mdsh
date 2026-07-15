@@ -118,14 +118,10 @@ jobs:
         if: steps.cache-pw.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium webkit
 
-      # Snapshots visuels (visual.spec.ts) : re-desactives en CI (2026-07-10) -
-      # les baselines generees via le conteneur Playwright officiel divergent
-      # assez du runner ubuntu-latest reel (rendu de police) pour depasser
-      # maxDiffPixelRatio sur "palette" et "mode lecture", faisant echouer des
-      # PR sans rapport (ex. bumps actions/checkout, @types/node). A reprendre
-      # en regenerant la baseline depuis le runner CI lui-meme plutot que
-      # depuis le conteneur Docker local. Les baselines *-chromium-linux.png
-      # restent versionnees en l'etat pour cette future tentative.
+      # Visual snapshots: deliberately not a CI gate (local-only policy).
+      # Docker Playwright baselines diverge from ubuntu-latest font rendering
+      # (see ROADMAP.md + CONTRIBUTING.md). Baselines stay versioned for local
+      # comparison; do not remove --ignore-snapshots without regenerating on CI.
       - name: E2E tests (sans snapshots visuels)
         run: npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"
 

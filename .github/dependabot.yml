@@ -34,6 +34,26 @@ updates:
       - dependency-name: 'js-yaml'
         update-types:
           - 'version-update:semver-major'
+      # Vitest 4 / coverage-v8 4 : rester en 3.x (stabilite suite + incident
+      # CVE / API). Re-evaluer manuellement avant d'ouvrir une PR de migration.
+      - dependency-name: 'vitest'
+        update-types:
+          - 'version-update:semver-major'
+      - dependency-name: '@vitest/coverage-v8'
+        update-types:
+          - 'version-update:semver-major'
+      # ESLint 10 + flat-config ecosystem : migration dediee (plugins peers).
+      - dependency-name: 'eslint'
+        update-types:
+          - 'version-update:semver-major'
+      # TypeScript 7 : attendre svelte-check / typescript-eslint prets.
+      - dependency-name: 'typescript'
+        update-types:
+          - 'version-update:semver-major'
+      # jsdom 29 : breaking pour le harness vitest/jsdom actuel.
+      - dependency-name: 'jsdom'
+        update-types:
+          - 'version-update:semver-major'
 
   - package-ecosystem: github-actions
     directory: /
