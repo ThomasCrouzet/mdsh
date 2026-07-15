@@ -95,6 +95,7 @@ export const en = {
 		'Cannot access local storage. Your notes may be unavailable (private browsing? storage disabled?). Try again in a normal window.',
 	'files.modifiedInOtherTab': '"{name}" was modified in another tab.',
 	'files.otherTabChanges': 'Changes were made in another tab.',
+	'files.reloadFromStorage': 'Reload from storage',
 	'files.untitledFilename': 'Untitled.md',
 
 	// graph

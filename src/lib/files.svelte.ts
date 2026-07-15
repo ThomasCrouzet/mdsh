@@ -35,6 +35,7 @@ import { createCrossTab, type CrossTabMessage } from './cross-tab';
 import { t } from '$lib/i18n';
 import { notify } from './notify.svelte';
 import { DEMO_DOCS } from './demo-doc';
+import { toggleSelection, rangeSelection, clearSelection } from './selection';
 
 const ACTIVE_ID_KEY = 'mdsh:activeId';
 
@@ -119,7 +120,7 @@ class FilesStore {
 			// progress, we reload everything to stay consistent. Otherwise we notify
 			// (a reload would overwrite the unflushed local keystroke).
 			if (this.hasLocalPendingEdits()) {
-				notify.info(t('files.otherTabChanges'));
+				this.notifyCrossTabConflict(t('files.otherTabChanges'));
 			} else {
 				// `reload(false)`: do NOT re-broadcast (otherwise an infinite reload
 				// loop between tabs).
@@ -142,6 +143,19 @@ class FilesStore {
 		return this.files.some((f) => this.saveQueue.has(f.id));
 	}
 
+	/**
+	 * §M3 - Conflict toast with an explicit reload action so the user can
+	 * discard the local unflushed edit and resync from IndexedDB when ready.
+	 */
+	private notifyCrossTabConflict(message: string): void {
+		notify.actionable(message, {
+			label: t('files.reloadFromStorage'),
+			run: () => {
+				void this.reload(false);
+			}
+		});
+	}
+
 	/** §M3 - Reloads a specific draft from Dexie after it was written by another tab. */
 	private async syncDraftFromOtherTab(id: string): Promise<void> {
 		const file = this.files.find((f) => f.id === id);
@@ -149,7 +163,7 @@ class FilesStore {
 		// Local editing pending on this file: real conflict. We do NOT reload (we
 		// would lose the local keystroke) - we signal the conflict to the user.
 		if (this.saveQueue.has(id)) {
-			notify.info(t('files.modifiedInOtherTab', { name: file.name }));
+			this.notifyCrossTabConflict(t('files.modifiedInOtherTab', { name: file.name }));
 			return;
 		}
 		try {
@@ -175,7 +189,7 @@ class FilesStore {
 		// Local editing in progress on this file: do not make it disappear under
 		// the user's fingers - we only notify.
 		if (this.saveQueue.has(id)) {
-			notify.info(t('files.deletedInOtherTab', { name: file.name }));
+			this.notifyCrossTabConflict(t('files.deletedInOtherTab', { name: file.name }));
 			return;
 		}
 		// Pure removal from the view (the row already disappeared from Dexie on the
@@ -692,36 +706,30 @@ class FilesStore {
 
 	// ─── Sidebar multi-selection (§6.5) ──────────────────────────────────────
 	// Always new Set() - Svelte 5 does not track in-place mutations.
+	// Pure logic lives in `selection.ts` (unit-tested without the store).
 
 	/** Cmd/Ctrl+click: adds/removes `id` from the selection. */
 	selectionToggle(id: string): void {
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- reassigning the $state with a fresh Set (Svelte 5 does not track in-place mutations, cf. comment above)
-		const next = new Set(this.selectedIds);
-		if (next.has(id)) next.delete(id);
-		else next.add(id);
-		this.selectedIds = next;
+		this.selectedIds = toggleSelection(this.selectedIds, id);
 	}
 	/** Shift+click: selects the range between `anchorId` and `targetId`. */
 	selectionRange(anchorId: string, targetId: string): void {
-		const fromIdx = this.files.findIndex((f) => f.id === anchorId);
-		const toIdx = this.files.findIndex((f) => f.id === targetId);
-		if (fromIdx === -1 || toIdx === -1) return;
-		const [lo, hi] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- reassigning the $state with a fresh Set (deliberate Svelte 5 pattern)
-		const next = new Set(this.selectedIds);
-		// invariant: lo and hi are valid indices of files (found via findIndex).
-		for (let i = lo; i <= hi; i++) next.add(this.files[i]!.id);
-		this.selectedIds = next;
+		this.selectedIds = rangeSelection(
+			this.selectedIds,
+			this.files.map((f) => f.id),
+			anchorId,
+			targetId
+		);
 	}
 	/** Clears the selection. */
 	selectionClear(): void {
-		this.selectedIds = new Set();
+		this.selectedIds = clearSelection();
 	}
 	/** Closes all selected files + clears the selection. */
 	closeSelected(): void {
 		const ids = Array.from(this.selectedIds);
 		for (const id of ids) this.close(id);
-		this.selectedIds = new Set();
+		this.selectedIds = clearSelection();
 	}
 }
 

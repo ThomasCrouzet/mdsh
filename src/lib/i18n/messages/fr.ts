@@ -94,6 +94,7 @@ export const fr: Record<MessageKey, string> = {
 		'Impossible d’accéder au stockage local. Tes notes sont peut-être inaccessibles (navigation privée ? stockage désactivé ?). Réessaie dans une fenêtre normale.',
 	'files.modifiedInOtherTab': '« {name} » a été modifié dans un autre onglet.',
 	'files.otherTabChanges': 'Des modifications ont été faites dans un autre onglet.',
+	'files.reloadFromStorage': 'Recharger depuis le stockage',
 	'files.untitledFilename': 'Sans titre.md',
 
 	// graph
