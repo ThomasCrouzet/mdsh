@@ -27,7 +27,7 @@
 	],
 	"type": "module",
 	"engines": {
-		"node": ">=20.11"
+		"node": ">=22"
 	},
 	"scripts": {
 		"dev": "vite dev",
@@ -50,6 +50,7 @@
 		"clean": "rm -rf build .svelte-kit node_modules/.vite test-results playwright-report"
 	},
 	"devDependencies": {
+		"@axe-core/playwright": "4.12.1",
 		"@playwright/test": "1.61.1",
 		"@size-limit/file": "12.1.0",
 		"@sveltejs/adapter-static": "^3.0.10",
