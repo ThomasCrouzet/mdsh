@@ -2,8 +2,9 @@
 
 [![Live demo](https://img.shields.io/badge/demo-live-14b8a6.svg)](https://thomascrouzet.github.io/mdsh/)
 [![Deploy to GitHub Pages](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml/badge.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml)
-[![Tests](https://img.shields.io/badge/tests-808%20passing-14b8a6.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-838%20passing-14b8a6.svg)](#development)
 [![Bundle](https://img.shields.io/badge/entry%20bundle-%3C%2012%20KB%20gz-14b8a6.svg)](.size-limit.json)
+[![Lighthouse CI](https://img.shields.io/badge/Lighthouse%20CI-on%20PR-14b8a6.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ### → [Try the live demo](https://thomascrouzet.github.io/mdsh/)
@@ -88,6 +89,7 @@ Automatic releases via `release-please` (conventional commits). A [Lighthouse CI
 - Static SPA, no backend, no telemetry, no dependency that phones home
 - Strict CSP (`connect-src 'self'`) emitted by SvelteKit in `hash` mode - directives in `svelte.config.js`
 - Drafts in local IndexedDB (`mdsh`, `mdsh-fs`) - `DevTools → Application → Clear storage` to reset
+- Security policy and vulnerability reporting: [SECURITY.md](SECURITY.md)
 
 ## Scope & limits (deliberate choices)
 

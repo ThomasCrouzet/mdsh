@@ -75,6 +75,17 @@ A plain markdown checklist - click a box in WYSIWYG mode to toggle it.
 - [ ] Open the command palette (\`⌘⇧P\`)
 - [ ] Open the link graph and see these three files connected
 - [ ] Delete the demo files when you are done
+
+## Also try (palette & settings)
+
+These stay offline and optional - open them from the command palette (\`⌘⇧P\`)
+or Settings (\`⌘,\`):
+
+- **Presentation mode** - split a note on a line that is only \`---\` into
+  fullscreen slides.
+- **Version history** - local snapshots with a lightweight diff and restore.
+- **Templates** - dated builtins and your own document starters.
+- **Encrypted backup** - full JSON export of drafts, optional AES-GCM passphrase.
 `
 	}
 ];

@@ -24,7 +24,7 @@ npm install --legacy-peer-deps   # required (Milkdown peer deps)
 npm run dev
 ```
 
-Node 22+ recommended (CI uses Node 22). `pnpm`/`yarn` untested.
+Node **22+** required (`package.json` `engines.node`). CI uses Node 22. `pnpm`/`yarn` untested.
 
 ## Conventions
 
@@ -50,7 +50,7 @@ lefthook hooks installed via `npm install` : `pre-commit` (prettier + eslint on 
 
 ## Visual tests (snapshots)
 
-The Playwright snapshots (`e2e/visual.spec.ts`) are **deliberately skipped in CI** (`--ignore-snapshots --grep-invert "Snapshots visuels"`): a Linux baseline generated via the official Playwright Docker image diverges enough from the real `ubuntu-latest` runner (font rendering) to fail PRs unrelated to any visual change - see the comment in `deploy.yml`. Both a Linux baseline (`*-chromium-linux.png`, generated via Docker - see below) and a macOS baseline (`*-chromium-darwin.png`) are versioned for local comparison, since the render is platform-sensitive (font hinting, anti-aliasing).
+The Playwright snapshots (`e2e/visual.spec.ts`) are **local-only by design** - not a CI gate (`--ignore-snapshots --grep-invert "Snapshots visuels"` in `deploy.yml`). A Linux baseline generated via the official Playwright Docker image diverges enough from the real `ubuntu-latest` runner (font rendering) to fail PRs unrelated to any visual change. Both a Linux baseline (`*-chromium-linux.png`, generated via Docker - see below) and a macOS baseline (`*-chromium-darwin.png`) are versioned for **local** comparison only (font hinting, anti-aliasing). See `ROADMAP.md` for the policy rationale.
 
 To compare locally against your platform's own baseline :
 
