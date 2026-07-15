@@ -15,7 +15,13 @@ vi.mock('./spinner.svelte', () => ({
 }));
 
 import * as services from './services/export';
-import { exportHTML, exportPDF, exportAllZip, exportSelectionZip } from './export-ops';
+import {
+	exportHTML,
+	exportPDF,
+	exportAllZip,
+	exportSelectionZip,
+	exportMarkdown
+} from './export-ops';
 
 function file(id: string): FileItem {
 	return {
@@ -81,5 +87,32 @@ describe('export-ops - feedback notify (§J3)', () => {
 		vi.mocked(services.exportZip).mockResolvedValue(undefined);
 		await exportSelectionZip(new Set(['a']), deps);
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
+	});
+
+	it('exportSelectionZip : no-op si sélection vide', async () => {
+		await exportSelectionZip(new Set(), deps);
+		expect(services.exportZip).not.toHaveBeenCalled();
+		expect(notify.toasts).toHaveLength(0);
+	});
+
+	it('exportSelectionZip : no-op si ids hors corpus', async () => {
+		await exportSelectionZip(new Set(['missing']), deps);
+		expect(services.exportZip).not.toHaveBeenCalled();
+	});
+
+	it('exportAllZip : no-op si aucun fichier', async () => {
+		const emptyDeps = { getFiles: () => [] as readonly FileItem[], scheduleSave: () => {} };
+		await exportAllZip(emptyDeps);
+		expect(services.exportZip).not.toHaveBeenCalled();
+	});
+
+	it('exportHTML : no-op si id inconnu', async () => {
+		await exportHTML('missing', deps);
+		expect(services.exportHTML).not.toHaveBeenCalled();
+	});
+
+	it('exportMarkdown : no-op si id inconnu', () => {
+		exportMarkdown('missing', deps);
+		expect(services.exportMarkdown).not.toHaveBeenCalled();
 	});
 });

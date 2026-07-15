@@ -270,3 +270,25 @@ describe('hasMath / hasMermaid - cas complementaires', () => {
 		expect(hasMermaid('```js\nconst x = 1;\n```')).toBe(false);
 	});
 });
+
+describe('renderMarkdown - sanitize style url() beacon (SECURITY.md)', () => {
+	it('strips remote url() inside inline style attributes', async () => {
+		// marked allows raw HTML; DOMPurify keeps style but our hook strips remote urls.
+		const md = '<div style="background:url(https://tracker.example/px.gif);color:red">x</div>';
+		const html = await renderMarkdown(md);
+		expect(html).not.toMatch(/tracker\.example/i);
+		expect(html).not.toMatch(/url\(\s*['"]?\s*https?:/i);
+	});
+
+	it('strips protocol-relative url() beacons', async () => {
+		const md = '<p style="list-style-image:url(//evil.example/b)">y</p>';
+		const html = await renderMarkdown(md);
+		expect(html).not.toMatch(/evil\.example/i);
+	});
+
+	it('does not execute javascript: links (href neutralized)', async () => {
+		const md = '<a href="javascript:alert(1)">click</a>';
+		const html = await renderMarkdown(md);
+		expect(html).not.toMatch(/javascript:/i);
+	});
+});

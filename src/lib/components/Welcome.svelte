@@ -29,6 +29,7 @@
 
 	<div class="flex flex-col gap-2 sm:flex-row">
 		<button
+			data-testid="welcome-new"
 			class="flex items-center gap-2 rounded-md border border-border bg-bg-1 px-4 py-2
 			       text-sm text-fg transition hover:border-border-strong hover:bg-bg-2"
 			onclick={onNew}
@@ -38,6 +39,7 @@
 			<kbd class="text-[10px] text-fg-dim">{formatKbd('⌘N')}</kbd>
 		</button>
 		<button
+			data-testid="welcome-import"
 			class="flex items-center gap-2 rounded-md border border-border bg-bg-1 px-4 py-2
 			       text-sm text-fg transition hover:border-border-strong hover:bg-bg-2"
 			onclick={onImport}
@@ -49,6 +51,7 @@
 	</div>
 
 	<button
+		data-testid="welcome-demo"
 		class="mt-4 flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-fg-muted
 		       transition hover:text-fg"
 		onclick={onDemo}

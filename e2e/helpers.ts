@@ -26,9 +26,16 @@ export async function resetAppState(
 		);
 		localStorage.clear();
 		localStorage.setItem('mdsh:mode', forcedMode);
+		// Pin FR independently of Playwright's browser locale option so helpers
+		// that assert French labels stay stable if navigator.language changes.
+		localStorage.setItem('mdsh:locale', 'fr');
 	}, mode);
 	await page.reload();
-	await page.waitForSelector('header, button:has-text("Nouveau fichier")', { timeout: 15_000 });
+	// Prefer stable testid; keep FR text fallback for older builds mid-migration.
+	await page.waitForSelector(
+		'header, [data-testid="welcome-new"], button:has-text("Nouveau fichier")',
+		{ timeout: 15_000 }
+	);
 }
 
 /**
@@ -37,10 +44,16 @@ export async function resetAppState(
  * le fichier actif via son input de renommage.
  */
 export async function createFirstFile(page: Page) {
-	// Welcome + sidebar exposent tous deux un bouton "Nouveau fichier" - on
-	// cible celui du <main> (Welcome) pour éviter l'ambiguïté strict-mode.
-	const welcomeBtn = page.locator('main').getByRole('button', { name: /Nouveau fichier/ });
-	await welcomeBtn.click();
+	// Prefer data-testid (locale-stable). Fallback: FR label in <main>.
+	const byTestId = page.locator('main [data-testid="welcome-new"]');
+	if (await byTestId.count()) {
+		await byTestId.click();
+	} else {
+		await page
+			.locator('main')
+			.getByRole('button', { name: /Nouveau fichier/ })
+			.click();
+	}
 	// §B1.7/B1.8 - l'aria-label inclut maintenant des hints clavier
 	// ("Nom du fichier (Entrée pour valider, Échap pour annuler)") ; on
 	// match par préfixe.

@@ -30,4 +30,21 @@ test.describe('UX mobile - drawer Sidebar', () => {
 		const drawer = page.locator('aside').first();
 		await expect(drawer).toBeVisible();
 	});
+
+	test('Welcome CTAs are reachable without horizontal overflow on toolbar', async ({ page }) => {
+		await expect(page.getByTestId('welcome-new')).toBeVisible();
+		await expect(page.getByTestId('welcome-demo')).toBeVisible();
+		const header = page.locator('header').first();
+		const overflow = await header.evaluate((el) => {
+			const r = el.getBoundingClientRect();
+			return r.right > window.innerWidth + 1 || r.left < -1;
+		});
+		expect(overflow).toBe(false);
+	});
+
+	test('palette opens from the toolbar on mobile viewport', async ({ page }) => {
+		// Palette control is always present; open via FR aria-label (locale pinned).
+		await page.getByRole('button', { name: 'Palette de commandes' }).click();
+		await expect(page.getByRole('dialog', { name: 'Palette de commandes' })).toBeVisible();
+	});
 });
