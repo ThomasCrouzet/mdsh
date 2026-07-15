@@ -9,6 +9,7 @@
 	import { replaceInFiles } from '$lib/replace';
 	import type { Hit } from '$lib/types';
 	import type { SearchRequest, SearchResponse } from '$lib/workers/search.worker';
+	import { corpusFingerprint } from '$lib/search-core';
 	import { focusTrap } from '$lib/a11y/focusTrap';
 	import { Search, X, CaseSensitive, Regex, WholeWord, Replace } from 'lucide-svelte';
 
@@ -52,6 +53,9 @@
 	let worker: Worker | null = null;
 	let nextQueryId = 0;
 	let lastSentQueryId = 0;
+	/** Fingerprint of the last corpus posted to the worker - skip full
+	 *  structured-clone when the snapshot is unchanged (id + updatedAt). */
+	let lastCorpusFingerprint = '';
 
 	onMount(() => {
 		if (!browser) return;
@@ -113,16 +117,33 @@
 		// `untrack`: do not subscribe to file content mutations.
 		// Without it, any keystroke in the editor re-posts the whole corpus to the worker.
 		// The effect only re-triggers on the debounced query and the options.
-		const files = untrack(() =>
-			filesStore.files.map((f) => ({ id: f.id, name: f.name, content: f.content }))
+		// Fingerprint on id+updatedAt: re-sync only when the corpus actually changed.
+		const snapshot = untrack(() =>
+			filesStore.files.map((f) => ({
+				id: f.id,
+				name: f.name,
+				content: f.content,
+				updatedAt: f.updatedAt
+			}))
 		);
+		const fingerprint = corpusFingerprint(snapshot);
+		const corpusChanged = fingerprint !== lastCorpusFingerprint;
+		if (corpusChanged) lastCorpusFingerprint = fingerprint;
 		const req: SearchRequest = {
 			id,
-			files,
 			query: q,
 			caseSensitive,
 			wholeWord,
-			useRegex
+			useRegex,
+			...(corpusChanged
+				? {
+						files: snapshot.map(({ id: fid, name, content }) => ({
+							id: fid,
+							name,
+							content
+						}))
+					}
+				: {})
 		};
 		worker.postMessage(req);
 	});
