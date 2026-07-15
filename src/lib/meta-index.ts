@@ -7,6 +7,14 @@
 // Pattern: the data source (`getFiles`) is a pointer to the store's Svelte 5
 // state; the MetaIndex never stores the files - it only caches the parsing
 // results (meta per id + inverted backlinks index).
+//
+// Front-matter fast path (synchronous, no js-yaml):
+//   - `title:` single-line scalar (optional quotes)
+//   - `tags:` flow sequence `[a, b]` OR single-line CSV `a, b`
+// Multiline YAML, nested maps, and complex tags are intentionally out of
+// scope here so the sidebar can stay sync on every keystroke. Full YAML
+// for display/export goes through async `parseFrontmatter` in frontmatter.ts.
+// Parity for the supported subset is covered in `meta-index.test.ts`.
 
 import type { FileItem } from './types';
 import { stripMdExtension } from './file-utils';
@@ -50,19 +58,21 @@ export class MetaIndex {
 
 		// Title: YAML > first H1 > filename. We reproduce the logic of the old
 		// `displayTitle` but without re-parsing on every call.
+		// Horizontal whitespace only after the colon so multiline YAML is ignored
+		// (full parse stays on async `parseFrontmatter` / js-yaml).
 		let title = fallback;
 		if (raw) {
-			const m = /^title:\s*(.+)$/m.exec(raw);
+			const m = /^title:[ \t]*(.+)$/m.exec(raw);
 			// m[1] is guaranteed if m is non-null (mandatory capture group `.+`),
 			// but noUncheckedIndexedAccess requires optional chaining on the slot.
 			const yamlTitle = m?.[1]?.trim().replace(/^['"]|['"]$/g, '') ?? '';
 			title = yamlTitle || getFmTitle({}, content, fallback);
 		}
 
-		// YAML tags - accepts `[a, b]` or CSV `a, b`.
+		// YAML tags - accepts same-line `[a, b]` or CSV `a, b` only.
 		let tags: string[] = [];
 		if (raw) {
-			const m = /^tags:\s*(.+)$/m.exec(raw);
+			const m = /^tags:[ \t]*(.+)$/m.exec(raw);
 			if (m) {
 				// invariant: m[1] is guaranteed non-undefined (mandatory capture group `.+`).
 				const value = m[1]!.trim();

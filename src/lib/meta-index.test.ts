@@ -297,3 +297,39 @@ describe('MetaIndex - getMeta (invariants cache)', () => {
 		expect(before).not.toBe(after);
 	});
 });
+
+// ───── Fast-path subset vs js-yaml (documented parity) ────────────────────────
+
+describe('MetaIndex - front-matter fast path (supported subset)', () => {
+	it('title quoted and unquoted match', () => {
+		const { index, files } = makeIndex();
+		files.push(makeFile({ id: 't1', name: 'a.md', content: '---\ntitle: Hello\n---\n# body\n' }));
+		files.push(
+			makeFile({ id: 't2', name: 'b.md', content: '---\ntitle: "Hello quoted"\n---\n# body\n' })
+		);
+		expect(index.displayTitle('t1')).toBe('Hello');
+		expect(index.displayTitle('t2')).toBe('Hello quoted');
+	});
+
+	it('tags flow sequence and CSV single-line', () => {
+		const { index, files } = makeIndex();
+		files.push(makeFile({ id: 'g1', name: 'g1.md', content: '---\ntags: [alpha, beta]\n---\n' }));
+		files.push(makeFile({ id: 'g2', name: 'g2.md', content: '---\ntags: gamma, delta\n---\n' }));
+		expect(index.getTags('g1').sort()).toEqual(['alpha', 'beta']);
+		expect(index.getTags('g2').sort()).toEqual(['delta', 'gamma']);
+	});
+
+	it('multiline tags block is out of fast-path scope (empty tags, no crash)', () => {
+		const { index, files } = makeIndex();
+		files.push(
+			makeFile({
+				id: 'ml',
+				name: 'ml.md',
+				content: '---\ntags:\n  - one\n  - two\ntitle: Multi\n---\n'
+			})
+		);
+		// title still works (single-line); multiline tags list is not supported here
+		expect(index.displayTitle('ml')).toBe('Multi');
+		expect(index.getTags('ml')).toEqual([]);
+	});
+});
