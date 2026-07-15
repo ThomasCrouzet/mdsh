@@ -26,7 +26,11 @@ const config = {
 			mode: 'hash',
 			directives: {
 				'default-src': ['self'],
-				'script-src': ['self', 'wasm-unsafe-eval'],
+				// No 'wasm-unsafe-eval': no runtime dependency instantiates
+				// WebAssembly (checked on mermaid 11.16, katex, highlight.js).
+				// The e2e Mermaid/KaTeX render tests run against the built app,
+				// where this CSP applies - they gate a future WASM consumer.
+				'script-src': ['self'],
 				'style-src': ['self', 'unsafe-inline'],
 				'font-src': ['self', 'data:'],
 				'img-src': ['self', 'data:', 'blob:', 'https:'],
