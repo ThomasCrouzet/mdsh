@@ -5,6 +5,24 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.1.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.0.0...v1.1.0) (2026-07-15)
+
+
+### Features
+
+* propose un rechargement explicite en cas de conflit multi-onglets ([512323c](https://github.com/ThomasCrouzet/mdsh/commit/512323c6f5eb7dc27407bc249f1438563d8966c9))
+
+
+### Bug Fixes
+
+* restreint le fast-path front-matter au YAML sur une seule ligne ([5e8bcb7](https://github.com/ThomasCrouzet/mdsh/commit/5e8bcb7ced501f0f6bb54cf0fcf77079b0a34fb8))
+* **security:** retire wasm-unsafe-eval de la CSP ([5e793f6](https://github.com/ThomasCrouzet/mdsh/commit/5e793f625f87cdf2600800054aed7a77439db9eb))
+
+
+### Performance Improvements
+
+* ne resynchronise le corpus du worker de recherche que s'il a change ([342625d](https://github.com/ThomasCrouzet/mdsh/commit/342625d7e9ca25c75e7bbf196ecb7b23ffd8d6aa))
+
 ## [1.0.0] - 2026-07-10
 
 ### ⚠ BREAKING CHANGES
