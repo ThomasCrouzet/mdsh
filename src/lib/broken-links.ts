@@ -1,5 +1,8 @@
 import type { FileItem } from './types';
-import { checkHandle, getHandle, isFSASupported } from './fsa';
+import { checkHandle, getHandle, getPathLink, isFSASupported } from './fsa';
+import { isDesktop } from './desktop';
+import { tauriCheckPath } from './disk-tauri';
+import type { PathLinkRecord } from './disk-link';
 
 /**
  * Per-file result after checking its disk handle. The store applies
@@ -22,24 +25,35 @@ export interface BrokenLinkUpdate {
  * updates that the caller applies to the store. This lets the logic be tested
  * without mounting the full store (which depends on Svelte 5 runes).
  *
- * `getHandleFn` / `checkHandleFn` are injectable to allow mocking in unit tests
- * (jsdom has no FSA, neither does fake-indexeddb). By default we use the real
- * helpers from `./fsa.ts`.
+ * Injectable deps allow mocking FSA and path checks in unit tests.
  */
 export async function computeBrokenLinks(
 	files: ReadonlyArray<FileItem>,
 	deps: {
 		getHandleFn?: typeof getHandle;
 		checkHandleFn?: typeof checkHandle;
+		getPathLinkFn?: (id: string) => Promise<PathLinkRecord | null>;
+		checkPathFn?: (path: string) => Promise<'ok' | 'broken' | 'permission-needed'>;
 	} = {}
 ): Promise<BrokenLinkUpdate[]> {
 	const get = deps.getHandleFn ?? getHandle;
 	const check = deps.checkHandleFn ?? checkHandle;
+	const getPath = deps.getPathLinkFn ?? getPathLink;
+	const checkPath = deps.checkPathFn ?? tauriCheckPath;
 	// Independent checks per file → `Promise.all` to parallelize the
 	// `getHandle` + `checkHandle` calls (N×IDB latency otherwise).
 	const candidates = files.filter((f) => f.linkedToDisk);
 	const updates = await Promise.all(
 		candidates.map(async (file): Promise<BrokenLinkUpdate> => {
+			const pathRec = await getPath(file.id);
+			if (pathRec) {
+				const status = await checkPath(pathRec.path);
+				return {
+					id: file.id,
+					brokenLink: status === 'broken',
+					handleMissing: false
+				};
+			}
 			const handle = await get(file.id);
 			if (!handle) {
 				return { id: file.id, brokenLink: true, handleMissing: true };
@@ -56,10 +70,10 @@ export async function computeBrokenLinks(
 }
 
 /**
- * Short guard that determines whether the environment supports checking FSA
- * handles. Lets callers (the store) avoid useless calls on Firefox / Safari
- * where `linkedToDisk` was never set anyway.
+ * Short guard that determines whether the environment supports checking disk
+ * links (FSA and/or desktop path links). Lets callers (the store) avoid useless
+ * calls on Firefox / Safari where `linkedToDisk` was never set anyway.
  */
 export function canCheckBrokenLinks(): boolean {
-	return isFSASupported();
+	return isFSASupported() || isDesktop();
 }

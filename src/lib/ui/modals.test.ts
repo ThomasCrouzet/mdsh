@@ -43,8 +43,20 @@ describe('createModals', () => {
 			open();
 			expect(read()).toBe(true);
 		}
-		m.paletteOpen = false;
-		expect(m.paletteOpen).toBe(false);
+		const setters: Array<[(value: boolean) => void, () => boolean]> = [
+			[(value) => (m.paletteOpen = value), () => m.paletteOpen],
+			[(value) => (m.searchOpen = value), () => m.searchOpen],
+			[(value) => (m.diskLinksOpen = value), () => m.diskLinksOpen],
+			[(value) => (m.workspacesOpen = value), () => m.workspacesOpen],
+			[(value) => (m.settingsOpen = value), () => m.settingsOpen],
+			[(value) => (m.historyOpen = value), () => m.historyOpen],
+			[(value) => (m.graphOpen = value), () => m.graphOpen],
+			[(value) => (m.presentationOpen = value), () => m.presentationOpen]
+		];
+		for (const [write, read] of setters) {
+			write(false);
+			expect(read()).toBe(false);
+		}
 	});
 
 	it("handleOpenHit bascule en source + bufferise le hit quand on n'y est pas", () => {
@@ -74,6 +86,22 @@ describe('createModals', () => {
 		const Cmp = await p1;
 		expect(Cmp).toBeTruthy();
 	});
+
+	it('charge chaque composant lourd uniquement à la demande', async () => {
+		const { opts } = makeOpts();
+		const m = createModals(opts);
+		const components = await Promise.all([
+			m.loadCommandPalette(),
+			m.loadSearchPanel(),
+			m.loadDiskLinksPanel(),
+			m.loadWorkspacesPanel(),
+			m.loadSettingsPanel(),
+			m.loadHistoryPanel(),
+			m.loadGraphPanel(),
+			m.loadPresentation()
+		]);
+		expect(components.every(Boolean)).toBe(true);
+	}, 15_000);
 });
 
 describe('makeLazyLoader - failure path', () => {

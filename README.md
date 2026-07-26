@@ -77,6 +77,23 @@ npm run check && npm run lint && npm test
 
 `--legacy-peer-deps` is enabled via `.npmrc` - a plain `npm install` is enough.
 
+### Desktop (beta)
+
+Native shells for macOS, Linux, and Windows are built with [Tauri 2](https://v2.tauri.app/) around the same offline SPA. Same offline editor, no account, no telemetry. Requires a Rust toolchain (web-only contributors can ignore this).
+
+```sh
+npm run desktop:dev     # native window + Vite
+npm run desktop:build   # platform installers under src-tauri/target/release/bundle/
+```
+
+**Included:** native open/save to disk (path links), app menu (new / open / save / export / settings), window position restore, `.md` / `.markdown` / `.mdx` / `.txt` file association and CLI open.
+
+**Not yet:** authenticated distribution signing / notarization, auto-update, store listings (see [ROADMAP.md](ROADMAP.md)). macOS builds receive an ad hoc signature so the app bundle is structurally valid, but downloadable beta builds may still show OS trust warnings.
+
+Rust checks run on pull requests and `main`. Multi-OS installers are built by [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml) for release-please releases, `v*` tags, and manual runs.
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#desktop-shell-tauri-2) for platform prerequisites.
+
 ## Deployment
 
 Push to `main` → the `.github/workflows/deploy.yml` workflow builds and publishes to GitHub Pages (Settings → Pages → Source: GitHub Actions).

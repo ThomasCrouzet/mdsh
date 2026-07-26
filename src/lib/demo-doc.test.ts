@@ -30,7 +30,7 @@ describe('DEMO_DOCS', () => {
 
 	it('ne contient aucun tiret typographique (convention du depot)', () => {
 		for (const doc of DEMO_DOCS) {
-			expect(doc.content).not.toMatch(/[–—]/);
+			expect(doc.content).not.toMatch(/[\u2013\u2014]/);
 		}
 	});
 });

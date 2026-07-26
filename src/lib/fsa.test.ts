@@ -2,11 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
 	deleteHandle,
 	getHandle,
+	getPathLink,
 	isFSASupported,
+	listDiskLinks,
+	listHandles,
+	pickDirectoryFiles,
 	pickAndOpen,
 	pickSaveTarget,
 	requestPermission,
 	saveHandle,
+	savePathLink,
 	writeHandle
 } from './fsa';
 
@@ -25,6 +30,7 @@ beforeEach(async () => {
 	// Reset des globals FSA entre tests - évite les fuites d'état.
 	Reflect.deleteProperty(window, 'showOpenFilePicker');
 	Reflect.deleteProperty(window, 'showSaveFilePicker');
+	Reflect.deleteProperty(window, 'showDirectoryPicker');
 });
 
 afterEach(async () => {
@@ -87,6 +93,62 @@ describe('saveHandle / getHandle / deleteHandle', () => {
 		await saveHandle('b', { name: 'b' } as unknown as FileSystemFileHandle);
 		expect((await getHandle('a')) as unknown as { name: string }).toMatchObject({ name: 'a' });
 		expect((await getHandle('b')) as unknown as { name: string }).toMatchObject({ name: 'b' });
+	});
+});
+
+describe('liens chemin desktop', () => {
+	it('stocke, relit et liste un lien chemin sans le confondre avec un handle', async () => {
+		await savePathLink('path-id', { kind: 'path', path: '/tmp/note.md' });
+
+		expect(await getPathLink('path-id')).toEqual({ kind: 'path', path: '/tmp/note.md' });
+		expect(await getHandle('path-id')).toBeNull();
+		expect(await listDiskLinks()).toEqual([
+			{
+				id: 'path-id',
+				kind: 'path',
+				path: '/tmp/note.md',
+				label: 'note.md'
+			}
+		]);
+		expect(await listHandles()).toEqual([]);
+	});
+
+	it('liste ensemble les handles FSA et les liens chemin', async () => {
+		const handle = { name: 'browser.md' } as FileSystemFileHandle;
+		await saveHandle('fsa-id', handle);
+		await savePathLink('path-id', { kind: 'path', path: 'C:\\notes\\desktop.md' });
+
+		expect(await getPathLink('fsa-id')).toBeNull();
+		expect(await listDiskLinks()).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: 'fsa-id', kind: 'fsa', label: 'browser.md' }),
+				expect.objectContaining({ id: 'path-id', kind: 'path', label: 'desktop.md' })
+			])
+		);
+		expect(await listHandles()).toEqual([{ id: 'fsa-id', handle }]);
+	});
+
+	it('utilise les identifiants et chemins comme libellés de secours', async () => {
+		const handle = {} as FileSystemFileHandle;
+		await saveHandle('sans-nom', handle);
+		await savePathLink('racine', { kind: 'path', path: '/' });
+
+		expect(await listDiskLinks()).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: 'sans-nom', kind: 'fsa', label: 'sans-nom' }),
+				expect.objectContaining({ id: 'racine', kind: 'path', label: '/' })
+			])
+		);
+	});
+});
+
+describe('pickDirectoryFiles', () => {
+	it('propage une erreur du sélecteur qui n’est pas une annulation', async () => {
+		(window as unknown as { showDirectoryPicker: () => Promise<never> }).showDirectoryPicker = vi
+			.fn()
+			.mockRejectedValue(new Error('permission refusée'));
+
+		await expect(pickDirectoryFiles()).rejects.toThrow('permission refusée');
 	});
 });
 

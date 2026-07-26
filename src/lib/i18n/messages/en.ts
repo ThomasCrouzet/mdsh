@@ -29,6 +29,7 @@ export const en = {
 	'crypto.wrongPassphrase': 'Wrong passphrase or corrupted data.',
 
 	// disk
+	'disk.fileFilter': 'Markdown and text',
 	'disk.openPartial': '{n} file(s) opened, {failed} skipped (unreadable).',
 	'disk.overwriteCancel': 'Cancel',
 	'disk.overwriteConfirm': 'Overwrite',
@@ -38,6 +39,18 @@ export const en = {
 	'disk.saveCancelled': 'Saving "{name}" cancelled (disk file modified).',
 	'disk.saveFailed': 'Failed to save "{name}" to disk.',
 	'disk.saved': '"{name}" saved to disk.',
+
+	// desktopMenu
+	'desktopMenu.edit': 'Edit',
+	'desktopMenu.exportHtml': 'Export HTML',
+	'desktopMenu.exportMarkdown': 'Export Markdown',
+	'desktopMenu.exportPdf': 'Export PDF',
+	'desktopMenu.exportZip': 'Export all (ZIP)',
+	'desktopMenu.file': 'File',
+	'desktopMenu.new': 'New',
+	'desktopMenu.open': 'Open...',
+	'desktopMenu.saveToDisk': 'Save to disk',
+	'desktopMenu.settings': 'Settings',
 
 	// diskLinks
 	'diskLinks.close': 'Close',

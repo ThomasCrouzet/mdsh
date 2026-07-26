@@ -27,6 +27,7 @@ export const fr: Record<MessageKey, string> = {
 	'crypto.wrongPassphrase': 'Passphrase incorrecte ou données corrompues.',
 
 	// disk
+	'disk.fileFilter': 'Markdown et texte',
 	'disk.openPartial': '{n} fichier(s) ouvert(s), {failed} ignoré(s) (illisibles).',
 	'disk.overwriteCancel': 'Annuler',
 	'disk.overwriteConfirm': 'Écraser',
@@ -36,6 +37,18 @@ export const fr: Record<MessageKey, string> = {
 	'disk.saveCancelled': 'Enregistrement de « {name} » annulé (fichier disque modifié).',
 	'disk.saveFailed': "Échec de l'enregistrement sur le disque de « {name} ».",
 	'disk.saved': '« {name} » enregistré sur le disque.',
+
+	// desktopMenu
+	'desktopMenu.edit': 'Édition',
+	'desktopMenu.exportHtml': 'Exporter en HTML',
+	'desktopMenu.exportMarkdown': 'Exporter en Markdown',
+	'desktopMenu.exportPdf': 'Exporter en PDF',
+	'desktopMenu.exportZip': 'Tout exporter (ZIP)',
+	'desktopMenu.file': 'Fichier',
+	'desktopMenu.new': 'Nouveau',
+	'desktopMenu.open': 'Ouvrir...',
+	'desktopMenu.saveToDisk': 'Enregistrer sur le disque',
+	'desktopMenu.settings': 'Réglages',
 
 	// diskLinks
 	'diskLinks.close': 'Fermer',

@@ -6,7 +6,7 @@
 //
 // Logic extracted from `+page.svelte` (L630-695).
 
-import { isFSASupported } from '$lib/fsa';
+import { isDiskLinkingAvailable } from '$lib/disk-sync';
 import type { EditMode } from '$lib/types';
 
 export interface ShortcutCallbacks {
@@ -55,7 +55,7 @@ export function buildKeydownHandler(cb: ShortcutCallbacks) {
 			e.preventDefault();
 			void cb.onImport();
 		} else if (key === 's' && e.shiftKey) {
-			if (isFSASupported()) {
+			if (isDiskLinkingAvailable()) {
 				e.preventDefault();
 				void cb.onSaveToDisk();
 			}

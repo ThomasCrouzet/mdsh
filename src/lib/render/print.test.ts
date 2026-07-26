@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach, type Mock } from 'vitest';
 import { buildPrintDocument, buildStandaloneHtmlDocument, printInIframe } from './print';
 
 describe('buildPrintDocument - structure', () => {
@@ -213,8 +213,8 @@ describe('printInIframe', () => {
 	// Intercepte document.createElement('iframe') pour espionner le
 	// contentWindow (print/focus) de l'iframe réelle créée par jsdom, tout en
 	// laissant le vrai iframe (avec son contentDocument scriptable) intact.
-	let printSpy: ReturnType<typeof vi.fn>;
-	let focusSpy: ReturnType<typeof vi.fn>;
+	let printSpy: Mock<() => void>;
+	let focusSpy: Mock<() => void>;
 	let lastIframe: HTMLIFrameElement | null;
 	let restoreCreate: () => void;
 

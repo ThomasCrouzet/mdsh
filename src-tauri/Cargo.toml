@@ -1,0 +1,23 @@
+[package]
+name = "mdsh"
+# The application version comes from ../package.json through tauri.conf.json.
+version = "0.0.0"
+description = "Local-first offline WYSIWYG markdown editor"
+authors = ["Thomas Crouzet"]
+license = "MIT"
+repository = "https://github.com/ThomasCrouzet/mdsh"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "mdsh_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "2.11.3", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-window-state = "2"

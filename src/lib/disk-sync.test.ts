@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { notify } from './notify.svelte';
 import { promptStore } from './prompt.svelte';
 import type { FileItem } from './types';
@@ -9,21 +9,40 @@ import type { FileItem } from './types';
 vi.mock('./fsa', () => ({
 	isFSASupported: vi.fn(() => true),
 	getHandle: vi.fn(),
+	getPathLink: vi.fn(),
 	requestPermission: vi.fn(),
 	pickSaveTarget: vi.fn(),
 	saveHandle: vi.fn(),
+	savePathLink: vi.fn(),
 	writeHandle: vi.fn(),
 	deleteHandle: vi.fn(),
 	checkHandle: vi.fn(),
 	pickAndOpen: vi.fn()
 }));
 
+vi.mock('./desktop', () => ({
+	isDesktop: vi.fn(() => false)
+}));
+
+vi.mock('./disk-tauri', () => ({
+	tauriPickAndOpen: vi.fn(async () => ({ files: [], failed: 0 })),
+	tauriPickSaveTarget: vi.fn(async () => null),
+	tauriWritePath: vi.fn(async () => {}),
+	tauriReadMeta: vi.fn(async () => null),
+	tauriCheckPath: vi.fn(async () => 'ok'),
+	tauriOpenAbsolutePaths: vi.fn(async () => ({ files: [], failed: 0 }))
+}));
+
 import * as fsa from './fsa';
+import * as desktop from './desktop';
+import * as diskTauri from './disk-tauri';
 import {
 	openFromDisk,
+	openPathsFromDesktop,
 	saveToDisk,
 	unlinkFromDisk,
 	refreshBrokenLinks,
+	isDiskLinkingAvailable,
 	type DiskSyncDeps
 } from './disk-sync';
 
@@ -63,8 +82,10 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	// Évite la pollution console des reportError attendus.
 	vi.spyOn(console, 'error').mockImplementation(() => {});
-	// Par défaut FSA est supportée (réinitialisé après clearAllMocks).
+	// Par défaut FSA est supportée, desktop non (réinitialisé après clearAllMocks).
 	vi.mocked(fsa.isFSASupported).mockReturnValue(true);
+	vi.mocked(desktop.isDesktop).mockReturnValue(false);
+	vi.mocked(fsa.getPathLink).mockResolvedValue(null);
 });
 
 describe('openFromDisk', () => {
@@ -163,7 +184,7 @@ describe('openFromDisk', () => {
 
 describe('saveToDisk', () => {
 	let file: FileItem;
-	let scheduleSave: ReturnType<typeof vi.fn>;
+	let scheduleSave: Mock<(id: string) => void>;
 	let deps: DiskSyncDeps;
 
 	beforeEach(() => {
@@ -401,9 +422,193 @@ describe('unlinkFromDisk', () => {
 	});
 });
 
-describe('refreshBrokenLinks', () => {
-	it('no-op si FSA non supportée', async () => {
+describe('isDiskLinkingAvailable', () => {
+	it('vrai si FSA est supportée', () => {
+		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
+		vi.mocked(desktop.isDesktop).mockReturnValue(false);
+		expect(isDiskLinkingAvailable()).toBe(true);
+	});
+
+	it('vrai sur le shell desktop même sans FSA', () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		expect(isDiskLinkingAvailable()).toBe(true);
+	});
+
+	it('faux sans FSA ni desktop', () => {
+		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
+		vi.mocked(desktop.isDesktop).mockReturnValue(false);
+		expect(isDiskLinkingAvailable()).toBe(false);
+	});
+});
+
+describe('openFromDisk desktop path backend', () => {
+	function depsFor(store: FileItem[]): DiskSyncDeps {
+		return {
+			getFile: (id) => store.find((f) => f.id === id),
+			onCreate: (name, content) => {
+				const item = makeFile({ id: `id-${name}`, name, content, dirty: false });
+				store.push(item);
+				return item;
+			},
+			scheduleSave: vi.fn()
+		};
+	}
+
+	it('utilise le backend Tauri et persiste un path link', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
+		vi.mocked(diskTauri.tauriPickAndOpen).mockResolvedValue({
+			files: [
+				{
+					name: 'note.md',
+					content: '# hi',
+					path: '/tmp/note.md',
+					lastModified: 42,
+					size: 4,
+					link: { kind: 'path', path: '/tmp/note.md' }
+				}
+			],
+			failed: 0
+		});
+		const store: FileItem[] = [];
+		const created = await openFromDisk(depsFor(store));
+		expect(created).toHaveLength(1);
+		expect(created[0]!.linkedToDisk).toBe(true);
+		expect(created[0]!.diskLastModified).toBe(42);
+		expect(fsa.savePathLink).toHaveBeenCalledWith('id-note.md', {
+			kind: 'path',
+			path: '/tmp/note.md'
+		});
+		expect(fsa.pickAndOpen).not.toHaveBeenCalled();
+	});
+
+	it('openPathsFromDesktop lie les chemins argv', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(diskTauri.tauriOpenAbsolutePaths).mockResolvedValue({
+			files: [
+				{
+					name: 'from-argv.md',
+					content: 'x',
+					path: '/Users/me/from-argv.md',
+					lastModified: 1,
+					size: 1,
+					link: { kind: 'path', path: '/Users/me/from-argv.md' }
+				}
+			],
+			failed: 0
+		});
+		const store: FileItem[] = [];
+		const created = await openPathsFromDesktop(['/Users/me/from-argv.md'], depsFor(store));
+		expect(created).toHaveLength(1);
+		expect(fsa.savePathLink).toHaveBeenCalled();
+	});
+});
+
+describe('saveToDisk desktop path backend', () => {
+	function desktopDeps(file: FileItem) {
+		const scheduleSave = vi.fn();
+		const deps: DiskSyncDeps = { getFile: () => file, onCreate: () => file, scheduleSave };
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
+		return { deps, scheduleSave };
+	}
+
+	it('écrit via tauriWritePath et met à jour mtime', async () => {
+		const file = makeFile({
+			content: 'new',
+			linkedToDisk: true,
+			diskLastModified: 10,
+			diskSize: 3
+		});
+		const { deps, scheduleSave } = desktopDeps(file);
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		vi.mocked(diskTauri.tauriReadMeta).mockResolvedValue({ lastModified: 10, size: 3 });
+		vi.mocked(diskTauri.tauriWritePath).mockResolvedValue(undefined);
+		vi.mocked(diskTauri.tauriReadMeta)
+			.mockResolvedValueOnce({ lastModified: 10, size: 3 })
+			.mockResolvedValueOnce({ lastModified: 99, size: 3 });
+
+		const ok = await saveToDisk('a', deps);
+		expect(ok).toBe(true);
+		expect(diskTauri.tauriWritePath).toHaveBeenCalledWith('/tmp/note.md', 'new');
+		expect(file.dirty).toBe(false);
+		expect(file.diskLastModified).toBe(99);
+		expect(scheduleSave).toHaveBeenCalledWith('a');
+	});
+
+	it('retourne false quand le sélecteur natif est annulé', async () => {
+		const file = makeFile();
+		const { deps } = desktopDeps(file);
+		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
+		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue(null);
+
+		expect(await saveToDisk('a', deps)).toBe(false);
+		expect(diskTauri.tauriWritePath).not.toHaveBeenCalled();
+	});
+
+	it('persiste une nouvelle cible et invalide une métadonnée absente', async () => {
+		const file = makeFile();
+		const { deps, scheduleSave } = desktopDeps(file);
+		const pathLink = { kind: 'path' as const, path: '/tmp/new.md' };
+		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
+		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue(pathLink);
+		vi.mocked(diskTauri.tauriWritePath).mockResolvedValue(undefined);
+		vi.mocked(diskTauri.tauriReadMeta).mockResolvedValue(null);
+
+		expect(await saveToDisk('a', deps)).toBe(true);
+		expect(fsa.savePathLink).toHaveBeenCalledWith('a', pathLink);
+		expect(file.linkedToDisk).toBe(true);
+		expect(file.diskLastModified).toBeUndefined();
+		expect(file.diskSize).toBeUndefined();
+		expect(scheduleSave).toHaveBeenCalledWith('a');
+	});
+
+	it('annule une écriture si le fichier disque a divergé', async () => {
+		const file = makeFile({ diskLastModified: 10, diskSize: 3 });
+		const { deps } = desktopDeps(file);
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		vi.mocked(diskTauri.tauriReadMeta).mockResolvedValue({ lastModified: 20, size: 3 });
+		const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
+
+		expect(await saveToDisk('a', deps)).toBe(false);
+		expect(diskTauri.tauriWritePath).not.toHaveBeenCalled();
+		expect(notify.toasts.some((toast) => toast.level === 'info')).toBe(true);
+		confirmSpy.mockRestore();
+	});
+
+	it("signale une erreur d'écriture native et marque le lien cassé", async () => {
+		const file = makeFile();
+		const { deps, scheduleSave } = desktopDeps(file);
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		vi.mocked(diskTauri.tauriWritePath).mockRejectedValue(new Error('disk full'));
+
+		expect(await saveToDisk('a', deps)).toBe(false);
+		expect(file.brokenLink).toBe(true);
+		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+		expect(scheduleSave).not.toHaveBeenCalled();
+	});
+
+	it('poursuit si les métadonnées natives sont illisibles et invalide la référence', async () => {
+		const file = makeFile({ diskLastModified: 10, diskSize: 3 });
+		const { deps } = desktopDeps(file);
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		vi.mocked(diskTauri.tauriReadMeta)
+			.mockRejectedValueOnce(new Error('stat before failed'))
+			.mockRejectedValueOnce(new Error('stat after failed'));
+		vi.mocked(diskTauri.tauriWritePath).mockResolvedValue(undefined);
+
+		expect(await saveToDisk('a', deps)).toBe(true);
+		expect(console.error).toHaveBeenCalled();
+		expect(file.diskLastModified).toBeUndefined();
+		expect(file.diskSize).toBeUndefined();
+	});
+});
+
+describe('refreshBrokenLinks', () => {
+	it('no-op si FSA non supportée et hors desktop', async () => {
+		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
+		vi.mocked(desktop.isDesktop).mockReturnValue(false);
 		const files = [makeFile({ id: 'f1', linkedToDisk: true })];
 		await refreshBrokenLinks(files, () => files[0]);
 		// getHandle/checkHandle ne sont jamais appelés.

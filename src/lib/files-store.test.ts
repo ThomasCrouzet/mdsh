@@ -14,14 +14,54 @@ vi.mock('./export-ops', () => ({
 }));
 vi.mock('./disk-sync', () => ({
 	openFromDisk: vi.fn(async () => []),
+	openPathsFromDesktop: vi.fn(async () => []),
 	saveToDisk: vi.fn(async () => true),
 	unlinkFromDisk: vi.fn(async () => {}),
-	refreshBrokenLinks: vi.fn(async () => {})
+	refreshBrokenLinks: vi.fn(async () => {}),
+	isDiskLinkingAvailable: vi.fn(() => true)
 }));
+
+const crossTabHarness = vi.hoisted(() => ({
+	onMessage: undefined as ((message: unknown) => void) | undefined,
+	post: vi.fn(),
+	close: vi.fn(),
+	workspaceReload: vi.fn(async () => {}),
+	templateReload: vi.fn(async () => {})
+}));
+
+vi.mock('./cross-tab', () => ({
+	createCrossTab: vi.fn((onMessage: (message: unknown) => void) => {
+		crossTabHarness.onMessage = onMessage;
+		return { post: crossTabHarness.post, close: crossTabHarness.close };
+	})
+}));
+
+vi.mock('./workspaces.svelte', () => ({
+	workspaceStore: { reload: crossTabHarness.workspaceReload }
+}));
+
+vi.mock('./templates.svelte', () => ({
+	templatesStore: { reload: crossTabHarness.templateReload }
+}));
+
+vi.mock('./fsa', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('./fsa')>();
+	return {
+		...actual,
+		isFSASupported: vi.fn(() => false),
+		getHandle: vi.fn(async () => null),
+		getPathLink: vi.fn(async () => null),
+		pickDirectoryFiles: vi.fn(async () => ({ files: [], truncated: false }))
+	};
+});
 
 import * as exportOps from './export-ops';
 import * as diskSync from './disk-sync';
+import * as fsa from './fsa';
+import * as trashOps from './trash';
 import { filesStore } from './files.svelte';
+import { notify } from './notify.svelte';
+import type { CrossTabMessage } from './cross-tab';
 
 // Tests de l'orchestrateur FilesStore (singleton runes) sous fake-indexeddb.
 // La logique pure injectée (file-utils, trash, meta-index...) a ses propres
@@ -42,7 +82,28 @@ function mdFile(name: string, content = '# x'): File {
 	return f;
 }
 
+function receiveCrossTab(message: CrossTabMessage): void {
+	if (!crossTabHarness.onMessage) throw new Error('cross-tab non initialisé');
+	crossTabHarness.onMessage(message);
+}
+
+function storeInternals(): {
+	purge: (id: string) => void;
+} {
+	return filesStore as unknown as {
+		purge: (id: string) => void;
+	};
+}
+
 beforeEach(async () => {
+	vi.mocked(fsa.isFSASupported).mockReturnValue(false);
+	vi.mocked(fsa.getHandle).mockResolvedValue(null);
+	vi.mocked(fsa.getPathLink).mockResolvedValue(null);
+	vi.mocked(fsa.pickDirectoryFiles).mockResolvedValue({ files: [], truncated: false });
+	crossTabHarness.post.mockClear();
+	crossTabHarness.workspaceReload.mockClear();
+	crossTabHarness.templateReload.mockClear();
+	notify.clear();
 	await Promise.all([
 		db.drafts.clear(),
 		db.trashed.clear(),
@@ -57,6 +118,7 @@ beforeEach(async () => {
 
 afterEach(() => {
 	filesStore.selectionClear();
+	notify.clear();
 });
 
 describe('createNew', () => {
@@ -205,6 +267,53 @@ describe('load', () => {
 		await filesStore.load();
 		expect(filesStore.activeId).toBe('a');
 	});
+
+	it('restaure les liens FSA et chemin enregistrés', async () => {
+		await db.drafts.bulkPut([
+			draftRow('fsa', 'fsa.md', '', 0),
+			draftRow('path', 'path.md', '', 1),
+			draftRow('none', 'none.md', '', 2)
+		]);
+		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
+		vi.mocked(fsa.getHandle).mockImplementation(async (id) =>
+			id === 'fsa' ? ({ name: 'fsa.md' } as FileSystemFileHandle) : null
+		);
+		vi.mocked(fsa.getPathLink).mockImplementation(async (id) =>
+			id === 'path' ? { kind: 'path', path: '/tmp/path.md' } : null
+		);
+
+		await filesStore.reload(false);
+
+		expect(filesStore.files.find((file) => file.id === 'fsa')?.linkedToDisk).toBe(true);
+		expect(filesStore.files.find((file) => file.id === 'path')?.linkedToDisk).toBe(true);
+		expect(filesStore.files.find((file) => file.id === 'none')?.linkedToDisk).toBe(false);
+	});
+
+	it('restaure une entrée récente de la corbeille et arme sa purge', async () => {
+		await db.trashed.put({
+			id: 'trashed',
+			file: draftRow('trashed', 'trashed.md', '# Trash', 0),
+			order: 0,
+			trashedAt: Date.now()
+		});
+
+		await filesStore.reload(false);
+
+		expect(filesStore.trash.map((entry) => entry.file.id)).toEqual(['trashed']);
+	});
+
+	it('signale une erreur de chargement IndexedDB sans marquer le store chargé', async () => {
+		const orderBy = vi.spyOn(db.drafts, 'orderBy').mockImplementationOnce(() => {
+			throw new Error('IDB indisponible');
+		});
+		filesStore.loaded = false;
+
+		await filesStore.load();
+
+		expect(filesStore.loadError).toBeTruthy();
+		expect(filesStore.loaded).toBe(false);
+		orderBy.mockRestore();
+	});
 });
 
 describe('importFiles', () => {
@@ -218,6 +327,155 @@ describe('importFiles', () => {
 		expect(res.skipped).toBe(1);
 		expect(res.failed).toBe(0);
 		expect(filesStore.files.length).toBe(2);
+	});
+
+	it('continue après un fichier markdown devenu illisible', async () => {
+		const unreadable = {
+			name: 'broken.md',
+			type: 'text/markdown',
+			text: vi.fn().mockRejectedValue(new Error('lecture refusée'))
+		} as unknown as File;
+
+		const result = await filesStore.importFiles([unreadable, mdFile('ok.mdx', '# OK')]);
+
+		expect(result.failed).toBe(1);
+		expect(result.created).toHaveLength(1);
+		expect(result.created[0]?.name).toBe('ok.mdx.md');
+	});
+});
+
+describe('synchronisation multi-onglets', () => {
+	it('recharge un draft distant lorsqu’aucune sauvegarde locale n’est en attente', async () => {
+		const file = filesStore.createNew('local.md', 'local');
+		filesStore.flushPending();
+		await vi.waitFor(() => expect(filesStore.hasPendingSave).toBe(false));
+		await db.drafts.put({
+			...draftRow(file.id, 'remote.md', 'remote', 0),
+			updatedAt: 2000
+		});
+
+		receiveCrossTab({ type: 'draft-written', id: file.id, updatedAt: 2000 });
+
+		await vi.waitFor(() =>
+			expect(filesStore.files.find((candidate) => candidate.id === file.id)?.content).toBe('remote')
+		);
+		const synced = filesStore.files.find((candidate) => candidate.id === file.id);
+		expect(synced?.name).toBe('remote.md');
+		expect(synced?.dirty).toBe(false);
+	});
+
+	it('ignore un draft distant qui n’est pas ouvert ou a disparu de la base', async () => {
+		receiveCrossTab({ type: 'draft-written', id: 'ghost', updatedAt: 2000 });
+		const file = filesStore.createNew('missing.md', 'local');
+		filesStore.flushPending();
+		await vi.waitFor(() => expect(filesStore.hasPendingSave).toBe(false));
+		await db.drafts.delete(file.id);
+
+		receiveCrossTab({ type: 'draft-written', id: file.id, updatedAt: 3000 });
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(file.content).toBe('local');
+	});
+
+	it('préserve une édition locale en attente et propose un rechargement explicite', async () => {
+		const file = filesStore.createNew('conflict.md', 'local');
+
+		receiveCrossTab({ type: 'draft-written', id: file.id, updatedAt: 2000 });
+
+		const toast = notify.toasts.at(-1);
+		expect(toast?.action?.run).toBeTypeOf('function');
+		toast?.action?.run();
+		await vi.waitFor(() => expect(filesStore.loaded).toBe(true));
+	});
+
+	it('retire un draft supprimé à distance, mais conserve une édition locale en attente', async () => {
+		const clean = filesStore.createNew('clean.md', 'clean');
+		filesStore.flushPending();
+		await vi.waitFor(() => expect(filesStore.hasPendingSave).toBe(false));
+		receiveCrossTab({ type: 'removed', id: clean.id });
+		expect(filesStore.files.some((file) => file.id === clean.id)).toBe(false);
+
+		const dirty = filesStore.createNew('dirty.md', 'dirty');
+		receiveCrossTab({ type: 'removed', id: dirty.id });
+		expect(filesStore.files.some((file) => file.id === dirty.id)).toBe(true);
+		expect(notify.toasts.at(-1)?.action).toBeTruthy();
+
+		receiveCrossTab({ type: 'removed', id: 'ghost' });
+	});
+
+	it('recharge sur réordonnancement et resynchronise les stores après restauration', async () => {
+		const reload = vi.spyOn(filesStore, 'reload').mockResolvedValue();
+		receiveCrossTab({ type: 'reorder' });
+		expect(reload).toHaveBeenCalledWith(false);
+
+		receiveCrossTab({ type: 'backup-applied' });
+		await vi.waitFor(() => {
+			expect(crossTabHarness.workspaceReload).toHaveBeenCalledOnce();
+			expect(crossTabHarness.templateReload).toHaveBeenCalledOnce();
+		});
+		reload.mockRestore();
+	});
+
+	it('signale un conflit global si un réordonnancement arrive pendant une édition', () => {
+		filesStore.createNew('pending.md', 'pending');
+		const reload = vi.spyOn(filesStore, 'reload');
+
+		receiveCrossTab({ type: 'reorder' });
+
+		expect(reload).not.toHaveBeenCalled();
+		expect(notify.toasts.at(-1)?.action).toBeTruthy();
+		reload.mockRestore();
+	});
+});
+
+describe('récupération corbeille', () => {
+	it('annule la fermeture optimiste si la transaction vers la corbeille échoue', async () => {
+		const moveToTrash = vi.spyOn(trashOps, 'moveToTrash').mockResolvedValueOnce(false);
+		const file = filesStore.createNew('rollback.md', '# Rollback');
+		filesStore.close(file.id);
+
+		await vi.waitFor(() =>
+			expect(filesStore.files.some((candidate) => candidate.id === file.id)).toBe(true)
+		);
+		expect(filesStore.trash.some((entry) => entry.file.id === file.id)).toBe(false);
+		expect(moveToTrash).toHaveBeenCalledOnce();
+		moveToTrash.mockRestore();
+	});
+
+	it('purge une entrée connue et ignore un identifiant absent', () => {
+		const file = filesStore.createNew('purge.md', '# Purge');
+		filesStore.close(file.id, { trash: false, keepDB: true });
+		filesStore.trash = [{ file, order: 0, trashedAt: Date.now() }];
+
+		storeInternals().purge(file.id);
+		storeInternals().purge('ghost');
+
+		expect(filesStore.trash).toEqual([]);
+	});
+});
+
+describe('gardes de l’orchestrateur', () => {
+	it('ignore les identifiants absents, les réordonnancements invalides et un second load', async () => {
+		filesStore.close('ghost');
+		filesStore.rename('ghost', 'ignored');
+		filesStore.reorder('ghost', 'ghost');
+		await filesStore.load();
+
+		expect(filesStore.files).toEqual([]);
+	});
+
+	it('reload() diffuse par défaut la restauration appliquée', async () => {
+		await filesStore.reload();
+		expect(crossTabHarness.post).toHaveBeenCalledWith({ type: 'backup-applied' });
+	});
+
+	it('flushPending ignore un draft retiré avant la création de sa row', () => {
+		filesStore.createNew('gone.md', '# Gone');
+		filesStore.files = [];
+
+		filesStore.flushPending();
+
+		expect(filesStore.hasPendingSave).toBe(false);
 	});
 });
 
@@ -301,6 +559,7 @@ describe('exports (délégation → export-ops)', () => {
 		expect(typeof deps.getFiles).toBe('function');
 		expect(typeof deps.scheduleSave).toBe('function');
 		expect(deps.getFiles().some((f) => f.id === a.id)).toBe(true);
+		deps.scheduleSave(a.id);
 	});
 
 	it('exportActive() exporte le fichier actif', () => {
@@ -391,6 +650,17 @@ describe('disque (délégation → disk-sync)', () => {
 		expect(typeof deps.getFile).toBe('function');
 		expect(typeof deps.onCreate).toBe('function');
 		expect(typeof deps.scheduleSave).toBe('function');
+		const created = deps.onCreate('dep.md', '# Dep');
+		deps.scheduleSave(created.id);
+	});
+
+	it('openPathsFromDesktop() délègue les chemins et ses callbacks', async () => {
+		await filesStore.openPathsFromDesktop(['/tmp/a.md']);
+		expect(diskSync.openPathsFromDesktop).toHaveBeenCalledTimes(1);
+		const [paths, deps] = vi.mocked(diskSync.openPathsFromDesktop).mock.calls[0]!;
+		expect(paths).toEqual(['/tmp/a.md']);
+		const created = deps.onCreate('desktop.md', '# Desktop');
+		deps.scheduleSave(created.id);
 	});
 
 	it('saveToDisk(id) délègue avec le bon id et diskDeps', async () => {
@@ -450,6 +720,23 @@ describe('flushPending', () => {
 		await new Promise((r) => setTimeout(r, 0));
 		const row = await db.drafts.get(f.id);
 		expect(row?.content).toBe('# A modifié');
+	});
+});
+
+describe('importDirectory', () => {
+	it('crée les drafts retournés par le sélecteur et conserve le statut tronqué', async () => {
+		vi.mocked(fsa.pickDirectoryFiles).mockResolvedValue({
+			files: [
+				{ name: 'a.md', content: '# A' },
+				{ name: 'b.txt', content: 'B' }
+			],
+			truncated: true
+		});
+
+		const result = await filesStore.importDirectory();
+
+		expect(result).toEqual({ count: 2, truncated: true });
+		expect(filesStore.files.map((file) => file.name)).toEqual(['a.md', 'b.txt']);
 	});
 });
 

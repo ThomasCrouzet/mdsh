@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildKeydownHandler, type ShortcutCallbacks } from './shortcuts.svelte';
 
-// isFSASupported gates the ⌘⇧S (save to disk) shortcut.
-vi.mock('$lib/fsa', () => ({ isFSASupported: () => true }));
+// isDiskLinkingAvailable gates the ⌘⇧S (save to disk) shortcut.
+vi.mock('$lib/disk-sync', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/disk-sync')>();
+	return { ...actual, isDiskLinkingAvailable: () => true };
+});
 
 function makeCallbacks(overrides: Partial<ShortcutCallbacks> = {}) {
 	const cb = {
