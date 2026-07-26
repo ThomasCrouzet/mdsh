@@ -5,6 +5,26 @@ vi.mock('$lib/report', () => ({
 	reportError: vi.fn()
 }));
 
+const heavyComponentMocks = vi.hoisted(() => ({
+	commandPalette: vi.fn(() => ({ default: { name: 'CommandPalette' } })),
+	searchPanel: vi.fn(() => ({ default: { name: 'SearchPanel' } })),
+	diskLinksPanel: vi.fn(() => ({ default: { name: 'DiskLinksPanel' } })),
+	workspacesPanel: vi.fn(() => ({ default: { name: 'WorkspacesPanel' } })),
+	settingsPanel: vi.fn(() => ({ default: { name: 'SettingsPanel' } })),
+	historyPanel: vi.fn(() => ({ default: { name: 'VersionHistoryPanel' } })),
+	graphPanel: vi.fn(() => ({ default: { name: 'GraphPanel' } })),
+	presentation: vi.fn(() => ({ default: { name: 'PresentationView' } }))
+}));
+
+vi.mock('$lib/components/CommandPalette.svelte', heavyComponentMocks.commandPalette);
+vi.mock('$lib/components/SearchPanel.svelte', heavyComponentMocks.searchPanel);
+vi.mock('$lib/components/DiskLinksPanel.svelte', heavyComponentMocks.diskLinksPanel);
+vi.mock('$lib/components/WorkspacesPanel.svelte', heavyComponentMocks.workspacesPanel);
+vi.mock('$lib/components/SettingsPanel.svelte', heavyComponentMocks.settingsPanel);
+vi.mock('$lib/components/VersionHistoryPanel.svelte', heavyComponentMocks.historyPanel);
+vi.mock('$lib/components/GraphPanel.svelte', heavyComponentMocks.graphPanel);
+vi.mock('$lib/components/PresentationView.svelte', heavyComponentMocks.presentation);
+
 import { reportError } from '$lib/report';
 import { t } from '$lib/i18n';
 
@@ -25,6 +45,10 @@ function makeOpts(mode: 'wysiwyg' | 'source' | 'read' = 'wysiwyg') {
 }
 
 describe('createModals', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
 	it('chaque open action positionne son état; les setters fonctionnent', () => {
 		const { opts } = makeOpts();
 		const m = createModals(opts);
@@ -90,6 +114,10 @@ describe('createModals', () => {
 	it('charge chaque composant lourd uniquement à la demande', async () => {
 		const { opts } = makeOpts();
 		const m = createModals(opts);
+		const importers = Object.values(heavyComponentMocks);
+
+		expect(importers.every((importer) => importer.mock.calls.length === 0)).toBe(true);
+
 		const components = await Promise.all([
 			m.loadCommandPalette(),
 			m.loadSearchPanel(),
@@ -101,7 +129,8 @@ describe('createModals', () => {
 			m.loadPresentation()
 		]);
 		expect(components.every(Boolean)).toBe(true);
-	}, 15_000);
+		expect(importers.every((importer) => importer.mock.calls.length === 1)).toBe(true);
+	});
 });
 
 describe('makeLazyLoader - failure path', () => {
