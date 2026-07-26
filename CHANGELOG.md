@@ -5,6 +5,15 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.1](https://github.com/ThomasCrouzet/mdsh/compare/v1.2.0...v1.2.1) (2026-07-26)
+
+
+### Bug Fixes
+
+* **ci:** déclenche les binaires depuis release-please ([#28](https://github.com/ThomasCrouzet/mdsh/issues/28)) ([de587d4](https://github.com/ThomasCrouzet/mdsh/commit/de587d442c5e106c4af5201b5d2348c750e8c244))
+* **ci:** synchronise SvelteKit avant Playwright ([#30](https://github.com/ThomasCrouzet/mdsh/issues/30)) ([9647d2a](https://github.com/ThomasCrouzet/mdsh/commit/9647d2abd85530ea17d89c9ddda9c4531b11cb3d))
+* **export:** synchronise les ressources KaTeX ([#32](https://github.com/ThomasCrouzet/mdsh/issues/32)) ([a15f78b](https://github.com/ThomasCrouzet/mdsh/commit/a15f78b70358ec189021a60cf613c29a2656da8d))
+
 ## [1.2.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.1.0...v1.2.0) (2026-07-26)
 
 
