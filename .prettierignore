@@ -4,3 +4,7 @@ coverage
 package-lock.json
 node_modules
 *.md
+# Local agent / editor tooling (gitignored); must not break `npm run lint`.
+.codex
+.claude
+.agents

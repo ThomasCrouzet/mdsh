@@ -9,6 +9,7 @@
 	import { filesStore } from '$lib/files.svelte';
 	import { decodeWikiTarget } from '$lib/wiki-links';
 	import { t } from '$lib/i18n';
+	import { mermaidThemeFromDataTheme } from '$lib/theme';
 
 	interface Props {
 		fileId: string;
@@ -95,7 +96,11 @@
 		}, 200);
 		try {
 			const { renderMarkdown } = await import('../render/markdown');
-			const out = await renderMarkdown(md, { mermaidTheme: 'dark' });
+			// Mermaid palette follows the live UI theme (same rule as presentation mode).
+			const mermaidTheme = mermaidThemeFromDataTheme(
+				document.documentElement.getAttribute('data-theme')
+			);
+			const out = await renderMarkdown(md, { mermaidTheme });
 			if (seq !== renderSeq) return; // a more recent render has started
 			if (fid !== fileId) return; // the file changed in the meantime
 			html = out;

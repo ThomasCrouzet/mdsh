@@ -9,6 +9,7 @@ import { escapeHTML } from '../file-utils';
 import { TIMERS } from '../config';
 import { hasMath } from './markdown';
 import { t } from '$lib/i18n';
+import { DEFAULT_LOCALE } from '$lib/i18n/locale';
 
 export interface PrintDocumentOptions {
 	title: string;
@@ -17,6 +18,17 @@ export interface PrintDocumentOptions {
 	source?: string;
 	/** Renders the title as the document header (default: true). */
 	showHeader?: boolean;
+	/**
+	 * BCP 47 language tag for `<html lang>`. Defaults to the app default
+	 * locale (English). Callers should pass the live UI locale (`i18n.locale`).
+	 */
+	lang?: string;
+}
+
+/** Normalizes an optional lang tag; empty/missing → DEFAULT_LOCALE. */
+function resolveDocumentLang(lang?: string): string {
+	const trimmed = lang?.trim();
+	return trimmed ? trimmed : DEFAULT_LOCALE;
 }
 
 function assetUrl(path: string): string {
@@ -25,8 +37,9 @@ function assetUrl(path: string): string {
 }
 
 export function buildPrintDocument(opts: PrintDocumentOptions): string {
-	const { title, bodyHtml, source, showHeader = true } = opts;
+	const { title, bodyHtml, source, showHeader = true, lang } = opts;
 	const safeTitle = escapeHTML(title);
+	const safeLang = escapeHTML(resolveDocumentLang(lang));
 	const needsKatex = source ? hasMath(source) : /class="math-block"|class="katex/.test(bodyHtml);
 
 	const printCssUrl = assetUrl('/print/print.css');
@@ -39,7 +52,7 @@ export function buildPrintDocument(opts: PrintDocumentOptions): string {
 		: '';
 
 	return `<!doctype html>
-<html lang="fr">
+<html lang="${safeLang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -63,11 +76,17 @@ async function fetchCssText(path: string): Promise<string> {
 }
 
 /** Assembles the standalone document with the CSS INLINED into <style> tags. */
-function renderStandaloneDoc(title: string, bodyHtml: string, styles: string[]): string {
+function renderStandaloneDoc(
+	title: string,
+	bodyHtml: string,
+	styles: string[],
+	lang?: string
+): string {
 	const safeTitle = escapeHTML(title);
+	const safeLang = escapeHTML(resolveDocumentLang(lang));
 	const styleTags = styles.map((css) => `<style>\n${css}\n</style>`).join('\n');
 	return `<!doctype html>
-<html lang="fr">
+<html lang="${safeLang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -103,7 +122,8 @@ ${bodyHtml}
 export async function buildStandaloneHtmlDocument(
 	title: string,
 	bodyHtml: string,
-	source?: string
+	source?: string,
+	lang?: string
 ): Promise<string> {
 	const needsKatex = source ? hasMath(source) : /class="math-block"|class="katex/.test(bodyHtml);
 	try {
@@ -116,13 +136,14 @@ export async function buildStandaloneHtmlDocument(
 			katexCss = katexCss.replace(/url\((['"]?)fonts\//g, `url($1${fontsBase}`);
 			styles.push(katexCss);
 		}
-		return renderStandaloneDoc(title, bodyHtml, styles);
+		return renderStandaloneDoc(title, bodyHtml, styles, lang);
 	} catch {
 		// `source` omitted if undefined (exactOptionalPropertyTypes).
 		return buildPrintDocument({
 			title,
 			bodyHtml,
 			...(source !== undefined ? { source } : {}),
+			...(lang !== undefined ? { lang } : {}),
 			showHeader: false
 		});
 	}

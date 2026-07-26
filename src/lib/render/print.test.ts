@@ -2,10 +2,26 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { buildPrintDocument, buildStandaloneHtmlDocument, printInIframe } from './print';
 
 describe('buildPrintDocument - structure', () => {
-	it('produit un doctype HTML5', () => {
+	it('produit un doctype HTML5 avec lang par défaut (en)', () => {
 		const html = buildPrintDocument({ title: 'Doc', bodyHtml: '<p>hello</p>' });
 		expect(html.startsWith('<!doctype html>')).toBe(true);
-		expect(html).toContain('<html lang="fr">');
+		// DEFAULT_LOCALE is English - not hardcoded French.
+		expect(html).toContain('<html lang="en">');
+	});
+
+	it('honore lang explicite (en / fr)', () => {
+		expect(buildPrintDocument({ title: 'T', bodyHtml: '', lang: 'fr' })).toContain(
+			'<html lang="fr">'
+		);
+		expect(buildPrintDocument({ title: 'T', bodyHtml: '', lang: 'en' })).toContain(
+			'<html lang="en">'
+		);
+	});
+
+	it('retombe sur en si lang vide ou blanc', () => {
+		expect(buildPrintDocument({ title: 'T', bodyHtml: '', lang: '   ' })).toContain(
+			'<html lang="en">'
+		);
 	});
 
 	it('inclut le titre dans <title> et dans le header par défaut', () => {
@@ -122,6 +138,22 @@ describe('buildStandaloneHtmlDocument', () => {
 		// Plus aucun <link rel=stylesheet> : c'est tout l'intérêt (CSP file://).
 		expect(html).not.toContain('<link rel="stylesheet"');
 		expect(html).not.toContain('print-header');
+		// Default document lang follows DEFAULT_LOCALE (en).
+		expect(html).toContain('<html lang="en">');
+	});
+
+	it('propage lang au document standalone et au repli <link>', async () => {
+		stubCssFetch();
+		const inline = await buildStandaloneHtmlDocument('Export', '<p>x</p>', undefined, 'fr');
+		expect(inline).toContain('<html lang="fr">');
+
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as Response)
+		);
+		const fallback = await buildStandaloneHtmlDocument('T', '<p>x</p>', undefined, 'fr');
+		expect(fallback).toContain('<html lang="fr">');
+		expect(fallback).toContain('print/print.css');
 	});
 
 	it('inline katex.min.css et réécrit les fonts en URL absolue quand math présent', async () => {

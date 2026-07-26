@@ -70,14 +70,13 @@ export function exportMarkdown(file: FileItem): void {
  */
 export async function exportHTML(file: FileItem): Promise<void> {
 	if (typeof document === 'undefined') return;
-	const [{ renderMarkdownDetailed }, { buildStandaloneHtmlDocument }] = await Promise.all([
-		import('../render/markdown'),
-		import('../render/print')
-	]);
+	const [{ renderMarkdownDetailed }, { buildStandaloneHtmlDocument }, { i18n }] = await Promise.all(
+		[import('../render/markdown'), import('../render/print'), import('$lib/i18n')]
+	);
 	const fallback = stripMdExtension(file.name);
 	const { html: bodyHtml, title } = await renderMarkdownDetailed(file.content);
 	const docTitle = title || fallback;
-	const html = await buildStandaloneHtmlDocument(docTitle, bodyHtml, file.content);
+	const html = await buildStandaloneHtmlDocument(docTitle, bodyHtml, file.content, i18n.locale);
 	const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
 	triggerDownload(blob, fallback + '.html');
 }
@@ -94,17 +93,20 @@ export async function exportHTML(file: FileItem): Promise<void> {
  */
 export async function exportPDF(file: FileItem): Promise<void> {
 	if (typeof document === 'undefined') return;
-	const [{ renderMarkdownDetailed }, { buildPrintDocument, printInIframe }] = await Promise.all([
-		import('../render/markdown'),
-		import('../render/print')
-	]);
+	const [{ renderMarkdownDetailed }, { buildPrintDocument, printInIframe }, { i18n }] =
+		await Promise.all([
+			import('../render/markdown'),
+			import('../render/print'),
+			import('$lib/i18n')
+		]);
 	const fallback = stripMdExtension(file.name);
 	const { html: bodyHtml, title } = await renderMarkdownDetailed(file.content);
 	const docTitle = title || fallback;
 	const html = buildPrintDocument({
 		title: docTitle,
 		bodyHtml,
-		source: file.content
+		source: file.content,
+		lang: i18n.locale
 	});
 	await printInIframe(html);
 }

@@ -114,6 +114,17 @@ export default [
 		}
 	},
 	{
-		ignores: ['build/', 'coverage/', '.svelte-kit/', 'node_modules/', 'package-lock.json', 'dist/']
+		ignores: [
+			'build/',
+			'coverage/',
+			'.svelte-kit/',
+			'node_modules/',
+			'package-lock.json',
+			'dist/',
+			// Local agent / editor tooling (not part of the app surface).
+			'.codex/',
+			'.claude/',
+			'.agents/'
+		]
 	}
 ];

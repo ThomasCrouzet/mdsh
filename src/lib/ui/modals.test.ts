@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
-import { createModals, type ModalsOptions } from './modals.svelte';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createModals, makeLazyLoader, type ModalsOptions } from './modals.svelte';
+
+vi.mock('$lib/report', () => ({
+	reportError: vi.fn()
+}));
+
+import { reportError } from '$lib/report';
+import { t } from '$lib/i18n';
 
 function makeOpts(mode: 'wysiwyg' | 'source' | 'read' = 'wysiwyg') {
 	const setActive = vi.fn();
@@ -66,5 +73,48 @@ describe('createModals', () => {
 		expect(p1).toBe(p2); // mémoïsation
 		const Cmp = await p1;
 		expect(Cmp).toBeTruthy();
+	});
+});
+
+describe('makeLazyLoader - failure path', () => {
+	beforeEach(() => {
+		vi.mocked(reportError).mockClear();
+	});
+
+	it('on import() rejection: closes, reports/notifies, rethrows, and allows retry', async () => {
+		const close = vi.fn();
+		const err = new Error('chunk missing offline');
+		const importer = vi
+			.fn()
+			// First call fails (stale SW / offline first open).
+			.mockRejectedValueOnce(err)
+			// Second call succeeds after retry.
+			.mockResolvedValueOnce({ default: { name: 'FakeModal' } });
+
+		const load = makeLazyLoader(importer, close, 'modals.labelPalette');
+
+		await expect(load()).rejects.toThrow('chunk missing offline');
+		expect(close).toHaveBeenCalledOnce();
+		expect(reportError).toHaveBeenCalledOnce();
+		const [scope, reportedErr, opts] = vi.mocked(reportError).mock.calls[0]!;
+		expect(scope).toMatch(/lazy load/i);
+		expect(reportedErr).toBe(err);
+		// notifyUser is the translated failure string (not silent).
+		expect(opts?.notifyUser).toBe(t('modals.loadFailed', { label: t('modals.labelPalette') }));
+
+		// Memo was reset: a second call re-invokes the importer.
+		const Cmp = await load();
+		expect(Cmp).toEqual({ name: 'FakeModal' });
+		expect(importer).toHaveBeenCalledTimes(2);
+		// close only on the failure path.
+		expect(close).toHaveBeenCalledOnce();
+	});
+
+	it('success path does not close or report', async () => {
+		const close = vi.fn();
+		const load = makeLazyLoader(async () => ({ default: 42 }), close, 'modals.labelSearch');
+		await expect(load()).resolves.toBe(42);
+		expect(close).not.toHaveBeenCalled();
+		expect(reportError).not.toHaveBeenCalled();
 	});
 });

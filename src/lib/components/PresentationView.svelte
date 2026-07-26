@@ -10,6 +10,7 @@
 	import { filesStore } from '$lib/files.svelte';
 	import { splitSlides } from '$lib/slides';
 	import { reportError } from '$lib/report';
+	import { mermaidThemeFromDataTheme } from '$lib/theme';
 	import { ChevronLeft, ChevronRight, X } from 'lucide-svelte';
 
 	interface Props {
@@ -45,12 +46,12 @@
 			html = '';
 			return;
 		}
-		const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+		const mermaidTheme = mermaidThemeFromDataTheme(
+			document.documentElement.getAttribute('data-theme')
+		);
 		let cancelled = false;
 		void import('$lib/render/markdown')
-			.then(({ renderMarkdown }) =>
-				renderMarkdown(md, { mermaidTheme: isLight ? 'default' : 'dark', showFrontmatter: false })
-			)
+			.then(({ renderMarkdown }) => renderMarkdown(md, { mermaidTheme, showFrontmatter: false }))
 			.then((out) => {
 				if (!cancelled) html = out;
 			})

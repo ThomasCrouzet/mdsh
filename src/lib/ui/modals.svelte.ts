@@ -28,7 +28,8 @@ import { t, type MessageKey } from '$lib/i18n';
  * The component's typing is inferred from the `import()` - so we keep the
  * lazy-load with no static import (bundle constraint).
  */
-function makeLazyLoader<T>(
+/** Exported for unit tests (failure path: close + report + rethrow). */
+export function makeLazyLoader<T>(
 	importer: () => Promise<{ default: T }>,
 	close: () => void,
 	labelKey: MessageKey
