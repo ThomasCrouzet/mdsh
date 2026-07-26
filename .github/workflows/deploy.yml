@@ -98,6 +98,9 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
 
+      - name: Sync SvelteKit
+        run: npx svelte-kit sync
+
       # Cache des binaires navigateurs Playwright (~/.cache/ms-playwright) :
       # évite de re-télécharger chromium + webkit (~150 MB) à chaque run. Clé
       # liée au lockfile (la version @playwright/test y est figée). Sur cache
