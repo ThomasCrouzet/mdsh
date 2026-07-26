@@ -12,7 +12,7 @@
 		Printer
 	} from 'lucide-svelte';
 	import type { EditMode } from '$lib/types';
-	import { isFSASupported } from '$lib/fsa';
+	import { isDiskLinkingAvailable } from '$lib/disk-sync';
 	import { formatKbd } from '$lib/platform';
 	import { t } from '$lib/i18n';
 
@@ -38,7 +38,7 @@
 
 	let nameInput = $state<HTMLInputElement | null>(null);
 	let modeGroup = $state<HTMLDivElement | null>(null);
-	const fsaSupported = isFSASupported();
+	const diskLinkingAvailable = isDiskLinkingAvailable();
 
 	// §B1.7 / B1.8 / B3.5 - Rename input:
 	//   - `renameDraft` allows canceling with Esc by reverting to the pre-edit state.
@@ -108,7 +108,7 @@
 
 	function handleModeKey(e: KeyboardEvent) {
 		const idx = MODE_ORDER.indexOf(mode);
-		let next = idx;
+		let next: number;
 		if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
 			next = (idx + 1) % MODE_ORDER.length;
 		} else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
@@ -255,7 +255,7 @@
 		</button>
 	</div>
 
-	{#if fsaSupported}
+	{#if diskLinkingAvailable}
 		<button
 			class="ml-1 flex items-center justify-center rounded p-2 text-fg-muted transition
 			       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"

@@ -5,6 +5,26 @@ vi.mock('$lib/report', () => ({
 	reportError: vi.fn()
 }));
 
+const heavyComponentMocks = vi.hoisted(() => ({
+	commandPalette: vi.fn(() => ({ default: { name: 'CommandPalette' } })),
+	searchPanel: vi.fn(() => ({ default: { name: 'SearchPanel' } })),
+	diskLinksPanel: vi.fn(() => ({ default: { name: 'DiskLinksPanel' } })),
+	workspacesPanel: vi.fn(() => ({ default: { name: 'WorkspacesPanel' } })),
+	settingsPanel: vi.fn(() => ({ default: { name: 'SettingsPanel' } })),
+	historyPanel: vi.fn(() => ({ default: { name: 'VersionHistoryPanel' } })),
+	graphPanel: vi.fn(() => ({ default: { name: 'GraphPanel' } })),
+	presentation: vi.fn(() => ({ default: { name: 'PresentationView' } }))
+}));
+
+vi.mock('$lib/components/CommandPalette.svelte', heavyComponentMocks.commandPalette);
+vi.mock('$lib/components/SearchPanel.svelte', heavyComponentMocks.searchPanel);
+vi.mock('$lib/components/DiskLinksPanel.svelte', heavyComponentMocks.diskLinksPanel);
+vi.mock('$lib/components/WorkspacesPanel.svelte', heavyComponentMocks.workspacesPanel);
+vi.mock('$lib/components/SettingsPanel.svelte', heavyComponentMocks.settingsPanel);
+vi.mock('$lib/components/VersionHistoryPanel.svelte', heavyComponentMocks.historyPanel);
+vi.mock('$lib/components/GraphPanel.svelte', heavyComponentMocks.graphPanel);
+vi.mock('$lib/components/PresentationView.svelte', heavyComponentMocks.presentation);
+
 import { reportError } from '$lib/report';
 import { t } from '$lib/i18n';
 
@@ -25,6 +45,10 @@ function makeOpts(mode: 'wysiwyg' | 'source' | 'read' = 'wysiwyg') {
 }
 
 describe('createModals', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
 	it('chaque open action positionne son état; les setters fonctionnent', () => {
 		const { opts } = makeOpts();
 		const m = createModals(opts);
@@ -43,8 +67,20 @@ describe('createModals', () => {
 			open();
 			expect(read()).toBe(true);
 		}
-		m.paletteOpen = false;
-		expect(m.paletteOpen).toBe(false);
+		const setters: Array<[(value: boolean) => void, () => boolean]> = [
+			[(value) => (m.paletteOpen = value), () => m.paletteOpen],
+			[(value) => (m.searchOpen = value), () => m.searchOpen],
+			[(value) => (m.diskLinksOpen = value), () => m.diskLinksOpen],
+			[(value) => (m.workspacesOpen = value), () => m.workspacesOpen],
+			[(value) => (m.settingsOpen = value), () => m.settingsOpen],
+			[(value) => (m.historyOpen = value), () => m.historyOpen],
+			[(value) => (m.graphOpen = value), () => m.graphOpen],
+			[(value) => (m.presentationOpen = value), () => m.presentationOpen]
+		];
+		for (const [write, read] of setters) {
+			write(false);
+			expect(read()).toBe(false);
+		}
 	});
 
 	it("handleOpenHit bascule en source + bufferise le hit quand on n'y est pas", () => {
@@ -73,6 +109,27 @@ describe('createModals', () => {
 		expect(p1).toBe(p2); // mémoïsation
 		const Cmp = await p1;
 		expect(Cmp).toBeTruthy();
+	});
+
+	it('charge chaque composant lourd uniquement à la demande', async () => {
+		const { opts } = makeOpts();
+		const m = createModals(opts);
+		const importers = Object.values(heavyComponentMocks);
+
+		expect(importers.every((importer) => importer.mock.calls.length === 0)).toBe(true);
+
+		const components = await Promise.all([
+			m.loadCommandPalette(),
+			m.loadSearchPanel(),
+			m.loadDiskLinksPanel(),
+			m.loadWorkspacesPanel(),
+			m.loadSettingsPanel(),
+			m.loadHistoryPanel(),
+			m.loadGraphPanel(),
+			m.loadPresentation()
+		]);
+		expect(components.every(Boolean)).toBe(true);
+		expect(importers.every((importer) => importer.mock.calls.length === 1)).toBe(true);
 	});
 });
 

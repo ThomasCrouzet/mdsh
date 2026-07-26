@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const e2ePort = process.env.E2E_PORT ?? '4173';
+const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
+
 /**
  * Config E2E Playwright - tests de scénarios utilisateur bout-en-bout.
  * Chromium : suite complète (FSA + golden-path + mobile).
@@ -16,7 +19,7 @@ export default defineConfig({
 	workers: process.env.CI ? 1 : undefined,
 	reporter: process.env.CI ? [['github'], ['list']] : 'list',
 	use: {
-		baseURL: 'http://localhost:4173',
+		baseURL: e2eBaseUrl,
 		trace: 'on-first-retry',
 		screenshot: 'only-on-failure',
 		// The UI defaults to English (i18n layer) and auto-detects navigator.language.
@@ -52,9 +55,11 @@ export default defineConfig({
 		}
 	],
 	webServer: {
-		command: 'npm run build && npm run preview -- --port 4173',
-		url: 'http://localhost:4173',
-		reuseExistingServer: !process.env.CI,
+		command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
+		url: e2eBaseUrl,
+		// Ne jamais réutiliser un serveur inconnu : un autre projet sur le même port
+		// ferait passer ou échouer les tests contre la mauvaise application.
+		reuseExistingServer: false,
 		timeout: 120_000,
 		stdout: 'pipe',
 		stderr: 'pipe'

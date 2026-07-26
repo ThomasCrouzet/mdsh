@@ -1,0 +1,134 @@
+name: Desktop
+
+# Validation runs before desktop changes land. Multi-OS packaging stays limited
+# to releases, manual runs, and manually pushed version tags.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing or new GitHub release tag (optional)
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Existing GitHub release tag receiving the binaries
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  RELEASE_TAG: ${{ inputs.release_tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+
+jobs:
+  validate-desktop:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Linux WebKit dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Format
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  build-desktop:
+    needs: validate-desktop
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' ||
+      startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+            args: --target aarch64-apple-darwin
+          - platform: macos-15-intel
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+          targets: ${{ runner.os == 'macOS' && (contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@944946e3e4cac6603d1fe8f514171e9ecd3c78aa # v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_PATH: ''
+        with:
+          projectPath: .
+          tauriScript: npm run tauri
+          args: ${{ matrix.args }}
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: ${{ env.RELEASE_TAG && format('mdsh {0}', env.RELEASE_TAG) || '' }}
+          releaseDraft: false
+          prerelease: false
+          generateReleaseNotes: true
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: true

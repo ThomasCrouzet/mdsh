@@ -33,3 +33,7 @@ dev-dist
 # Vitest - rapport de couverture (généré par npm run test:coverage)
 /coverage
 
+# Tauri (desktop shell) - Rust build artifacts
+/src-tauri/target
+/src-tauri/gen
+

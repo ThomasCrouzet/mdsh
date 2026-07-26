@@ -121,6 +121,9 @@ export default [
 			'node_modules/',
 			'package-lock.json',
 			'dist/',
+			// Tauri Rust build artifacts (generated JS helpers under target/).
+			'src-tauri/target/',
+			'src-tauri/gen/',
 			// Local agent / editor tooling (not part of the app surface).
 			'.codex/',
 			'.claude/',

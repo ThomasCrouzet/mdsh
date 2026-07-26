@@ -77,6 +77,16 @@ describe('workspaceStore.update / rename / delete', () => {
 		expect(workspaceStore.workspaces.some((w) => w.id === ws!.id)).toBe(false);
 		expect(await db.workspaces.get(ws!.id)).toBeUndefined();
 	});
+
+	it('ignore les identifiants inconnus et un second chargement déjà terminé', async () => {
+		await workspaceStore.load();
+		await workspaceStore.load();
+		await workspaceStore.update('ghost');
+		await workspaceStore.rename('ghost', 'Inconnu');
+		await workspaceStore.delete('ghost');
+
+		expect(workspaceStore.workspaces).toEqual([]);
+	});
 });
 
 describe('workspaceStore.restore', () => {
@@ -100,6 +110,20 @@ describe('workspaceStore.restore', () => {
 
 	it("restore d'un id inconnu = no-op", async () => {
 		await expect(workspaceStore.restore('ghost')).resolves.toBeUndefined();
+	});
+
+	it('ignore les fichiers supprimés et un activeId qui n’existe plus', async () => {
+		workspaceStore.workspaces = [
+			{
+				...wsRow('missing', 'Missing', ['deleted']),
+				activeId: 'deleted'
+			}
+		];
+
+		await workspaceStore.restore('missing');
+
+		expect(filesStore.files).toEqual([]);
+		expect(filesStore.activeId).toBeNull();
 	});
 
 	it('ferme les onglets hors workspace sans les supprimer de la base (keepDB)', async () => {
@@ -161,6 +185,46 @@ describe('workspaceStore - chemins d echec IDB', () => {
 		expect(after.updatedAt).toBe(prevUpdatedAt);
 		// Rollback : position restauree (revient en queue, pas en tete).
 		expect(workspaceStore.workspaces.indexOf(after)).toBe(prevIdx);
+	});
+
+	it('save : ne crée pas de workspace fantôme si le put échoue', async () => {
+		vi.spyOn(db.workspaces, 'put').mockRejectedValueOnce(new Error('IDB write failed'));
+
+		await expect(workspaceStore.save('Impossible')).resolves.toBeNull();
+
+		expect(workspaceStore.workspaces).toEqual([]);
+	});
+
+	it('rename : restaure le nom et la date si le put échoue', async () => {
+		const ws = await workspaceStore.save('Stable');
+		const previousUpdatedAt = ws!.updatedAt;
+		vi.spyOn(db.workspaces, 'put').mockRejectedValueOnce(new Error('IDB write failed'));
+
+		await workspaceStore.rename(ws!.id, 'Fantôme');
+
+		expect(ws!.name).toBe('Stable');
+		expect(ws!.updatedAt).toBe(previousUpdatedAt);
+	});
+
+	it('delete : conserve le workspace visible si la suppression échoue', async () => {
+		const ws = await workspaceStore.save('Conserver');
+		vi.spyOn(db.workspaces, 'delete').mockRejectedValueOnce(new Error('IDB delete failed'));
+
+		await workspaceStore.delete(ws!.id);
+
+		expect(workspaceStore.workspaces.some((candidate) => candidate.id === ws!.id)).toBe(true);
+	});
+
+	it('delete : tolère la disparition concurrente de la ligne en mémoire', async () => {
+		const ws = await workspaceStore.save('Concurrent');
+		vi.spyOn(db.workspaces, 'delete').mockImplementationOnce(() => {
+			workspaceStore.workspaces = [];
+			return db.workspaces.clear();
+		});
+
+		await workspaceStore.delete(ws!.id);
+
+		expect(workspaceStore.workspaces).toEqual([]);
 	});
 
 	it('restore : bulkGet qui rejette est notifie et abandonne proprement', async () => {

@@ -15,7 +15,9 @@
 	import { t } from '$lib/i18n';
 	import { filesStore } from '$lib/files.svelte';
 	import { notify } from '$lib/notify.svelte';
-	import { listHandles, checkHandle, isFSASupported } from '$lib/fsa';
+	import { listDiskLinks, checkHandle } from '$lib/fsa';
+	import { isDiskLinkingAvailable } from '$lib/disk-sync';
+	import { tauriCheckPath } from '$lib/disk-tauri';
 	import { focusTrap } from '$lib/a11y/focusTrap';
 	import {
 		Link2,
@@ -38,8 +40,10 @@
 
 	interface DiskLink {
 		id: string;
-		handle: FileSystemFileHandle;
-		// Display name: the file's name in the store, or handle.name as a
+		kind: 'fsa' | 'path';
+		handle?: FileSystemFileHandle;
+		path?: string;
+		// Display name: the file's name in the store, or link label as a
 		// fallback (orphan case: draft deleted but handle still present). We also
 		// expose `orphan` to style/warn.
 		displayName: string;
@@ -51,17 +55,11 @@
 	let loading = $state(false);
 	let closeButton: HTMLButtonElement | null = $state(null);
 
-	function findFileName(
-		id: string,
-		handle: FileSystemFileHandle
-	): { name: string; orphan: boolean } {
+	function findFileName(id: string, fallbackLabel: string): { name: string; orphan: boolean } {
 		const f = filesStore.files.find((file) => file.id === id);
 		if (f) return { name: f.name, orphan: false };
-		// Fallback: the on-disk file name (handle.name) if present, otherwise a
-		// shortened id to keep a minimal identification.
-		const handleName = handle?.name;
-		if (typeof handleName === 'string' && handleName.length > 0) {
-			return { name: handleName, orphan: true };
+		if (fallbackLabel.length > 0) {
+			return { name: fallbackLabel, orphan: true };
 		}
 		const short = id.length > 12 ? `${id.slice(0, 8)}…` : id;
 		return { name: short, orphan: true };
@@ -71,12 +69,23 @@
 		if (!browser) return;
 		loading = true;
 		try {
-			const raw = await listHandles();
-			entries = raw.map(({ id, handle }) => {
-				const meta = findFileName(id, handle);
+			const raw = await listDiskLinks();
+			entries = raw.map((entry) => {
+				const meta = findFileName(entry.id, entry.label);
+				if (entry.kind === 'path') {
+					return {
+						id: entry.id,
+						kind: 'path' as const,
+						path: entry.path,
+						displayName: meta.name,
+						orphan: meta.orphan,
+						status: 'unknown' as const
+					};
+				}
 				return {
-					id,
-					handle,
+					id: entry.id,
+					kind: 'fsa' as const,
+					handle: entry.handle,
 					displayName: meta.name,
 					orphan: meta.orphan,
 					status: 'unknown' as const
@@ -90,7 +99,12 @@
 	async function verify(entry: DiskLink): Promise<void> {
 		const idx = entries.findIndex((e) => e.id === entry.id);
 		if (idx === -1) return;
-		const status = await checkHandle(entry.handle);
+		let status: LinkStatus = 'broken';
+		if (entry.kind === 'path' && entry.path) {
+			status = await tauriCheckPath(entry.path);
+		} else if (entry.handle) {
+			status = await checkHandle(entry.handle);
+		}
 		// Index-by-index mutation: we replace the entry so that Svelte 5 runes
 		// observe the change (pushing a new status onto a copy would not
 		// trigger reactivity on the original array).
@@ -187,7 +201,7 @@
 			</header>
 
 			<div class="max-h-[60vh] overflow-y-auto">
-				{#if !isFSASupported()}
+				{#if !isDiskLinkingAvailable()}
 					<p class="px-4 py-6 text-center text-xs text-fg-dim">
 						{t('diskLinks.notSupported')}
 					</p>

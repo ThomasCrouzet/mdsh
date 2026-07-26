@@ -3,7 +3,8 @@ import { db, newId } from './db';
 import type { DraftRow } from './db';
 import type { FileItem, TrashedFile } from './types';
 import { TIMERS } from './config';
-import { isFSASupported, getHandle, pickDirectoryFiles } from './fsa';
+import { isFSASupported, getHandle, getPathLink, pickDirectoryFiles } from './fsa';
+import { isDesktop } from './desktop';
 import {
 	loadTrashRows,
 	moveToTrash,
@@ -13,6 +14,7 @@ import {
 } from './trash';
 import {
 	openFromDisk as diskOpenFromDisk,
+	openPathsFromDesktop as diskOpenPathsFromDesktop,
 	saveToDisk as diskSaveToDisk,
 	unlinkFromDisk as diskUnlinkFromDisk,
 	refreshBrokenLinks as diskRefreshBrokenLinks
@@ -203,10 +205,14 @@ class FilesStore {
 			const rows = await db.drafts.orderBy('order').toArray();
 			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Set transient local (jamais un $state)
 			const linkedIds = new Set<string>();
-			if (isFSASupported()) {
-				// Promise.all: N handles in parallel (avoids ~500 ms of sequential IDB blocking).
+			if (isFSASupported() || isDesktop()) {
+				// Promise.all: N handles/paths in parallel (avoids ~500 ms of sequential IDB blocking).
 				const checks = await Promise.all(
-					rows.map(async (r) => ({ id: r.id, has: Boolean(await getHandle(r.id)) }))
+					rows.map(async (r) => {
+						const hasFsa = isFSASupported() ? Boolean(await getHandle(r.id)) : false;
+						const hasPath = Boolean(await getPathLink(r.id));
+						return { id: r.id, has: hasFsa || hasPath };
+					})
 				);
 				for (const c of checks) if (c.has) linkedIds.add(c.id);
 			}
@@ -604,6 +610,11 @@ class FilesStore {
 
 	async openFromDisk(): Promise<FileItem[]> {
 		return diskOpenFromDisk(this.diskDeps);
+	}
+
+	/** Desktop: open absolute paths from argv / file association. */
+	async openPathsFromDesktop(paths: string[]): Promise<FileItem[]> {
+		return diskOpenPathsFromDesktop(paths, this.diskDeps);
 	}
 
 	/**

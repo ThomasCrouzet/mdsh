@@ -21,7 +21,12 @@ describe('computeBrokenLinks', () => {
 		const getHandleFn = vi.fn().mockResolvedValue(null);
 		const checkHandleFn = vi.fn();
 
-		const updates = await computeBrokenLinks(files, { getHandleFn, checkHandleFn });
+		const getPathLinkFn = vi.fn().mockResolvedValue(null);
+		const updates = await computeBrokenLinks(files, {
+			getHandleFn,
+			checkHandleFn,
+			getPathLinkFn
+		});
 
 		expect(updates).toHaveLength(0);
 		expect(getHandleFn).not.toHaveBeenCalled();
@@ -32,7 +37,11 @@ describe('computeBrokenLinks', () => {
 		const getHandleFn = vi.fn().mockResolvedValue(null);
 		const checkHandleFn = vi.fn();
 
-		const updates = await computeBrokenLinks(files, { getHandleFn, checkHandleFn });
+		const updates = await computeBrokenLinks(files, {
+			getHandleFn,
+			checkHandleFn,
+			getPathLinkFn: vi.fn().mockResolvedValue(null)
+		});
 
 		expect(updates).toHaveLength(0);
 	});
@@ -42,11 +51,26 @@ describe('computeBrokenLinks', () => {
 		const getHandleFn = vi.fn().mockResolvedValue(null); // handle introuvable en IDB
 		const checkHandleFn = vi.fn();
 
-		const updates = await computeBrokenLinks(files, { getHandleFn, checkHandleFn });
+		const updates = await computeBrokenLinks(files, {
+			getHandleFn,
+			checkHandleFn,
+			getPathLinkFn: vi.fn().mockResolvedValue(null)
+		});
 
 		expect(updates).toHaveLength(1);
 		expect(updates[0]).toEqual({ id: 'f1', brokenLink: true, handleMissing: true });
 		expect(checkHandleFn).not.toHaveBeenCalled();
+	});
+
+	it('path link broken → brokenLink true sans handle FSA', async () => {
+		const files = [makeFile({ id: 'p1', linkedToDisk: true })];
+		const updates = await computeBrokenLinks(files, {
+			getHandleFn: vi.fn(),
+			checkHandleFn: vi.fn(),
+			getPathLinkFn: vi.fn().mockResolvedValue({ kind: 'path', path: '/tmp/gone.md' }),
+			checkPathFn: vi.fn().mockResolvedValue('broken')
+		});
+		expect(updates[0]).toEqual({ id: 'p1', brokenLink: true, handleMissing: false });
 	});
 
 	it("handle présent mais checkHandleFn retourne 'broken' → brokenLink: true, handleMissing: false", async () => {
@@ -55,7 +79,11 @@ describe('computeBrokenLinks', () => {
 		const getHandleFn = vi.fn().mockResolvedValue(fakeHandle);
 		const checkHandleFn = vi.fn().mockResolvedValue('broken');
 
-		const updates = await computeBrokenLinks(files, { getHandleFn, checkHandleFn });
+		const updates = await computeBrokenLinks(files, {
+			getHandleFn,
+			checkHandleFn,
+			getPathLinkFn: vi.fn().mockResolvedValue(null)
+		});
 
 		expect(updates).toHaveLength(1);
 		expect(updates[0]).toEqual({ id: 'f2', brokenLink: true, handleMissing: false });
@@ -67,7 +95,11 @@ describe('computeBrokenLinks', () => {
 		const getHandleFn = vi.fn().mockResolvedValue(fakeHandle);
 		const checkHandleFn = vi.fn().mockResolvedValue('ok');
 
-		const updates = await computeBrokenLinks(files, { getHandleFn, checkHandleFn });
+		const updates = await computeBrokenLinks(files, {
+			getHandleFn,
+			checkHandleFn,
+			getPathLinkFn: vi.fn().mockResolvedValue(null)
+		});
 
 		expect(updates).toHaveLength(1);
 		expect(updates[0]).toEqual({ id: 'f3', brokenLink: false, handleMissing: false });
@@ -80,7 +112,11 @@ describe('computeBrokenLinks', () => {
 		// 'permission-needed' n'est pas 'broken' → brokenLink doit être false
 		const checkHandleFn = vi.fn().mockResolvedValue('permission-needed');
 
-		const updates = await computeBrokenLinks(files, { getHandleFn, checkHandleFn });
+		const updates = await computeBrokenLinks(files, {
+			getHandleFn,
+			checkHandleFn,
+			getPathLinkFn: vi.fn().mockResolvedValue(null)
+		});
 
 		expect(updates).toHaveLength(1);
 		expect(updates[0]!.brokenLink).toBe(false);
@@ -102,7 +138,11 @@ describe('computeBrokenLinks', () => {
 		});
 		const checkHandleFn = vi.fn().mockResolvedValue('ok');
 
-		const updates = await computeBrokenLinks(files, { getHandleFn, checkHandleFn });
+		const updates = await computeBrokenLinks(files, {
+			getHandleFn,
+			checkHandleFn,
+			getPathLinkFn: vi.fn().mockResolvedValue(null)
+		});
 
 		// Seuls les 2 fichiers linkedToDisk sont vérifiés
 		expect(updates).toHaveLength(2);
@@ -120,7 +160,11 @@ describe('computeBrokenLinks', () => {
 		const getHandleFn = vi.fn();
 		const checkHandleFn = vi.fn();
 
-		const updates = await computeBrokenLinks(files, { getHandleFn, checkHandleFn });
+		const updates = await computeBrokenLinks(files, {
+			getHandleFn,
+			checkHandleFn,
+			getPathLinkFn: vi.fn().mockResolvedValue(null)
+		});
 
 		expect(updates).toHaveLength(0);
 	});

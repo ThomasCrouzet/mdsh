@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import type { FileItem } from '$lib/types';
 
 // Mocks des modules lazy-importés par exportHTML / exportPDF. On isole le
@@ -47,7 +47,7 @@ function makeFile(overrides: Partial<FileItem> = {}): FileItem {
 
 describe('exportMarkdown', () => {
 	let createdAnchor: HTMLAnchorElement | null = null;
-	let clickSpy: ReturnType<typeof vi.fn>;
+	let clickSpy: Mock<() => void>;
 	let restoreCreateElement: () => void = () => {};
 	let createObjectURLSpy: ReturnType<typeof vi.fn>;
 	let revokeObjectURLSpy: ReturnType<typeof vi.fn>;
@@ -126,7 +126,7 @@ describe('exportMarkdown', () => {
 
 describe('exportZip', () => {
 	let createdAnchor: HTMLAnchorElement | null = null;
-	let clickSpy: ReturnType<typeof vi.fn>;
+	let clickSpy: Mock<() => void>;
 	let restoreCreateElement: () => void = () => {};
 	let createObjectURLSpy: ReturnType<typeof vi.fn>;
 	let revokeObjectURLSpy: ReturnType<typeof vi.fn>;

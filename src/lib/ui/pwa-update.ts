@@ -11,11 +11,15 @@
 // never break dev/SSR/tests.
 
 import { browser } from '$app/environment';
+import { isDesktop } from '$lib/desktop';
 import { t } from '$lib/i18n';
 import { notify } from '$lib/notify.svelte';
 
 export function registerPwaUpdates(): void {
 	if (!browser) return;
+	// Desktop shell (Tauri): no service worker - assets are bundled locally
+	// and a SW can conflict with the custom asset/IPC protocols.
+	if (isDesktop()) return;
 	void (async () => {
 		try {
 			const { registerSW } = await import('virtual:pwa-register');

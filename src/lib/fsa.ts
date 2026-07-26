@@ -1,9 +1,16 @@
 import { browser } from '$app/environment';
+import { t } from '$lib/i18n';
+import { isPathLinkRecord, pathBasename, type PathLinkRecord } from './disk-link';
 
 export interface StoredHandle {
 	id: string;
 	handle: FileSystemFileHandle;
 }
+
+/** Unified disk link entry for DiskLinksPanel / broken-link checks. */
+export type StoredDiskLink =
+	| { id: string; kind: 'fsa'; handle: FileSystemFileHandle; label: string }
+	| { id: string; kind: 'path'; path: string; label: string };
 
 const HANDLE_DB = 'mdsh-fs';
 const HANDLE_STORE = 'handles';
@@ -125,16 +132,41 @@ export async function saveHandle(id: string, handle: FileSystemFileHandle): Prom
 	});
 }
 
+/** Persists a path-based disk link (desktop). Overwrites any prior FSA handle. */
+export async function savePathLink(id: string, record: PathLinkRecord): Promise<void> {
+	if (!browser) return;
+	const db = await openHandleDB();
+	await new Promise<void>((resolve, reject) => {
+		const tx = db.transaction(HANDLE_STORE, 'readwrite');
+		tx.objectStore(HANDLE_STORE).put(record, id);
+		tx.oncomplete = () => resolve();
+		tx.onerror = () => reject(tx.error);
+	});
+}
+
 export async function getHandle(id: string): Promise<FileSystemFileHandle | null> {
 	if (!browser) return null;
 	const db = await openHandleDB();
-	const handle = await new Promise<FileSystemFileHandle | null>((resolve, reject) => {
+	const value = await new Promise<unknown>((resolve, reject) => {
 		const tx = db.transaction(HANDLE_STORE, 'readonly');
 		const req = tx.objectStore(HANDLE_STORE).get(id);
-		req.onsuccess = () => resolve((req.result as FileSystemFileHandle | undefined) ?? null);
+		req.onsuccess = () => resolve(req.result);
 		req.onerror = () => reject(req.error);
 	});
-	return handle;
+	if (value == null || isPathLinkRecord(value)) return null;
+	return value as FileSystemFileHandle;
+}
+
+export async function getPathLink(id: string): Promise<PathLinkRecord | null> {
+	if (!browser) return null;
+	const db = await openHandleDB();
+	const value = await new Promise<unknown>((resolve, reject) => {
+		const tx = db.transaction(HANDLE_STORE, 'readonly');
+		const req = tx.objectStore(HANDLE_STORE).get(id);
+		req.onsuccess = () => resolve(req.result);
+		req.onerror = () => reject(req.error);
+	});
+	return isPathLinkRecord(value) ? value : null;
 }
 
 export async function deleteHandle(id: string): Promise<void> {
@@ -167,7 +199,7 @@ export async function pickAndOpen(): Promise<Array<{ handle: FileSystemFileHandl
 			multiple: true,
 			types: [
 				{
-					description: 'Markdown',
+					description: t('disk.fileFilter'),
 					accept: {
 						'text/markdown': ['.md', '.markdown', '.mdx'],
 						'text/plain': ['.txt']
@@ -194,7 +226,7 @@ export async function pickSaveTarget(suggestedName: string): Promise<FileSystemF
 			suggestedName,
 			types: [
 				{
-					description: 'Markdown',
+					description: t('disk.fileFilter'),
 					accept: { 'text/markdown': ['.md'] }
 				}
 			]
@@ -222,33 +254,50 @@ export async function writeHandle(handle: FileSystemFileHandle, content: string)
  * panel will display "no link" instead of crashing.
  */
 export async function listHandles(): Promise<Array<{ id: string; handle: FileSystemFileHandle }>> {
+	const all = await listDiskLinks();
+	return all
+		.filter((e): e is Extract<StoredDiskLink, { kind: 'fsa' }> => e.kind === 'fsa')
+		.map(({ id, handle }) => ({ id, handle }));
+}
+
+/**
+ * Lists every disk link (FSA handles + desktop path records) stored in IDB.
+ * Fail-soft: returns `[]` if IDB is unavailable.
+ */
+export async function listDiskLinks(): Promise<StoredDiskLink[]> {
 	if (!browser) return [];
 	try {
 		const db = await openHandleDB();
-		const entries = await new Promise<Array<{ id: string; handle: FileSystemFileHandle }>>(
-			(resolve, reject) => {
-				const tx = db.transaction(HANDLE_STORE, 'readonly');
-				const store = tx.objectStore(HANDLE_STORE);
-				// `openCursor` rather than `getAll` + `getAllKeys` to avoid two
-				// round-trips and to guarantee the id <-> handle pairing even if the
-				// `getAllKeys`/`getAll` API is not synchronized on some polyfills.
-				const out: Array<{ id: string; handle: FileSystemFileHandle }> = [];
-				const req = store.openCursor();
-				req.onsuccess = () => {
-					const cursor = req.result;
-					if (cursor) {
+		const entries = await new Promise<StoredDiskLink[]>((resolve, reject) => {
+			const tx = db.transaction(HANDLE_STORE, 'readonly');
+			const store = tx.objectStore(HANDLE_STORE);
+			const out: StoredDiskLink[] = [];
+			const req = store.openCursor();
+			req.onsuccess = () => {
+				const cursor = req.result;
+				if (cursor) {
+					const id = String(cursor.key);
+					const value = cursor.value;
+					if (isPathLinkRecord(value)) {
 						out.push({
-							id: String(cursor.key),
-							handle: cursor.value as FileSystemFileHandle
+							id,
+							kind: 'path',
+							path: value.path,
+							label: pathBasename(value.path) || value.path
 						});
-						cursor.continue();
-					} else {
-						resolve(out);
+					} else if (value != null) {
+						const handle = value as FileSystemFileHandle;
+						const name =
+							typeof handle.name === 'string' && handle.name.length > 0 ? handle.name : id;
+						out.push({ id, kind: 'fsa', handle, label: name });
 					}
-				};
-				req.onerror = () => reject(req.error);
-			}
-		);
+					cursor.continue();
+				} else {
+					resolve(out);
+				}
+			};
+			req.onerror = () => reject(req.error);
+		});
 		return entries;
 	} catch {
 		return [];

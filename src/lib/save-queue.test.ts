@@ -76,6 +76,23 @@ describe('SaveQueue', () => {
 		expect(put).toHaveBeenCalledTimes(2);
 	});
 
+	it('flush() garde l’indicateur pending jusqu’à la fin réelle du write', async () => {
+		let resolvePut: ((value: string) => void) | undefined;
+		const pendingPut = new Promise<string>((resolve) => {
+			resolvePut = resolve;
+		});
+		vi.spyOn(db.drafts, 'put').mockReturnValue(pendingPut as ReturnType<typeof db.drafts.put>);
+		const states: boolean[] = [];
+		const q = new SaveQueue({ ...noopCb, onPendingChange: (pending) => states.push(pending) });
+		q.schedule('a', () => row('a'));
+
+		q.flush((id) => row(id));
+
+		expect(states.at(-1)).toBe(true);
+		resolvePut?.('a');
+		await vi.waitFor(() => expect(states.at(-1)).toBe(false));
+	});
+
 	it('onPendingChange : true au schedule, false une fois le write terminé', async () => {
 		vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 		const states: boolean[] = [];

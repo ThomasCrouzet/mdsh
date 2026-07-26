@@ -166,6 +166,7 @@ export class SaveQueue {
 			this.timers.delete(id);
 			const row = getRow(id);
 			if (!row) continue;
+			this.pendingWrites += 1;
 			// §m3 - `onSaved` ONLY after the write succeeds (like the `schedule`
 			// path). Previously `onSaved(Date.now())` was called unconditionally at
 			// the end of the loop → the UI could show "saved" while a put failed
@@ -178,7 +179,11 @@ export class SaveQueue {
 					this.cb.onSaved(Date.now());
 					this.cb.onDraftSaved?.(row.id, row.updatedAt);
 				})
-				.catch((err) => this.cb.onError(err));
+				.catch((err) => this.cb.onError(err))
+				.finally(() => {
+					this.pendingWrites -= 1;
+					this.updateFlag();
+				});
 		}
 		this.updateFlag();
 	}

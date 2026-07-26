@@ -20,7 +20,39 @@ npm run analyze                  # vite-bundle-visualizer
 npm run build                    # Static build → build/
 npm run preview                  # Test the build locally
 npm run preview:pages            # Test the build under the /mdsh/ base path
+npm run desktop:dev              # Tauri desktop shell + Vite (requires Rust)
+npm run desktop:build            # Packaged app (macOS / Linux / Windows)
 ```
+
+### Desktop shell (Tauri 2)
+
+The web PWA remains first-class. The desktop apps are a thin Tauri 2 shell around
+the same static SPA (`src-tauri/`).
+
+| Concern | Behavior |
+|---------|----------|
+| Disk open/save | Native dialogs + path links in IDB (`mdsh-fs`); browser keeps FSA |
+| Menu | File: New, Open, Save to Disk, exports, Settings; Edit: system defaults |
+| Window | Size/position restore via `tauri-plugin-window-state` |
+| File association | `.md` / `.markdown` / `.mdx` / `.txt` + argv; frontend `openPathsFromDesktop` |
+| Service worker | Not registered in the shell (`isDesktop()`) |
+| Base path | Empty locally by default; release CI explicitly provides `BASE_PATH=''` |
+| Version | Single source in `package.json`; `tauri.conf.json` reads it directly |
+
+**Prerequisites (desktop contributors only):**
+
+- Rust stable (`rustup`, `cargo`) - see [https://rustup.rs](https://rustup.rs)
+- Platform webview deps:
+  - **macOS**: Xcode CLT
+  - **Linux**: WebKitGTK (e.g. `webkit2gtk-4.1` / distro equivalent) + usual build tools
+  - **Windows**: [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (usually preinstalled on Win10/11) + MSVC build tools
+
+```sh
+npm run desktop:dev     # opens the native window against the Vite dev server
+npm run desktop:build   # builds the SPA with the current BASE_PATH, then packages installers
+```
+
+Icons: `npx tauri icon static/pwa-512x512.png`. CI: `.github/workflows/desktop.yml` validates Rust on pull requests and `main`, then packages release-please releases, tags `v*`, and manual runs. macOS uses an ad hoc signature by default; authenticated distribution signing, notarization, and auto-update are deferred (see ROADMAP).
 
 ## Module map
 
@@ -51,7 +83,12 @@ npm run preview:pages            # Test the build under the /mdsh/ base path
 | `src/lib/ui/editor-width.svelte.ts` | `createEditorWidth()` factory: editor width + resize handle, persisted |
 | `src/lib/ui/prefetch.svelte.ts` | Adaptive prefetch of heavy chunks (mode/math heuristic) after `load()` - dynamic imports guarded by `no-restricted-imports` |
 | `src/lib/ui/prefs.svelte.ts` | `createUiPrefs()` factory: focus mode, typewriter, TOC visibility - reactive state + localStorage persistence + DOM `$effect` |
-| `src/lib/ui/pwa-update.ts` | "Reload" toast on a new version (`registerType: 'prompt'`) |
+| `src/lib/ui/pwa-update.ts` | "Reload" toast on a new version (`registerType: 'prompt'`); no-op inside the Tauri shell |
+| `src/lib/desktop.ts` | Desktop shell detection (`isDesktop`) - no static `@tauri-apps/*` import |
+| `src/lib/desktop-shell.ts` | Native menu + open-paths listeners (dynamic Tauri imports) |
+| `src/lib/disk-link.ts` | Pure path-link helpers (basename, extension, IDB record shape) |
+| `src/lib/disk-tauri.ts` | Path-based open/save I/O (injectable boundary for tests) |
+| `src-tauri/` | Tauri 2 native shell (window, dialogs, disk commands, file associations, menu) |
 | `src/lib/ui/theme.svelte.ts` + `src/lib/theme.ts` | Light/dark/system theme - `themeStore` singleton applies `data-theme` + `meta theme-color`, follows the OS via matchMedia |
 | `src/lib/workspaces.svelte.ts` | Workspaces store (named sessions of open tabs, Dexie v3 persistence) |
 | `src/lib/spinner.svelte.ts` | Global spinner toast for long exports (PDF / HTML / ZIP) |

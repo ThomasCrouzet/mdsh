@@ -12,9 +12,22 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+      - uses: googleapis/release-please-action@0dfd8538845b8e92600d271a895a5372865d4062 # v5
+        id: release
         with:
           # Configuration externalisée pour pouvoir évoluer sans toucher au workflow.
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  desktop:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/desktop.yml
+    with:
+      release_tag: ${{ needs.release-please.outputs.tag_name }}
+    permissions:
+      contents: write

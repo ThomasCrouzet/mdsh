@@ -18,7 +18,9 @@
 	import { createModals } from '$lib/ui/modals.svelte';
 	import { filesStore } from '$lib/files.svelte';
 	import { requestPersistentStorage, checkStoragePressure } from '$lib/storage';
-	import { isFSASupported } from '$lib/fsa';
+	import { isDiskLinkingAvailable } from '$lib/disk-sync';
+	import { isDesktop } from '$lib/desktop';
+	import { shouldFallThroughToFileInput } from '$lib/import-intent';
 	import type { EditMode } from '$lib/types';
 	import { createEditorWidth } from '$lib/ui/editor-width.svelte';
 	import { buildKeydownHandler } from '$lib/ui/shortcuts.svelte';
@@ -28,6 +30,7 @@
 	import { buildDropHandlers } from '$lib/ui/image-drop.svelte';
 	import { schedulePrefetch } from '$lib/ui/prefetch.svelte';
 	import { createFileIntents } from '$lib/ui/file-intents.svelte';
+	import { initDesktopShell, type DesktopMenuAction } from '$lib/desktop-shell';
 
 	let mode = $state<EditMode>('wysiwyg');
 	// §B1.10 / B2.2 - Text announced to SRs on each mode switch + one-off
@@ -115,8 +118,12 @@
 		onUiAction: (action) => (action === 'search' ? modals.openSearch() : modals.openPalette())
 	});
 
-	onMount(async () => {
-		if (browser) {
+	onMount(() => {
+		if (!browser) return;
+		let disposeDesktop: (() => void) | undefined;
+		let disposed = false;
+
+		void (async () => {
 			// §J1 - Request the persistent bucket AS EARLY AS POSSIBLE (before any IDB
 			// write), to reduce the window during which the browser may evict
 			// storage. Best-effort, fire-and-forget.
@@ -154,7 +161,40 @@
 
 			// §1.2 - Registers the SW + wires the "Reload" toast to updates.
 			registerPwaUpdates();
-		}
+
+			// Desktop shell: native menu + argv / file-association open.
+			const dispose = await initDesktopShell({
+				onMenuAction: handleDesktopMenuAction,
+				onOpenPaths: async (paths) => {
+					try {
+						await filesStore.openPathsFromDesktop(paths);
+					} catch (err) {
+						reportError('ouverture depuis le shell desktop', err, {
+							notifyUser: t('page.openFromDiskError')
+						});
+					}
+				},
+				labels: {
+					file: t('desktopMenu.file'),
+					edit: t('desktopMenu.edit'),
+					newFile: t('desktopMenu.new'),
+					open: t('desktopMenu.open'),
+					saveToDisk: t('desktopMenu.saveToDisk'),
+					exportMarkdown: t('desktopMenu.exportMarkdown'),
+					exportPdf: t('desktopMenu.exportPdf'),
+					exportHtml: t('desktopMenu.exportHtml'),
+					exportZip: t('desktopMenu.exportZip'),
+					settings: t('desktopMenu.settings')
+				}
+			});
+			if (disposed) dispose();
+			else disposeDesktop = dispose;
+		})();
+
+		return () => {
+			disposed = true;
+			disposeDesktop?.();
+		};
 	});
 
 	$effect(() => {
@@ -177,21 +217,66 @@
 	}
 
 	async function handleImport() {
-		if (isFSASupported()) {
+		const diskLinkingAvailable = isDiskLinkingAvailable();
+		const desktop = isDesktop();
+		let createdCount = 0;
+		let openThrew = false;
+		if (diskLinkingAvailable) {
 			try {
 				const created = await filesStore.openFromDisk();
-				if (created.length > 0) return;
+				createdCount = created.length;
 			} catch (err) {
-				// User cancellation (AbortError) is already absorbed in fsa.ts; here,
-				// it is a real failure (permission, security, read) - we report it
-				// instead of letting it slip through as a silent rejection.
+				// User cancellation (AbortError) is already absorbed in fsa/disk-tauri;
+				// here it is a real failure (permission, security, read).
+				openThrew = true;
 				reportError('ouverture depuis le disque', err, {
 					notifyUser: t('page.openFromDiskError')
 				});
-				return;
 			}
 		}
+		// Desktop (incl. Chromium WebView on Windows): never fall through to
+		// <input type="file"> - that path skips path-based disk links.
+		// Browser: FSA cancel falls through to the hidden file input.
+		if (
+			!shouldFallThroughToFileInput({
+				diskLinkingAvailable,
+				isDesktop: desktop,
+				createdCount,
+				openThrew
+			})
+		) {
+			return;
+		}
 		fileInput?.click();
+	}
+
+	async function handleDesktopMenuAction(action: DesktopMenuAction) {
+		switch (action) {
+			case 'new':
+				handleNew();
+				break;
+			case 'open':
+				await handleImport();
+				break;
+			case 'save-disk':
+				await handleSaveToDisk();
+				break;
+			case 'export-md':
+				handleExport();
+				break;
+			case 'export-pdf':
+				await handleExportPDF();
+				break;
+			case 'export-html':
+				await handleExportHTML();
+				break;
+			case 'export-zip':
+				await handleExportAll();
+				break;
+			case 'settings':
+				modals.openSettings();
+				break;
+		}
 	}
 
 	async function handleFileInput(e: Event) {
