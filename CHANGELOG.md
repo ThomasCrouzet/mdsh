@@ -5,6 +5,19 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.1.0...v1.2.0) (2026-07-26)
+
+
+### Features
+
+* **desktop:** ajoute les applications natives multiplateformes ([#19](https://github.com/ThomasCrouzet/mdsh/issues/19)) ([fe6acca](https://github.com/ThomasCrouzet/mdsh/commit/fe6accaffee477a44353be1403dd6c134b1cd590))
+
+
+### Bug Fixes
+
+* **ci:** move @vite-pwa/sveltekit to devDependencies and refresh lockfile ([0dbf395](https://github.com/ThomasCrouzet/mdsh/commit/0dbf3955927c76a106dcb1b2a98fcd884b42b7e1))
+* follow UI theme for Mermaid and locale for export lang ([6cdbb11](https://github.com/ThomasCrouzet/mdsh/commit/6cdbb11dfb2fc9904b34cb4aa21db70b50491c03))
+
 ## [1.1.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.0.0...v1.1.0) (2026-07-15)
 
 

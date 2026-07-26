@@ -1,7 +1,7 @@
 {
 	"name": "mdsh",
 	"private": true,
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"description": "A local-first WYSIWYG markdown editor - offline, 100% client-side PWA. No server, no account, no telemetry.",
 	"license": "MIT",
 	"author": "Thomas Crouzet",
