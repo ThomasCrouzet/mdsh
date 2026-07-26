@@ -1,6 +1,7 @@
 mod disk;
 
 use disk::{collect_argv_paths, PendingOpenPaths};
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
