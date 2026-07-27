@@ -117,16 +117,15 @@
 		// `untrack`: do not subscribe to file content mutations.
 		// Without it, any keystroke in the editor re-posts the whole corpus to the worker.
 		// The effect only re-triggers on the debounced query and the options.
-		// Fingerprint on id+updatedAt: re-sync only when the corpus actually changed.
-		const snapshot = untrack(() =>
+		// Fingerprint only needs id+updatedAt (O(N)); clone full content only when
+		// the corpus actually changed so each keystroke does not copy megabytes.
+		const meta = untrack(() =>
 			filesStore.files.map((f) => ({
 				id: f.id,
-				name: f.name,
-				content: f.content,
 				updatedAt: f.updatedAt
 			}))
 		);
-		const fingerprint = corpusFingerprint(snapshot);
+		const fingerprint = corpusFingerprint(meta);
 		const corpusChanged = fingerprint !== lastCorpusFingerprint;
 		if (corpusChanged) lastCorpusFingerprint = fingerprint;
 		const req: SearchRequest = {
@@ -137,11 +136,13 @@
 			useRegex,
 			...(corpusChanged
 				? {
-						files: snapshot.map(({ id: fid, name, content }) => ({
-							id: fid,
-							name,
-							content
-						}))
+						files: untrack(() =>
+							filesStore.files.map((f) => ({
+								id: f.id,
+								name: f.name,
+								content: f.content
+							}))
+						)
 					}
 				: {})
 		};

@@ -67,6 +67,12 @@ class FilesStore {
 	selectedIds = $state<Set<string>>(new Set());
 
 	private trashTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	/**
+	 * In-flight moveToTrash promises per draft id. restore() must await these
+	 * before restoreFromTrash so a late moveToTrash cannot delete a just-restored
+	 * drafts row (fast Undo race).
+	 */
+	private pendingTrashMoves = new Map<string, Promise<boolean>>();
 	private metaIndex = new MetaIndex(() => this.files);
 	// §M3 - Ids with a local keystroke not yet persisted ("dirty") in the
 	// cross-tab sense: a draft is dirty as long as a write is pending OR its
@@ -121,7 +127,15 @@ class FilesStore {
 			// A tab reordered or restored a backup: if no local editing is in
 			// progress, we reload everything to stay consistent. Otherwise we notify
 			// (a reload would overwrite the unflushed local keystroke).
+			//
+			// On backup-applied with local pending: invalidate writers so they
+			// skip further puts over the restored tables (must NOT discard -
+			// reverse-delete would erase the restored drafts). Memory stays
+			// until the user clicks reload.
 			if (this.hasLocalPendingEdits()) {
+				if (msg.type === 'backup-applied') {
+					this.saveQueue.invalidateAll(this.files.map((f) => f.id));
+				}
 				this.notifyCrossTabConflict(t('files.otherTabChanges'));
 			} else {
 				// `reload(false)`: do NOT re-broadcast (otherwise an infinite reload
@@ -256,7 +270,9 @@ class FilesStore {
 	 */
 	async reload(broadcast = true): Promise<void> {
 		if (!browser) return;
-		this.saveQueue.cancelAll(this.files.map((f) => f.id));
+		// invalidateAll (not discardAll): skip in-flight puts without deleting
+		// IDB rows - discard reverse-delete would wipe restored / reloaded drafts.
+		this.saveQueue.invalidateAll(this.files.map((f) => f.id));
 		for (const t of this.trashTimers.values()) clearTimeout(t);
 		this.trashTimers.clear();
 		this.files = [];
@@ -302,19 +318,30 @@ class FilesStore {
 
 	/** §A2.8 - Immediate flush of pending saves (pagehide / beforeunload). */
 	flushPending(): void {
-		this.saveQueue.flush((id) => {
-			const file = this.files.find((f) => f.id === id);
-			if (!file) return null;
-			// §M2 - History snapshot also on the close flush. The `scheduleSave`
-			// debounce path already records a version, but not the
-			// pagehide/beforeunload flush: combined with the 5 min throttle, the last
-			// state before closing could have never had a version. `recordVersion`
-			// handles its own throttle/dedup → no abusive duplicate. Fire-and-forget.
-			void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
-				reportError('historique de version', err)
-			);
-			return toDraftRow(file, this.files.indexOf(file));
-		});
+		this.saveQueue.flush((id) => this.rowForFlush(id));
+	}
+
+	/**
+	 * Flushes armed debounce timers and awaits in-flight IDB puts.
+	 * Used before backup export so the JSON snapshot includes the latest edits.
+	 */
+	async flushPendingAwait(): Promise<void> {
+		await this.saveQueue.flushAwait((id) => this.rowForFlush(id));
+	}
+
+	/** Shared draft-row builder for flush paths (history snapshot side-effect). */
+	private rowForFlush(id: string): DraftRow | null {
+		const file = this.files.find((f) => f.id === id);
+		if (!file) return null;
+		// §M2 - History snapshot also on the close flush. The `scheduleSave`
+		// debounce path already records a version, but not the
+		// pagehide/beforeunload flush: combined with the 5 min throttle, the last
+		// state before closing could have never had a version. `recordVersion`
+		// handles its own throttle/dedup → no abusive duplicate. Fire-and-forget.
+		void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
+			reportError('historique de version', err)
+		);
+		return toDraftRow(file, this.files.indexOf(file));
 	}
 
 	createNew(name = t('files.untitledFilename'), content = ''): FileItem {
@@ -389,7 +416,16 @@ class FilesStore {
 			this.activeId = this.files[Math.min(idx, this.files.length - 1)]?.id ?? null;
 			this.persistActiveId();
 		}
-		this.saveQueue.cancel(id);
+		// keepDB detaches the tab but leaves the Dexie row as source of truth on
+		// re-open (workspaces.restore). Flush unflushed keystrokes first - cancel
+		// would drop edits still inside the 400 ms debounce window (H1).
+		// Trash / hard-delete use discard so in-flight puts cannot resurrect the
+		// draft after moveToTrash / drafts.delete.
+		if (opts.keepDB === true) {
+			this.saveQueue.flushPending([id], () => toDraftRow(file, idx));
+		} else {
+			this.saveQueue.discard(id);
+		}
 		this.metaIndex.invalidateMeta(id);
 		if (this.selectedIds.has(id)) {
 			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- reassigning the $state with a fresh Set (deliberate Svelte 5 pattern, cf. selectionToggle)
@@ -403,7 +439,7 @@ class FilesStore {
 			this.trash.push(entry);
 			const timer = setTimeout(() => this.purge(id), TIMERS.trashUndoMs);
 			this.trashTimers.set(id, timer);
-			void moveToTrash(id, toDraftRow(file, idx), idx, trashedAt).then((ok) => {
+			const moveP = moveToTrash(id, toDraftRow(file, idx), idx, trashedAt).then((ok) => {
 				if (ok) {
 					// §M3 - The `drafts` row left the base (moved to trash): signals the
 					// other tabs to remove the corresponding tab.
@@ -414,6 +450,11 @@ class FilesStore {
 					// does not lie about a "closed" but not trashed file.
 					this.rollbackTrash(id, file, idx);
 				}
+				return ok;
+			});
+			this.pendingTrashMoves.set(id, moveP);
+			void moveP.finally(() => {
+				if (this.pendingTrashMoves.get(id) === moveP) this.pendingTrashMoves.delete(id);
 			});
 		} else if (opts.keepDB === true) {
 			// §6.8 - keepDB: removes the tab without deleting the draft (workspaces.restore).
@@ -442,11 +483,13 @@ class FilesStore {
 	/**
 	 * §6.8 - Re-injects Dexie rows into `files` without recreating them (workspaces.restore).
 	 * No scheduleSave: the rows already exist in DB.
+	 * Disk links are probed asynchronously (same as `load`) so broken-link badges
+	 * and save-to-disk still work after a workspace switch.
 	 */
 	openMany(rows: DraftRow[]): void {
 		if (!browser || rows.length === 0) return;
 		const existing = new Set(this.files.map((f) => f.id));
-		let added = false;
+		const addedIds: string[] = [];
 		for (const r of rows) {
 			if (!r || existing.has(r.id)) continue;
 			this.files.push({
@@ -458,9 +501,64 @@ class FilesStore {
 				dirty: false,
 				linkedToDisk: false
 			});
-			added = true;
+			addedIds.push(r.id);
 		}
-		if (added) this.metaIndex.invalidateBacklinksIndex();
+		if (addedIds.length === 0) return;
+		this.metaIndex.invalidateBacklinksIndex();
+		// Background: restore linkedToDisk flags for re-opened workspace tabs.
+		if (isFSASupported() || isDesktop()) {
+			void Promise.all(
+				addedIds.map(async (id) => {
+					const hasFsa = isFSASupported() ? Boolean(await getHandle(id)) : false;
+					const hasPath = Boolean(await getPathLink(id));
+					return { id, has: hasFsa || hasPath };
+				})
+			).then((checks) => {
+				let any = false;
+				for (const c of checks) {
+					if (!c.has) continue;
+					const f = this.files.find((x) => x.id === c.id);
+					if (f && !f.linkedToDisk) {
+						f.linkedToDisk = true;
+						any = true;
+					}
+				}
+				if (any) void this.refreshBrokenLinks();
+			});
+		}
+	}
+
+	/**
+	 * Reorders open tabs to match `orderedIds` (workspace fileIds). Ids not
+	 * currently open are ignored; open tabs missing from the list keep their
+	 * relative tail order after the matched prefix.
+	 */
+	reorderToIds(orderedIds: readonly string[]): void {
+		if (orderedIds.length === 0 || this.files.length <= 1) return;
+		const byId = new Map(this.files.map((f) => [f.id, f]));
+		const next: typeof this.files = [];
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local transient Set, not $state
+		const seen = new Set<string>();
+		for (const id of orderedIds) {
+			const f = byId.get(id);
+			if (!f || seen.has(id)) continue;
+			next.push(f);
+			seen.add(id);
+		}
+		for (const f of this.files) {
+			if (!seen.has(f.id)) next.push(f);
+		}
+		// Only mutate when order actually changes (avoids needless meta churn).
+		if (next.length !== this.files.length) return;
+		let same = true;
+		for (let i = 0; i < next.length; i++) {
+			if (next[i]!.id !== this.files[i]!.id) {
+				same = false;
+				break;
+			}
+		}
+		if (same) return;
+		this.files = next;
 	}
 
 	restore(id: string): FileItem | null {
@@ -481,8 +579,46 @@ class FilesStore {
 		// Atomic restoration (put draft + delete trashed in one transaction): no
 		// window where the file exists in NO table. Since the row is persisted, no
 		// scheduleSave here (later edits will go back through the normal path).
-		void restoreFromTrash(id, toDraftRow(entry.file, insertAt));
+		//
+		// Order matters for Undo races:
+		// 1) await pending moveToTrash so it cannot run after restoreFromTrash
+		//    and wipe the restored drafts row;
+		// 2) settleAndRearm so a discarded in-flight put reverse-deletes before
+		//    we rewrite the draft (not after).
+		void (async () => {
+			const pendingMove = this.pendingTrashMoves.get(id);
+			if (pendingMove) {
+				try {
+					await pendingMove;
+				} catch {
+					// moveToTrash errors already handled in close's then
+				}
+			}
+			await this.saveQueue.settleAndRearm(id);
+			const ok = await restoreFromTrash(id, toDraftRow(entry.file, insertAt));
+			if (!ok) this.rollbackRestore(id, entry, insertAt);
+		})();
 		return entry.file;
+	}
+
+	/**
+	 * Cancels an optimistic restore when the Dexie transaction failed: the row
+	 * may still be only in `trashed`, so we re-queue it in the UI trash and
+	 * remove it from open tabs.
+	 */
+	private rollbackRestore(id: string, entry: TrashedFile, insertAt: number): void {
+		const fIdx = this.files.findIndex((f) => f.id === id);
+		if (fIdx !== -1) this.files.splice(fIdx, 1);
+		if (!this.trash.some((t) => t.file.id === id)) {
+			this.trash.push(entry);
+			const timer = setTimeout(() => this.purge(id), TIMERS.trashUndoMs);
+			this.trashTimers.set(id, timer);
+		}
+		if (this.activeId === id) {
+			this.activeId = this.files[Math.min(insertAt, this.files.length - 1)]?.id ?? null;
+			this.persistActiveId();
+		}
+		this.metaIndex.invalidateBacklinksIndex();
 	}
 
 	/**

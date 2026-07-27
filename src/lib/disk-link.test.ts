@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { isPathLinkRecord, pathBasename, isMarkdownDiskPath, pathLinkRecord } from './disk-link';
+import {
+	isPathLinkRecord,
+	pathBasename,
+	isMarkdownDiskPath,
+	ensureMarkdownDiskPath,
+	pathLinkRecord
+} from './disk-link';
 
 describe('isPathLinkRecord', () => {
 	it('accepte un enregistrement path valide', () => {
@@ -45,5 +51,23 @@ describe('isMarkdownDiskPath', () => {
 describe('pathLinkRecord', () => {
 	it('construit le record stockable en IDB', () => {
 		expect(pathLinkRecord('/tmp/x.md')).toEqual({ kind: 'path', path: '/tmp/x.md' });
+	});
+});
+
+describe('ensureMarkdownDiskPath', () => {
+	it('laisse intact un path avec extension markdown autorisee', () => {
+		expect(ensureMarkdownDiskPath('/tmp/note.md')).toBe('/tmp/note.md');
+		expect(ensureMarkdownDiskPath('/tmp/note.markdown')).toBe('/tmp/note.markdown');
+		expect(ensureMarkdownDiskPath('C:\\notes\\a.txt')).toBe('C:\\notes\\a.txt');
+	});
+
+	it('ajoute .md quand le dialogue renvoie un nom sans extension', () => {
+		expect(ensureMarkdownDiskPath('/tmp/note')).toBe('/tmp/note.md');
+		expect(ensureMarkdownDiskPath('/Users/me/Draft')).toBe('/Users/me/Draft.md');
+	});
+
+	it('ajoute .md pour une extension non autorisee (pdf)', () => {
+		// Save dialog filters already restrict, but a bare weird path still needs a writeable ext.
+		expect(ensureMarkdownDiskPath('/tmp/x.pdf')).toBe('/tmp/x.pdf.md');
 	});
 });

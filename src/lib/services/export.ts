@@ -38,10 +38,24 @@ export function sanitizeFilename(name: string): string {
 }
 
 /**
- * Triggers the download of a blob by simulating a click on an `<a download>`.
- * Encapsulated to share the mechanism between `exportMarkdown` and `exportHTML`.
+ * Triggers a file save. On the Tauri desktop shell, uses a native save dialog +
+ * Rust write (WebView `<a download>` is unreliable across OS webviews). In the
+ * browser, falls back to a blob + `<a download>` click.
+ *
+ * @returns `true` when a download/save was initiated; `false` when the user
+ * cancelled the desktop save dialog (callers must NOT clear dirty or toast success).
  */
-function triggerDownload(blob: Blob, filename: string): void {
+async function triggerDownload(blob: Blob, filename: string): Promise<boolean> {
+	try {
+		const { isDesktop } = await import('../desktop');
+		if (isDesktop()) {
+			const { tauriSaveExportBlob } = await import('../disk-tauri');
+			// Cancel is an intentional no-op - do not fall through to blob download.
+			return await tauriSaveExportBlob(blob, filename);
+		}
+	} catch {
+		// Desktop path failed - fall through to browser download when possible.
+	}
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');
 	a.href = url;
@@ -50,15 +64,19 @@ function triggerDownload(blob: Blob, filename: string): void {
 	a.click();
 	a.remove();
 	URL.revokeObjectURL(url);
+	return true;
 }
 
-/** Downloads the raw markdown under the file's name (`<name>.md`). */
-export function exportMarkdown(file: FileItem): void {
-	if (typeof document === 'undefined') return;
+/**
+ * Downloads the raw markdown under the file's name (`<name>.md`).
+ * @returns `false` if the desktop save dialog was cancelled.
+ */
+export async function exportMarkdown(file: FileItem): Promise<boolean> {
+	if (typeof document === 'undefined') return false;
 	const blob = new Blob([file.content], { type: 'text/markdown;charset=utf-8' });
 	// Sanitization at export time only: a name containing `/`, `:`, etc. would
 	// break the `download` attribute or create a sub-tree.
-	triggerDownload(blob, sanitizeFilename(file.name));
+	return triggerDownload(blob, sanitizeFilename(file.name));
 }
 
 /**
@@ -68,8 +86,9 @@ export function exportMarkdown(file: FileItem): void {
  * The HTML / window title uses the front-matter `title` if present (otherwise
  * the filename) - consistent with the sidebar UI and the PDF export.
  */
-export async function exportHTML(file: FileItem): Promise<void> {
-	if (typeof document === 'undefined') return;
+/** @returns `false` if the desktop save dialog was cancelled. */
+export async function exportHTML(file: FileItem): Promise<boolean> {
+	if (typeof document === 'undefined') return false;
 	const [{ renderMarkdownDetailed }, { buildStandaloneHtmlDocument }, { i18n }] = await Promise.all(
 		[import('../render/markdown'), import('../render/print'), import('$lib/i18n')]
 	);
@@ -78,7 +97,8 @@ export async function exportHTML(file: FileItem): Promise<void> {
 	const docTitle = title || fallback;
 	const html = await buildStandaloneHtmlDocument(docTitle, bodyHtml, file.content, i18n.locale);
 	const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-	triggerDownload(blob, fallback + '.html');
+	// Same sanitization as markdown/ZIP exports - path-like names break download.
+	return triggerDownload(blob, sanitizeFilename(fallback + '.html'));
 }
 
 /**
@@ -126,9 +146,10 @@ export async function exportPDF(file: FileItem): Promise<void> {
  * would otherwise collide (JSZip silently overwrites the first entry). We
  * suffix `-2`, `-3`, … while preserving the extension.
  */
-export async function exportZip(files: FileItem[], filename = 'mdsh-export.zip'): Promise<void> {
+/** @returns `false` if the desktop save dialog was cancelled. */
+export async function exportZip(files: FileItem[], filename = 'mdsh-export.zip'): Promise<boolean> {
 	if (typeof window === 'undefined' || typeof document === 'undefined' || files.length === 0)
-		return;
+		return false;
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const used = new Set<string>();
@@ -148,5 +169,5 @@ export async function exportZip(files: FileItem[], filename = 'mdsh-export.zip')
 		zip.file(name, f.content);
 	}
 	const blob = await zip.generateAsync({ type: 'blob' });
-	triggerDownload(blob, filename);
+	return triggerDownload(blob, filename);
 }

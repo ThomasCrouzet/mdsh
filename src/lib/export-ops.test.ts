@@ -47,7 +47,7 @@ describe('export-ops - feedback notify (§J3)', () => {
 	});
 
 	it('exportHTML : toast succès', async () => {
-		vi.mocked(services.exportHTML).mockResolvedValue(undefined);
+		vi.mocked(services.exportHTML).mockResolvedValue(true);
 		await exportHTML('a', deps);
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
 	});
@@ -71,7 +71,7 @@ describe('export-ops - feedback notify (§J3)', () => {
 	});
 
 	it('exportAllZip : succès annonçant le nombre de fichiers', async () => {
-		vi.mocked(services.exportZip).mockResolvedValue(undefined);
+		vi.mocked(services.exportZip).mockResolvedValue(true);
 		await exportAllZip(deps);
 		const ok = notify.toasts.find((t) => t.level === 'success');
 		expect(ok?.message).toContain('2');
@@ -84,7 +84,7 @@ describe('export-ops - feedback notify (§J3)', () => {
 	});
 
 	it('exportSelectionZip : succès sur une sélection', async () => {
-		vi.mocked(services.exportZip).mockResolvedValue(undefined);
+		vi.mocked(services.exportZip).mockResolvedValue(true);
 		await exportSelectionZip(new Set(['a']), deps);
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
 	});
@@ -111,8 +111,55 @@ describe('export-ops - feedback notify (§J3)', () => {
 		expect(services.exportHTML).not.toHaveBeenCalled();
 	});
 
-	it('exportMarkdown : no-op si id inconnu', () => {
-		exportMarkdown('missing', deps);
+	it('exportMarkdown : no-op si id inconnu', async () => {
+		await exportMarkdown('missing', deps);
 		expect(services.exportMarkdown).not.toHaveBeenCalled();
+	});
+
+	it('exportMarkdown : annulation desktop ne clear pas dirty ni ne toast', async () => {
+		const files = [file('a')];
+		const scheduleSave = vi.fn();
+		const localDeps = {
+			getFiles: () => files as readonly FileItem[],
+			scheduleSave
+		};
+		vi.mocked(services.exportMarkdown).mockResolvedValue(false);
+		await exportMarkdown('a', localDeps);
+		expect(files[0]!.dirty).toBe(true);
+		expect(scheduleSave).not.toHaveBeenCalled();
+		expect(notify.toasts).toHaveLength(0);
+	});
+
+	it('exportMarkdown : succès clear dirty et scheduleSave', async () => {
+		const files = [file('a')];
+		const scheduleSave = vi.fn();
+		const localDeps = {
+			getFiles: () => files as readonly FileItem[],
+			scheduleSave
+		};
+		vi.mocked(services.exportMarkdown).mockResolvedValue(true);
+		await exportMarkdown('a', localDeps);
+		expect(files[0]!.dirty).toBe(false);
+		expect(scheduleSave).toHaveBeenCalledWith('a');
+	});
+
+	it('exportHTML : annulation desktop ne toast pas succès', async () => {
+		vi.mocked(services.exportHTML).mockResolvedValue(false);
+		await exportHTML('a', deps);
+		expect(notify.toasts.some((t) => t.level === 'success')).toBe(false);
+	});
+
+	it('exportAllZip : annulation desktop ne toast pas et ne clear pas dirty', async () => {
+		const files = [file('a'), file('b')];
+		const scheduleSave = vi.fn();
+		const localDeps = {
+			getFiles: () => files as readonly FileItem[],
+			scheduleSave
+		};
+		vi.mocked(services.exportZip).mockResolvedValue(false);
+		await exportAllZip(localDeps);
+		expect(notify.toasts.some((t) => t.level === 'success')).toBe(false);
+		expect(files.every((f) => f.dirty)).toBe(true);
+		expect(scheduleSave).not.toHaveBeenCalled();
 	});
 });

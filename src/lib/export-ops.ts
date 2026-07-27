@@ -27,15 +27,21 @@ export interface ExportDeps {
 }
 
 /**
- * Exports the file `id` as Markdown (direct download).
- * Resets `dirty = false` and schedules a save.
+ * Exports the file `id` as Markdown (direct download or desktop save dialog).
+ * Resets `dirty = false` and schedules a save only after a real save/download
+ * (`false` from the service = desktop dialog cancelled).
  */
-export function exportMarkdown(id: string, deps: ExportDeps): void {
+export async function exportMarkdown(id: string, deps: ExportDeps): Promise<void> {
 	const file = deps.getFiles().find((f) => f.id === id);
 	if (!file || !browser) return;
-	exportMarkdownService(file);
-	file.dirty = false;
-	deps.scheduleSave(id);
+	try {
+		const ok = await exportMarkdownService(file);
+		if (!ok) return;
+		file.dirty = false;
+		deps.scheduleSave(id);
+	} catch (err) {
+		reportError('export Markdown', err, { notifyUser: t('export.mdFailed') });
+	}
 }
 
 /**
@@ -49,7 +55,8 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 	const dismiss = spinnerStore.show(t('export.creatingZip'));
 	try {
 		const stamp = new Date().toISOString().slice(0, 10);
-		await exportZipService(snapshot, `mdsh-export-${stamp}.zip`);
+		const ok = await exportZipService(snapshot, `mdsh-export-${stamp}.zip`);
+		if (!ok) return; // desktop dialog cancelled - keep dirty, no success toast
 		notify.success(t('export.zipCreated', { n: snapshot.length }));
 	} catch (err) {
 		reportError('export ZIP', err, { notifyUser: t('export.zipFailed') });
@@ -76,7 +83,8 @@ export async function exportHTML(id: string, deps: ExportDeps): Promise<void> {
 	if (!file || !browser) return;
 	const dismiss = spinnerStore.show(t('export.preparingHtml'));
 	try {
-		await exportHTMLService(file);
+		const ok = await exportHTMLService(file);
+		if (!ok) return; // desktop dialog cancelled
 		notify.success(t('export.htmlExported'));
 	} catch (err) {
 		reportError('export HTML', err, { notifyUser: t('export.htmlFailed') });
@@ -117,7 +125,8 @@ export async function exportSelectionZip(
 	const dismiss = spinnerStore.show(t('export.creatingZip'));
 	try {
 		const stamp = new Date().toISOString().slice(0, 10);
-		await exportZipService(files, `mdsh-selection-${stamp}.zip`);
+		const ok = await exportZipService(files, `mdsh-selection-${stamp}.zip`);
+		if (!ok) return; // desktop dialog cancelled
 		notify.success(t('export.zipCreated', { n: files.length }));
 	} catch (err) {
 		reportError('ZIP export (selection)', err, { notifyUser: t('export.zipFailed') });

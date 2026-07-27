@@ -100,14 +100,17 @@ export function decodeWikiTarget(encoded: string): string {
  * preserved. The caller then compares by name/id.
  */
 export function extractWikiLinkTargets(md: string): string[] {
-	// Classes excluding `[` - cf. preprocessWikiLinks (quadratic anti-ReDoS guard).
-	const pattern = /\[\[([^[\]|\n]+?)(?:\|[^[\]\n]+?)?\]\]/g;
+	// Same alternating scanner as preprocessWikiLinks: skip fenced/inline code so
+	// examples in ``` blocks do not become false backlinks / graph edges.
+	// Classes excluding `[` on the wiki arm - cf. preprocessWikiLinks (anti-ReDoS).
+	const pattern =
+		/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)|\[\[([^[\]|\n]+?)(?:\|[^[\]\n]+?)?\]\]/g;
 	const seen = new Set<string>();
 	let m: RegExpExecArray | null;
 	while ((m = pattern.exec(md)) !== null) {
-		// invariant: m[1] is guaranteed non-undefined (mandatory capture group in
-		// the regex, and `m !== null` is the loop invariant).
-		const t = m[1]!.trim();
+		if (m[1] !== undefined) continue; // code region
+		// invariant: m[2] is the wiki target capture when the code arm did not match.
+		const t = m[2]!.trim();
 		if (t) seen.add(t);
 	}
 	return [...seen];

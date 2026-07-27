@@ -90,6 +90,7 @@ export const fr: Record<MessageKey, string> = {
 	'export.creatingZip': 'Création du ZIP…',
 	'export.htmlExported': 'HTML exporté.',
 	'export.htmlFailed': "L'export HTML a échoué.",
+	'export.mdFailed': "L'export Markdown a échoué.",
 	'export.pdfExported': 'PDF exporté.',
 	'export.pdfFailed': "L'export PDF a échoué.",
 	'export.preparingHtml': 'Préparation du HTML…',

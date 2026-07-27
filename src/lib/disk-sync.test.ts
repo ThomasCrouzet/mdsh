@@ -392,7 +392,7 @@ describe('saveToDisk', () => {
 
 describe('unlinkFromDisk', () => {
 	it('supprime le handle puis délie le fichier et planifie un save', async () => {
-		const file = makeFile({ linkedToDisk: true });
+		const file = makeFile({ linkedToDisk: true, brokenLink: true });
 		const scheduleSave = vi.fn();
 		const deps: DiskSyncDeps = { getFile: () => file, onCreate: () => file, scheduleSave };
 		vi.mocked(fsa.deleteHandle).mockResolvedValue(undefined);
@@ -401,6 +401,8 @@ describe('unlinkFromDisk', () => {
 
 		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
 		expect(file.linkedToDisk).toBe(false);
+		// Intentional unlink must clear the broken-link badge.
+		expect(file.brokenLink).toBe(false);
 		expect(scheduleSave).toHaveBeenCalledWith('a');
 	});
 

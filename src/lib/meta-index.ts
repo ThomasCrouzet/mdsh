@@ -39,6 +39,8 @@ interface BacklinksIndex {
 export class MetaIndex {
 	private metaCache = new Map<string, MetaEntry>();
 	private backlinksIndex: BacklinksIndex | null = null;
+	/** Sorted unique tags; invalidated with meta/backlinks. */
+	private allTagsCache: string[] | null = null;
 
 	/** Reference to the current files state (injected by the store). */
 	private getFiles: () => readonly FileItem[];
@@ -103,11 +105,13 @@ export class MetaIndex {
 	invalidateMeta(id: string): void {
 		this.metaCache.delete(id);
 		this.backlinksIndex = null;
+		this.allTagsCache = null;
 	}
 
 	/** Invalidates only the backlinks index (e.g. adding/removing a file). */
 	invalidateBacklinksIndex(): void {
 		this.backlinksIndex = null;
+		this.allTagsCache = null;
 	}
 
 	private buildBacklinksIndex(): void {
@@ -148,14 +152,17 @@ export class MetaIndex {
 
 	/**
 	 * Lists all unique tags present in the corpus, sorted alphabetically.
-	 * §A2.1 - `getMeta(file)` caches the parsing per file.
+	 * §A2.1 - `getMeta(file)` caches the parsing per file. The sorted list is
+	 * memoized until the next invalidate (avoids Set+sort on every Sidebar tick).
 	 */
 	get allTags(): string[] {
+		if (this.allTagsCache) return this.allTagsCache;
 		const set = new Set<string>();
 		for (const file of this.getFiles()) {
 			for (const t of this.getMeta(file).tags) set.add(t);
 		}
-		return [...set].sort((a, b) => a.localeCompare(b));
+		this.allTagsCache = [...set].sort((a, b) => a.localeCompare(b));
+		return this.allTagsCache;
 	}
 
 	/**

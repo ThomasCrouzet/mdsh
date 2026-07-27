@@ -337,6 +337,8 @@ export async function unlinkFromDisk(id: string, deps: DiskSyncDeps): Promise<vo
 	const file = deps.getFile(id);
 	if (!file) return;
 	file.linkedToDisk = false;
+	// Intentional unlink: clear the broken-link badge (sidebar keys on brokenLink alone).
+	file.brokenLink = false;
 	deps.scheduleSave(id);
 }
 

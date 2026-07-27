@@ -49,6 +49,18 @@ export function isMarkdownDiskPath(path: string): boolean {
 	return DISK_MD_EXTENSIONS.some((ext) => base.endsWith(ext));
 }
 
+/**
+ * Ensures a save-dialog path has an allowed markdown extension.
+ * Native save dialogs can return a bare name; Rust `disk_write` rejects
+ * paths without an allowed extension, so we default to `.md`.
+ */
+export function ensureMarkdownDiskPath(path: string): string {
+	const trimmed = path.trim();
+	if (!trimmed) return trimmed;
+	if (isMarkdownDiskPath(trimmed)) return trimmed;
+	return `${trimmed}.md`;
+}
+
 export function pathLinkRecord(path: string): PathLinkRecord {
 	return { kind: 'path', path };
 }

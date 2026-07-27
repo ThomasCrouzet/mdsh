@@ -1,4 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+const desktopMocks = vi.hoisted(() => ({
+	isDesktop: vi.fn(() => false),
+	tauriSaveExportBlob: vi.fn(async (_blob: Blob, _name: string) => true)
+}));
+
+vi.mock('../desktop', () => ({
+	isDesktop: () => desktopMocks.isDesktop()
+}));
+
+vi.mock('../disk-tauri', () => ({
+	tauriSaveExportBlob: (blob: Blob, name: string) => desktopMocks.tauriSaveExportBlob(blob, name)
+}));
+
 import { db, newId, type DraftRow, type WorkspaceRow, type TemplateRow } from '../db';
 import {
 	BACKUP_FORMAT,
@@ -539,6 +553,8 @@ describe('downloadBackup - orchestration DOM', () => {
 	let capturedBlobs: Blob[];
 
 	beforeEach(() => {
+		desktopMocks.isDesktop.mockReturnValue(false);
+		desktopMocks.tauriSaveExportBlob.mockResolvedValue(true);
 		capturedBlobs = [];
 		createdAnchor = {
 			href: '',
@@ -569,11 +585,13 @@ describe('downloadBackup - orchestration DOM', () => {
 		createElementSpy.mockRestore();
 		appendSpy.mockRestore();
 		vi.unstubAllGlobals();
+		desktopMocks.isDesktop.mockReturnValue(false);
 	});
 
 	it('télécharge un backup clair (.json) avec nom horodaté', async () => {
 		await db.drafts.put(draft({ id: 'd', name: 'd.md', content: 'clair' }));
-		await downloadBackup();
+		const ok = await downloadBackup();
+		expect(ok).toBe(true);
 
 		expect(createElementSpy).toHaveBeenCalledWith('a');
 		expect(createObjectURL).toHaveBeenCalledTimes(1);
@@ -592,7 +610,7 @@ describe('downloadBackup - orchestration DOM', () => {
 	it('ne fait rien (no-op) en contexte sans document (SSR)', async () => {
 		await db.drafts.put(draft({ id: 'd', name: 'd.md' }));
 		vi.stubGlobal('document', undefined);
-		await downloadBackup();
+		expect(await downloadBackup()).toBe(false);
 		// Aucun blob créé : le garde SSR a court-circuité avant tout DOM.
 		expect(createObjectURL).not.toHaveBeenCalled();
 		expect(createdAnchor.click).not.toHaveBeenCalled();
@@ -600,7 +618,7 @@ describe('downloadBackup - orchestration DOM', () => {
 
 	it('télécharge un backup chiffré (.encrypted.json) quand une passphrase est fournie', async () => {
 		await db.drafts.put(draft({ id: 'd', name: 'd.md', content: 'à protéger' }));
-		await downloadBackup('motdepasse');
+		expect(await downloadBackup('motdepasse')).toBe(true);
 
 		expect(createdAnchor.click).toHaveBeenCalledTimes(1);
 		expect(createdAnchor.download).toMatch(/^mdsh-backup-\d{4}-\d{2}-\d{2}\.encrypted\.json$/);
@@ -611,5 +629,17 @@ describe('downloadBackup - orchestration DOM', () => {
 		// Et déchiffrable → re-parsable avec la bonne passphrase.
 		const clear = await decryptBackupText(text, 'motdepasse');
 		expect(parseBackup(clear).drafts.map((x) => x.id)).toEqual(['d']);
+	});
+
+	it('retourne false si le dialogue desktop est annulé (pas de succès implicite)', async () => {
+		desktopMocks.isDesktop.mockReturnValue(true);
+		desktopMocks.tauriSaveExportBlob.mockResolvedValue(false);
+		await db.drafts.put(draft({ id: 'd', name: 'd.md', content: 'x' }));
+		const ok = await downloadBackup();
+		expect(ok).toBe(false);
+		expect(desktopMocks.tauriSaveExportBlob).toHaveBeenCalledOnce();
+		// No browser blob fallback on cancel.
+		expect(createObjectURL).not.toHaveBeenCalled();
+		expect(createdAnchor.click).not.toHaveBeenCalled();
 	});
 });

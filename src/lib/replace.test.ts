@@ -23,6 +23,14 @@ describe('buildReplaceRegex', () => {
 		expect(re?.test('a123')).toBe(true);
 	});
 	it('regex invalide : renvoie une erreur', () => {
+		const nested = buildReplaceRegex('(a+)+$', { ...OPTS, useRegex: true });
+		expect(nested.re).toBeNull();
+		expect(nested.error).toMatch(/nested quantifiers/i);
+
+		const tooLong = buildReplaceRegex('a'.repeat(201), { ...OPTS, useRegex: true });
+		expect(tooLong.re).toBeNull();
+		expect(tooLong.error).toMatch(/too long/i);
+
 		const { re, error } = buildReplaceRegex('a(', { ...OPTS, useRegex: true });
 		expect(re).toBeNull();
 		expect(error).toBeTruthy();

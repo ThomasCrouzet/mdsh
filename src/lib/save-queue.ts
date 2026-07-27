@@ -35,6 +35,12 @@ export interface SaveQueueCallbacks {
  * new call, `getRow()` is invoked and the row is written to IDB via
  * `db.drafts.put`.
  *
+ * Writes for a given id are **serialized** (promise chain) so an older put
+ * cannot complete after a newer one and roll back fresher content.
+ *
+ * `discard(id)` marks the id so in-flight or chained puts neither resurrect
+ * a draft after trash/hard-delete nor report onSaved for a removed row.
+ *
  * `hasPendingSave` = `saveTimers.size > 0 || pendingWrites > 0`.
  * Without the `pendingWrites` counter, the indicator would fall back to `false`
  * as soon as the timer is cleared, before the IDB write completes.
@@ -42,6 +48,30 @@ export interface SaveQueueCallbacks {
 export class SaveQueue {
 	private timers = new Map<string, ReturnType<typeof setTimeout>>();
 	private pendingWrites = 0;
+	/** Refcount of in-flight / chained puts per id (timer already cleared). */
+	private writingIds = new Map<string, number>();
+	/** In-flight put promises - used by `flushAwait` / backup to wait for durability. */
+	private putPromises = new Set<Promise<void>>();
+	/** Per-id serial chain so puts never race each other on the same draft. */
+	private chains = new Map<string, Promise<void>>();
+	/**
+	 * Generation counter per id. Each enqueue bumps it; a chain link skips the
+	 * write when a newer generation exists (latest content supersedes stale
+	 * snapshots still queued).
+	 */
+	private generations = new Map<string, number>();
+	/**
+	 * Ids whose draft must not remain in `drafts` after a put settles
+	 * (trash / hard-delete only). Puts check this before and after write.
+	 * Never use for reload/backup - that would delete restored rows.
+	 */
+	private discardedIds = new Set<string>();
+	/**
+	 * Ids whose in-flight / chained puts must skip write + onSaved without
+	 * deleting the IDB row (reload, remote backup-applied). Distinct from
+	 * `discardedIds` which reverse-deletes after a put (trash resurrection).
+	 */
+	private invalidatedIds = new Set<string>();
 	private cb: SaveQueueCallbacks;
 
 	constructor(cb: SaveQueueCallbacks) {
@@ -50,6 +80,100 @@ export class SaveQueue {
 
 	private updateFlag(): void {
 		this.cb.onPendingChange(this.timers.size > 0 || this.pendingWrites > 0);
+	}
+
+	private bumpGeneration(id: string): number {
+		const next = (this.generations.get(id) ?? 0) + 1;
+		this.generations.set(id, next);
+		return next;
+	}
+
+	private incWriting(id: string): void {
+		this.writingIds.set(id, (this.writingIds.get(id) ?? 0) + 1);
+	}
+
+	private decWriting(id: string): void {
+		const n = (this.writingIds.get(id) ?? 1) - 1;
+		if (n <= 0) this.writingIds.delete(id);
+		else this.writingIds.set(id, n);
+	}
+
+	/**
+	 * Enqueues a single IDB put on the per-id serial chain. Tracks in-flight
+	 * ids so `has(id)` stays true across the timer → write gap (cross-tab
+	 * policy must not treat that window as "no local pending").
+	 *
+	 * When no prior put is in flight for `id`, `db.drafts.put` is invoked
+	 * synchronously (async function runs until its first await) so existing
+	 * callers/tests that flush and immediately inspect the spy still work.
+	 */
+	private enqueuePut(row: DraftRow): void {
+		const id = row.id;
+		// A live schedule re-arms a discarded / invalidated id (e.g. restored
+		// from trash, or edited again after a cross-tab toast).
+		this.discardedIds.delete(id);
+		this.invalidatedIds.delete(id);
+		const gen = this.bumpGeneration(id);
+		this.pendingWrites += 1;
+		this.incWriting(id);
+
+		const execute = async (): Promise<void> => {
+			// Superseded by a newer enqueue, invalidate, or discard - skip write.
+			if (this.generations.get(id) !== gen) return;
+			if (this.invalidatedIds.has(id)) return;
+			if (this.discardedIds.has(id)) {
+				try {
+					await db.drafts.delete(id);
+				} catch (err) {
+					this.cb.onError(err);
+				}
+				return;
+			}
+			try {
+				await db.drafts.put(row);
+			} catch (err) {
+				// Only surface errors for the still-current live generation.
+				if (
+					this.generations.get(id) === gen &&
+					!this.discardedIds.has(id) &&
+					!this.invalidatedIds.has(id)
+				) {
+					this.cb.onError(err);
+				}
+				return;
+			}
+			// Put finished: trash discard must reverse a resurrection.
+			if (this.discardedIds.has(id)) {
+				try {
+					await db.drafts.delete(id);
+				} catch (err) {
+					this.cb.onError(err);
+				}
+				return;
+			}
+			// Invalidate / newer generation: do not notify (and do not delete -
+			// the row may be the restored backup / reloaded authority).
+			if (this.invalidatedIds.has(id) || this.generations.get(id) !== gen) return;
+			this.cb.onSaved(Date.now());
+			// §M3 - Notifies the other tabs of the successful write.
+			this.cb.onDraftSaved?.(row.id, row.updatedAt);
+		};
+
+		const prev = this.chains.get(id);
+		// Call execute() directly when idle so put() starts in this turn.
+		const run: Promise<void> = prev ? prev.catch(() => undefined).then(() => execute()) : execute();
+
+		const tracked = run.finally(() => {
+			this.pendingWrites -= 1;
+			this.decWriting(id);
+			this.putPromises.delete(tracked);
+			// Drop chain head when this link was the latest for id.
+			if (this.chains.get(id) === tracked) this.chains.delete(id);
+			this.updateFlag();
+		});
+
+		this.chains.set(id, tracked);
+		this.putPromises.add(tracked);
 	}
 
 	/**
@@ -70,26 +194,14 @@ export class SaveQueue {
 					this.updateFlag();
 					return;
 				}
-				this.pendingWrites += 1;
-				db.drafts
-					.put(row)
-					.then(() => {
-						this.cb.onSaved(Date.now());
-						// §M3 - Notifies the other tabs of the successful write.
-						this.cb.onDraftSaved?.(row.id, row.updatedAt);
-					})
-					.catch((err) => this.cb.onError(err))
-					.finally(() => {
-						this.pendingWrites -= 1;
-						this.updateFlag();
-					});
+				this.enqueuePut(row);
 			}, TIMERS.saveDebounceMs)
 		);
 	}
 
 	/**
-	 * Cancels a pending timer without writing. Used by `close()` and `reorder()`
-	 * to avoid a stale write after the file is removed.
+	 * Cancels a pending timer without writing. Used when detaching a tab that
+	 * should not flush (prefer `discard` when the Dexie row must not resurface).
 	 */
 	cancel(id: string): void {
 		const t = this.timers.get(id);
@@ -100,7 +212,34 @@ export class SaveQueue {
 		this.updateFlag();
 	}
 
-	/** Cancels all timers without writing (e.g. global reorder). */
+	/**
+	 * Cancels the timer and marks `id` so in-flight / chained puts reverse-delete
+	 * any resurrection. **Trash / hard-delete only** - never use on reload or
+	 * backup restore (that would erase restored drafts).
+	 */
+	discard(id: string): void {
+		this.cancel(id);
+		this.invalidatedIds.delete(id);
+		this.discardedIds.add(id);
+		// Bump generation so any chain link still holding a stale row skips put.
+		this.bumpGeneration(id);
+		this.updateFlag();
+	}
+
+	/**
+	 * Cancels the timer and marks `id` so in-flight / chained puts skip write
+	 * and onSaved **without** deleting the IDB row. Used by `reload` and
+	 * cross-tab backup-applied (restored tables must stay intact).
+	 */
+	invalidate(id: string): void {
+		this.cancel(id);
+		this.discardedIds.delete(id);
+		this.invalidatedIds.add(id);
+		this.bumpGeneration(id);
+		this.updateFlag();
+	}
+
+	/** Cancels all timers without writing (e.g. global reorder of timers only). */
 	cancelAll(ids: string[]): void {
 		for (const id of ids) {
 			const t = this.timers.get(id);
@@ -113,11 +252,52 @@ export class SaveQueue {
 	}
 
 	/**
+	 * Invalidates every listed id (timers + in-flight puts, no reverse-delete).
+	 * Used by `reload` and cross-tab backup-applied.
+	 */
+	invalidateAll(ids: string[]): void {
+		for (const id of ids) this.invalidate(id);
+	}
+
+	/**
+	 * Discards every listed id (timers + reverse-delete). Prefer per-id
+	 * `discard` from trash/hard-delete; bulk form for tests / rare paths.
+	 */
+	discardAll(ids: string[]): void {
+		for (const id of ids) this.discard(id);
+	}
+
+	/**
+	 * Waits for any in-flight / chained put for `id` to settle (while discard
+	 * is still active, so reverse-delete can finish), then clears discard and
+	 * invalidate flags and bumps generation.
+	 *
+	 * Required before undo-restore from trash: otherwise a put that started
+	 * before close can reverse-delete the drafts row **after** restoreFromTrash
+	 * rewrote it (silent data loss on Undo).
+	 */
+	async settleAndRearm(id: string): Promise<void> {
+		const chain = this.chains.get(id);
+		if (chain) {
+			try {
+				await chain;
+			} catch {
+				// Prior put errors are already routed to onError.
+			}
+		}
+		this.discardedIds.delete(id);
+		this.invalidatedIds.delete(id);
+		this.bumpGeneration(id);
+		this.updateFlag();
+	}
+
+	/**
 	 * §M1 - Immediately flushes the pending content of the `ids` that have an armed
 	 * timer, without waiting for the debounce. Unlike `cancelAll`, we do NOT forget
 	 * the pending keystroke: we write it before forgetting it (otherwise `reorder`
 	 * destroyed the timer and lost the last keystroke in base). Used by `reorder`
-	 * just before persisting the new `order`.
+	 * just before persisting the new `order`, and by `close({ keepDB: true })` so
+	 * workspace switches do not drop unflushed edits.
 	 *
 	 * Fire-and-forget (consistent with `flush`); the writes are counted in
 	 * `pendingWrites` so the "saving" indicator stays accurate.
@@ -130,25 +310,18 @@ export class SaveQueue {
 			this.timers.delete(id);
 			const row = getRow(id);
 			if (!row) continue;
-			this.pendingWrites += 1;
-			db.drafts
-				.put(row)
-				.then(() => {
-					this.cb.onSaved(Date.now());
-					this.cb.onDraftSaved?.(row.id, row.updatedAt);
-				})
-				.catch((err) => this.cb.onError(err))
-				.finally(() => {
-					this.pendingWrites -= 1;
-					this.updateFlag();
-				});
+			this.enqueuePut(row);
 		}
 		this.updateFlag();
 	}
 
-	/** Indicates whether `id` has a pending timer. */
+	/**
+	 * True while `id` has an armed debounce timer OR an in-flight/chained IDB put.
+	 * Cross-tab guards must use this so they do not reload / overwrite during
+	 * the write window after the timer fires.
+	 */
 	has(id: string): boolean {
-		return this.timers.has(id);
+		return this.timers.has(id) || (this.writingIds.get(id) ?? 0) > 0;
 	}
 
 	/**
@@ -166,25 +339,35 @@ export class SaveQueue {
 			this.timers.delete(id);
 			const row = getRow(id);
 			if (!row) continue;
-			this.pendingWrites += 1;
 			// §m3 - `onSaved` ONLY after the write succeeds (like the `schedule`
 			// path). Previously `onSaved(Date.now())` was called unconditionally at
 			// the end of the loop → the UI could show "saved" while a put failed
 			// (invariant "onSaved ⇒ write succeeded" broken). In the unload context
 			// the UI disappears, but we keep the consistency for possible
 			// non-unload flushes.
-			db.drafts
-				.put(row)
-				.then(() => {
-					this.cb.onSaved(Date.now());
-					this.cb.onDraftSaved?.(row.id, row.updatedAt);
-				})
-				.catch((err) => this.cb.onError(err))
-				.finally(() => {
-					this.pendingWrites -= 1;
-					this.updateFlag();
-				});
+			this.enqueuePut(row);
 		}
 		this.updateFlag();
+	}
+
+	/**
+	 * Flushes armed timers then waits until every in-flight put settles.
+	 * Drains in a loop so puts started during the wait (rare) are still
+	 * awaited. Used by backup export so the JSON snapshot includes the latest
+	 * keystrokes.
+	 */
+	async flushAwait(getRow: (id: string) => DraftRow | null): Promise<void> {
+		// Bound the loop so a pathological continuous schedule cannot hang forever.
+		for (let i = 0; i < 8; i++) {
+			this.flush(getRow);
+			if (this.putPromises.size === 0 && this.timers.size === 0) return;
+			if (this.putPromises.size > 0) {
+				await Promise.all([...this.putPromises]);
+			}
+			if (this.timers.size === 0 && this.putPromises.size === 0) return;
+		}
+		// Final best-effort flush of anything still armed.
+		this.flush(getRow);
+		if (this.putPromises.size > 0) await Promise.all([...this.putPromises]);
 	}
 }

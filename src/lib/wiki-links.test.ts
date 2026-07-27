@@ -179,6 +179,11 @@ describe('decodeWikiTarget', () => {
 });
 
 describe('extractWikiLinkTargets', () => {
+	it('ignore les liens dans les fences de code', () => {
+		const md = 'Avant [[Real]]\n```md\n[[ExampleInFence]]\n```\nApres [[AlsoReal]]\n`[[inline]]`';
+		expect(extractWikiLinkTargets(md).sort()).toEqual(['AlsoReal', 'Real']);
+	});
+
 	it('extrait une cible simple', () => {
 		const targets = extractWikiLinkTargets('Voir [[Notes de réunion]]');
 		expect(targets).toEqual(['Notes de réunion']);

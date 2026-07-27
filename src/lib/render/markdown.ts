@@ -391,7 +391,10 @@ function buildFrontmatterBlock(data: Record<string, unknown>): string {
  * The final HTML is sanitized by DOMPurify - a hostile `.md` (imported via
  * share_target, launchQueue, drag-drop) cannot inject a script.
  */
-export async function renderMarkdown(md: string, opts: RenderOptions = {}): Promise<string> {
+async function renderMarkdownCore(
+	md: string,
+	opts: RenderOptions = {}
+): Promise<{ html: string; fm: Awaited<ReturnType<typeof parseFrontmatter>> }> {
 	// 1. Extract the front-matter (lazy gray-matter via parseFrontmatter).
 	const fm = await parseFrontmatter(md);
 
@@ -432,20 +435,26 @@ export async function renderMarkdown(md: string, opts: RenderOptions = {}): Prom
 		if (block) html = block + html;
 	}
 
-	return sanitize(html);
+	return { html: await sanitize(html), fm };
+}
+
+export async function renderMarkdown(md: string, opts: RenderOptions = {}): Promise<string> {
+	const { html } = await renderMarkdownCore(md, opts);
+	return html;
 }
 
 /**
  * Variant of `renderMarkdown` that also returns the parsed front-matter and
  * the extracted title - useful for callers that want this metadata
  * (PDF printing with author/date in the header, etc.).
+ *
+ * Single parse/render path (no second front-matter + marked pass).
  */
 export async function renderMarkdownDetailed(
 	md: string,
 	opts: RenderOptions = {}
 ): Promise<RenderResult> {
-	const fm = await parseFrontmatter(md);
-	const html = await renderMarkdown(md, opts);
+	const { html, fm } = await renderMarkdownCore(md, opts);
 	const title = getTitle(fm.data, fm.content, '');
 	return {
 		html,

@@ -268,7 +268,20 @@ export async function applyBackup(
 
 // ─── DOM orchestration (download / file read) ───────────────────────────────
 
-function triggerDownload(blob: Blob, filename: string): void {
+/**
+ * @returns `true` when a download/save was initiated; `false` when the user
+ * cancelled the desktop save dialog.
+ */
+async function triggerDownload(blob: Blob, filename: string): Promise<boolean> {
+	try {
+		const { isDesktop } = await import('../desktop');
+		if (isDesktop()) {
+			const { tauriSaveExportBlob } = await import('../disk-tauri');
+			return await tauriSaveExportBlob(blob, filename);
+		}
+	} catch {
+		// fall through to browser download
+	}
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');
 	a.href = url;
@@ -277,15 +290,18 @@ function triggerDownload(blob: Blob, filename: string): void {
 	a.click();
 	a.remove();
 	URL.revokeObjectURL(url);
+	return true;
 }
 
 /**
  * Builds the backup and triggers its download. If `passphrase` is
  * provided (§2.8), the content is encrypted (AES-GCM) and the file is unreadable
  * without the passphrase.
+ *
+ * @returns `false` if the desktop save dialog was cancelled (no success toast).
  */
-export async function downloadBackup(passphrase?: string): Promise<void> {
-	if (typeof document === 'undefined') return;
+export async function downloadBackup(passphrase?: string): Promise<boolean> {
+	if (typeof document === 'undefined') return false;
 	const now = Date.now();
 	const backup = await collectBackup(now);
 	const json = serializeBackup(backup);
@@ -293,11 +309,10 @@ export async function downloadBackup(passphrase?: string): Promise<void> {
 	if (passphrase) {
 		const envelope = await encryptString(json, passphrase);
 		const blob = new Blob([JSON.stringify(envelope)], { type: 'application/json;charset=utf-8' });
-		triggerDownload(blob, `mdsh-backup-${stamp}.encrypted.json`);
-		return;
+		return triggerDownload(blob, `mdsh-backup-${stamp}.encrypted.json`);
 	}
 	const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
-	triggerDownload(blob, `mdsh-backup-${stamp}.json`);
+	return triggerDownload(blob, `mdsh-backup-${stamp}.json`);
 }
 
 /** §2.8 - Detects whether a backup text is an encrypted envelope. */

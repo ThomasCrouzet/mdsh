@@ -8,13 +8,15 @@
 // The renderer (`marked` + KaTeX + highlight.js + DOMPurify) stays lazy-loaded
 // (dynamic import) - zero impact on the initial bundle.
 
+import { t } from '$lib/i18n';
+
 export function isClipboardSupported(): boolean {
 	return typeof navigator !== 'undefined' && !!navigator.clipboard;
 }
 
 /** Copies the raw markdown as is. */
 export async function copyMarkdown(content: string): Promise<void> {
-	if (!isClipboardSupported()) throw new Error('Presse-papiers indisponible');
+	if (!isClipboardSupported()) throw new Error(t('palette.clipboardUnavailable'));
 	await navigator.clipboard.writeText(content);
 }
 
@@ -24,7 +26,7 @@ export async function copyMarkdown(content: string): Promise<void> {
  * available, we fall back to a text copy of the HTML.
  */
 export async function copyRichHtml(content: string): Promise<void> {
-	if (!isClipboardSupported()) throw new Error('Presse-papiers indisponible');
+	if (!isClipboardSupported()) throw new Error(t('palette.clipboardUnavailable'));
 	const { renderMarkdown } = await import('../render/markdown');
 	const html = await renderMarkdown(content, { showFrontmatter: false });
 

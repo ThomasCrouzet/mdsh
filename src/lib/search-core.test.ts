@@ -60,6 +60,29 @@ describe('matchInCorpus', () => {
 		expect(regexError).toBeTruthy();
 	});
 
+	it('rejects nested quantifier regex (anti-ReDoS)', () => {
+		const { hits, regexError } = matchInCorpus(
+			[{ id: '1', name: 'a.md', content: 'a'.repeat(50) }],
+			{
+				query: '(a+)+$',
+				caseSensitive: false,
+				wholeWord: false,
+				useRegex: true
+			}
+		);
+		expect(hits).toEqual([]);
+		expect(regexError).toMatch(/nested quantifiers/i);
+
+		const alt = matchInCorpus([{ id: '1', name: 'a.md', content: 'a'.repeat(50) }], {
+			query: '(a|aa)+$',
+			caseSensitive: false,
+			wholeWord: false,
+			useRegex: true
+		});
+		expect(alt.hits).toEqual([]);
+		expect(alt.regexError).toMatch(/nested quantifiers/i);
+	});
+
 	it('caps hits at maxHits', () => {
 		const big = Array.from({ length: 50 }, (_, i) => ({
 			id: String(i),

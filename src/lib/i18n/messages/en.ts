@@ -91,6 +91,7 @@ export const en = {
 	'export.creatingZip': 'Creating the ZIP…',
 	'export.htmlExported': 'HTML exported.',
 	'export.htmlFailed': 'The HTML export failed.',
+	'export.mdFailed': 'The Markdown export failed.',
 	'export.pdfExported': 'PDF exported.',
 	'export.pdfFailed': 'The PDF export failed.',
 	'export.preparingHtml': 'Preparing the HTML…',

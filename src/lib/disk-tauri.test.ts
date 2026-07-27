@@ -8,6 +8,7 @@ import {
 	tauriReadMeta,
 	tauriCheckPath,
 	tauriOpenAbsolutePaths,
+	tauriSaveExportBlob,
 	type TauriDiskIo
 } from './disk-tauri';
 
@@ -30,8 +31,10 @@ function mockIo(over: Partial<TauriDiskIo> = {}): TauriDiskIo {
 	return {
 		openPaths: vi.fn(async () => []),
 		savePath: vi.fn(async () => null),
+		saveExportPath: vi.fn(async () => null),
 		readText: vi.fn(async () => ''),
 		writeText: vi.fn(async () => {}),
+		writeBytes: vi.fn(async () => {}),
 		stat: vi.fn(async () => null),
 		...over
 	};
@@ -79,6 +82,46 @@ describe('tauriPickSaveTarget', () => {
 		});
 		setTauriDiskIoForTests(mockIo({ savePath: vi.fn(async () => null) }));
 		expect(await tauriPickSaveTarget('note.md')).toBeNull();
+	});
+});
+
+describe('tauriSaveExportBlob', () => {
+	it('ecrit le blob via writeText pour un export HTML et retourne true', async () => {
+		const writeText = vi.fn(async () => {});
+		const writeBytes = vi.fn(async () => {});
+		setTauriDiskIoForTests(
+			mockIo({
+				saveExportPath: vi.fn(async () => '/tmp/out.html'),
+				writeText,
+				writeBytes
+			})
+		);
+		const blob = new Blob(['<html></html>'], { type: 'text/html' });
+		expect(await tauriSaveExportBlob(blob, 'out.html')).toBe(true);
+		expect(writeText).toHaveBeenCalledWith('/tmp/out.html', '<html></html>');
+		expect(writeBytes).not.toHaveBeenCalled();
+	});
+
+	it('ecrit en binaire pour un ZIP et retourne false si annule', async () => {
+		const writeBytes = vi.fn(async (_path: string, _contents: Uint8Array) => {});
+		setTauriDiskIoForTests(
+			mockIo({
+				saveExportPath: vi.fn(async () => '/tmp/pack.zip'),
+				writeBytes
+			})
+		);
+		// Use a plain string Blob then re-encode path as zip for binary branch
+		// (jsdom Blob + Uint8Array constructor typing is strict under TS 6).
+		const blob = new Blob(['PK\u0003\u0004']);
+		expect(await tauriSaveExportBlob(blob, 'pack.zip')).toBe(true);
+		expect(writeBytes).toHaveBeenCalledOnce();
+		const call = writeBytes.mock.calls[0];
+		expect(call?.[0]).toBe('/tmp/pack.zip');
+		expect(call?.[1]).toBeInstanceOf(Uint8Array);
+		expect(Array.from(call![1]!)).toEqual([0x50, 0x4b, 0x03, 0x04]);
+
+		setTauriDiskIoForTests(mockIo({ saveExportPath: vi.fn(async () => null) }));
+		expect(await tauriSaveExportBlob(blob, 'pack.zip')).toBe(false);
 	});
 });
 
@@ -164,9 +207,15 @@ describe('createTauriDiskIo', () => {
 			.mockResolvedValueOnce('/tmp/note.md')
 			.mockResolvedValueOnce(['/tmp/a.md', '/tmp/ignored.pdf']);
 		tauriMocks.save.mockResolvedValueOnce('/tmp/output.md').mockResolvedValueOnce(null);
+		let missingStat = false;
 		tauriMocks.invoke.mockImplementation(async (command: string) => {
+			if (command === 'disk_grant') return 1;
 			if (command === 'disk_read') return '# Native';
-			if (command === 'disk_stat') return { mtimeMs: 42, size: 8 };
+			if (command === 'disk_write' || command === 'disk_write_bytes') return undefined;
+			if (command === 'disk_stat') {
+				if (missingStat) return null;
+				return { mtimeMs: 42, size: 8 };
+			}
 			return undefined;
 		});
 
@@ -177,15 +226,30 @@ describe('createTauriDiskIo', () => {
 		expect(await io.openPaths(true)).toEqual(['/tmp/a.md']);
 		expect(await io.savePath('note.md')).toBe('/tmp/output.md');
 		expect(await io.savePath('note.md')).toBeNull();
+		// Bare name from save dialog → auto-append .md for Rust ensure_allowed.
+		tauriMocks.save.mockResolvedValueOnce('/tmp/sans-ext');
+		expect(await io.savePath('note.md')).toBe('/tmp/sans-ext.md');
+		// Export path preserves suggested extension when missing.
+		tauriMocks.save.mockResolvedValueOnce('/tmp/export-bare');
+		expect(await io.saveExportPath('doc.html')).toBe('/tmp/export-bare.html');
+		// Dialog picks grant; bare read/write/stat do not re-grant (Rust enforce).
+		expect(tauriMocks.invoke.mock.calls.some((c) => c[0] === 'disk_grant')).toBe(true);
+		const grantsBeforeIo = tauriMocks.invoke.mock.calls.filter((c) => c[0] === 'disk_grant').length;
 		expect(await io.readText('/tmp/a.md')).toBe('# Native');
 		await expect(io.writeText('/tmp/a.md', 'body')).resolves.toBeUndefined();
 		expect(await io.stat('/tmp/a.md')).toEqual({ lastModified: 42, size: 8 });
-		tauriMocks.invoke.mockResolvedValueOnce(null);
+		const grantsAfterIo = tauriMocks.invoke.mock.calls.filter((c) => c[0] === 'disk_grant').length;
+		expect(grantsAfterIo).toBe(grantsBeforeIo);
+		missingStat = true;
 		expect(await io.stat('/tmp/missing.md')).toBeNull();
 	});
 
 	it('creates and caches the production adapter through public helpers', async () => {
-		tauriMocks.invoke.mockResolvedValue({ mtimeMs: 10, size: 20 });
+		tauriMocks.invoke.mockImplementation(async (command: string) => {
+			if (command === 'disk_grant') return 1;
+			if (command === 'disk_stat') return { mtimeMs: 10, size: 20 };
+			return undefined;
+		});
 		expect(await tauriReadMeta('/tmp/a.md')).toEqual({
 			lastModified: 10,
 			size: 20

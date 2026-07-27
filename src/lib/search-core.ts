@@ -23,8 +23,36 @@ export interface SearchMatchResult {
 
 export const SEARCH_MAX_HITS = 200;
 
+/**
+ * Hard cap on user-supplied regex length (search + replace). Longer patterns
+ * are almost never useful in an editor and increase ReDoS risk.
+ */
+export const MAX_USER_REGEX_LENGTH = 200;
+
 function escapeRegex(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Rejects user regexes that are known to be catastrophic on long haystacks
+ * (nested quantifiers). Valid syntax alone is not enough - `(a+)+$` compiles.
+ * Returns an English error string for i18n/UI, or null when the pattern is
+ * accepted for compilation.
+ */
+export function userRegexSafetyError(query: string): string | null {
+	if (query.length > MAX_USER_REGEX_LENGTH) {
+		return `regex too long (max ${MAX_USER_REGEX_LENGTH} characters)`;
+	}
+	// Nested quantifiers: (…+…)+  (…*…)* ; alternation bombs (a|aa)+ ;
+	// or three+ consecutive quantifiers.
+	if (
+		/\([^)]*[+*][^)]*\)[+*?]/.test(query) ||
+		/\([^)]*\|[^)]*\)[+*]/.test(query) ||
+		/([+*]\??){3,}/.test(query)
+	) {
+		return 'regex rejected: nested quantifiers are not allowed';
+	}
+	return null;
 }
 
 /**
@@ -41,6 +69,8 @@ export function matchInCorpus(
 
 	let matcher: (line: string) => { idx: number; len: number } | null;
 	if (opts.useRegex) {
+		const safety = userRegexSafetyError(q);
+		if (safety) return { hits: [], regexError: safety };
 		let re: RegExp;
 		try {
 			re = new RegExp(q, opts.caseSensitive ? '' : 'i');

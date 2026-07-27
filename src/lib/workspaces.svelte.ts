@@ -172,6 +172,15 @@ class WorkspaceStore {
 		const ws = this.workspaces.find((w) => w.id === id);
 		if (!ws) return;
 
+		// Durability barrier: keepDB flushes are otherwise fire-and-forget, so a
+		// rapid switch away and back could re-open pre-edit IDB content.
+		try {
+			await filesStore.flushPendingAwait();
+		} catch (err) {
+			reportPersistenceError(err, 'save');
+			// Continue restore - partial flush is still better than aborting.
+		}
+
 		// 1. Open the missing files from Dexie (preserve the ids).
 		const openIds = new Set(filesStore.files.map((f) => f.id));
 		const toReopen = ws.fileIds.filter((wsId) => !openIds.has(wsId));
@@ -186,14 +195,18 @@ class WorkspaceStore {
 				reportPersistenceError(err, 'load');
 				return;
 			}
+			// bulkGet order matches toReopen; openMany appends - we reorder below.
 			const validRows = rows.filter((r): r is NonNullable<typeof r> => Boolean(r));
 			if (validRows.length > 0) filesStore.openMany(validRows);
 		}
 
 		// 2. Close the tabs outside the workspace WITHOUT touching the DB.
 		const wsIds = new Set(ws.fileIds);
-		const toClose = filesStore.files.map((f) => f.id).filter((id) => !wsIds.has(id));
+		const toClose = filesStore.files.map((f) => f.id).filter((fid) => !wsIds.has(fid));
 		filesStore.closeMany(toClose, { trash: false, keepDB: true });
+
+		// 2b. Sidebar order must match workspace fileIds (schema contract).
+		filesStore.reorderToIds(ws.fileIds);
 
 		// 3. Activate the target if it exists (otherwise fallback already handled by close).
 		if (ws.activeId && filesStore.files.some((f) => f.id === ws.activeId)) {

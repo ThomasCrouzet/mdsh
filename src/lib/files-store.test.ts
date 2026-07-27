@@ -185,6 +185,18 @@ describe('close + restore (corbeille)', () => {
 		expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(false);
 	});
 
+	it('close keepDB flushe les frappes non debouncees (anti-perte workspace)', async () => {
+		const f = filesStore.createNew('a.md', '# A');
+		await filesStore.flushPendingAwait();
+		// Edit inside the debounce window - cancel() would drop this; flush must persist it.
+		filesStore.updateContent(f.id, '# Edited before workspace switch');
+		filesStore.close(f.id, { trash: false, keepDB: true });
+		await vi.waitFor(async () => {
+			const row = await db.drafts.get(f.id);
+			expect(row?.content).toBe('# Edited before workspace switch');
+		});
+	});
+
 	it('close hard-delete supprime le draft de la base', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPending();
@@ -193,8 +205,149 @@ describe('close + restore (corbeille)', () => {
 		expect(await db.drafts.get(f.id)).toBeUndefined();
 	});
 
+	it('close trash pendant put in-flight ne ressuscite pas le draft', async () => {
+		vi.useFakeTimers();
+		let resolvePut: ((value: string) => void) | undefined;
+		const pendingPut = new Promise<string>((resolve) => {
+			resolvePut = resolve;
+		});
+		const put = vi
+			.spyOn(db.drafts, 'put')
+			.mockReturnValue(pendingPut as ReturnType<typeof db.drafts.put>);
+		try {
+			const f = filesStore.createNew('a.md', '# A');
+			// Advance past debounce so put is in flight.
+			await vi.advanceTimersByTimeAsync(400);
+			expect(put).toHaveBeenCalled();
+			filesStore.close(f.id); // trash path uses discard
+			// Let the in-flight put settle - discard must reverse resurrection.
+			resolvePut?.(f.id);
+			await vi.waitFor(async () => {
+				expect(await db.drafts.get(f.id)).toBeUndefined();
+			});
+		} finally {
+			// Always release the deferred put and restore so later tests do not hang.
+			resolvePut?.('released');
+			put.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it('reload utilise invalidate (pas discard) et conserve le draft en base', async () => {
+		const f = filesStore.createNew('keep.md', '# keep');
+		await filesStore.flushPendingAwait();
+		expect(await db.drafts.get(f.id)).toBeTruthy();
+		// Armed timer without waiting for put: invalidate must cancel without delete.
+		filesStore.updateContent(f.id, '# local dirty');
+		await filesStore.reload(false);
+		// Row must still exist (discard reverse-delete would have removed it).
+		expect(await db.drafts.get(f.id)).toBeTruthy();
+	});
+
+	it('restore attend moveToTrash avant restoreFromTrash (pas de wipe Undo)', async () => {
+		// Fast Undo: if restoreFromTrash runs before moveToTrash finishes, a late
+		// moveToTrash would delete the restored drafts row. restore must await
+		// the pending move first.
+		let releaseGate: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			releaseGate = resolve;
+		});
+		const realMove = trashOps.moveToTrash.bind(trashOps);
+		const moveSpy = vi.spyOn(trashOps, 'moveToTrash').mockImplementation(async (...args) => {
+			await gate;
+			return realMove(...(args as Parameters<typeof trashOps.moveToTrash>));
+		});
+		try {
+			const f = filesStore.createNew('race.md', '# race');
+			await filesStore.flushPendingAwait();
+			filesStore.close(f.id);
+			expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(true);
+			// Undo immediately while moveToTrash is still gated.
+			filesStore.restore(f.id);
+			expect(filesStore.files.some((x) => x.id === f.id)).toBe(true);
+			// Release moveToTrash; restore awaits it then restoreFromTrash.
+			releaseGate?.();
+			await vi.waitFor(async () => {
+				expect(await db.drafts.get(f.id)).toBeTruthy();
+				expect(await db.trashed.get(f.id)).toBeUndefined();
+			});
+		} finally {
+			releaseGate?.();
+			moveSpy.mockRestore();
+		}
+	});
+
+	it('restore pendant put discard ne reverse-delete pas le draft restaure', async () => {
+		vi.useFakeTimers();
+		let resolvePut: ((value: string) => void) | undefined;
+		const pendingPut = new Promise<string>((resolve) => {
+			resolvePut = resolve;
+		});
+		const put = vi
+			.spyOn(db.drafts, 'put')
+			.mockReturnValue(pendingPut as ReturnType<typeof db.drafts.put>);
+		try {
+			const f = filesStore.createNew('undo.md', '# undo-me');
+			await vi.advanceTimersByTimeAsync(400);
+			expect(put).toHaveBeenCalled();
+			// Trash while put is still open (discard armed).
+			filesStore.close(f.id);
+			expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(true);
+			// Undo restore: settleAndRearm waits for the discarded put then rearms.
+			const restored = filesStore.restore(f.id);
+			expect(restored?.id).toBe(f.id);
+			// Release the deferred put that was open at close time.
+			resolvePut?.(f.id);
+			// Real timers for waitFor + restoreFromTrash after mock ends.
+			put.mockRestore();
+			vi.useRealTimers();
+			await vi.waitFor(async () => {
+				expect(filesStore.files.some((x) => x.id === f.id)).toBe(true);
+				expect(await db.drafts.get(f.id)).toBeTruthy();
+			});
+		} finally {
+			resolvePut?.('released');
+			try {
+				put.mockRestore();
+			} catch {
+				// already restored
+			}
+			vi.useRealTimers();
+		}
+	});
+
+	it('reorderToIds aligne l ordre des onglets sur fileIds workspace', () => {
+		const a = filesStore.createNew('a.md', 'a');
+		const b = filesStore.createNew('b.md', 'b');
+		const c = filesStore.createNew('c.md', 'c');
+		// Simulate open order A,C,B after partial reopen (in-memory only).
+		filesStore.files = [a, c, b];
+		filesStore.reorderToIds([a.id, b.id, c.id]);
+		expect(filesStore.files.map((f) => f.id)).toEqual([a.id, b.id, c.id]);
+	});
+
 	it("restore d'un id inconnu retourne null", () => {
 		expect(filesStore.restore('ghost')).toBeNull();
+	});
+
+	it('restore annule l UI si restoreFromTrash echoue', async () => {
+		const f = filesStore.createNew('a.md', '# A');
+		await filesStore.flushPendingAwait();
+		filesStore.close(f.id);
+		expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(true);
+
+		const trashMod = await import('./trash');
+		const spy = vi.spyOn(trashMod, 'restoreFromTrash').mockResolvedValue(false);
+		try {
+			filesStore.restore(f.id);
+			// Optimistic open then rollback.
+			await vi.waitFor(() => {
+				expect(filesStore.files.some((x) => x.id === f.id)).toBe(false);
+				expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(true);
+			});
+		} finally {
+			spy.mockRestore();
+		}
 	});
 });
 

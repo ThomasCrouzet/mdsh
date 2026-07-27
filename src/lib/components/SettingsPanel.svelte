@@ -65,8 +65,12 @@
 
 	async function handleExportBackup(): Promise<void> {
 		try {
-			await downloadBackup();
-			notify.success(t('settings.backupExported'));
+			// Flush unflushed keystrokes before reading Dexie - backup is
+			// IDB-sourced and would otherwise omit the last debounce window.
+			await filesStore.flushPendingAwait();
+			const ok = await downloadBackup();
+			// Desktop dialog cancel returns false - do not claim success.
+			if (ok) notify.success(t('settings.backupExported'));
 		} catch (err) {
 			reportError('backup export', err, { notifyUser: t('settings.backupExportFailed') });
 		}
@@ -86,8 +90,9 @@
 			return;
 		}
 		try {
-			await downloadBackup(passphrase);
-			notify.success(t('settings.encryptedBackupExported'));
+			await filesStore.flushPendingAwait();
+			const ok = await downloadBackup(passphrase);
+			if (ok) notify.success(t('settings.encryptedBackupExported'));
 		} catch (err) {
 			reportError('encrypted backup export', err, {
 				notifyUser: t('settings.encryptedExportFailed')
@@ -138,6 +143,9 @@
 
 		const dismiss = spinnerStore.show(t('settings.restoringBackup'));
 		try {
+			// Flush local keystrokes first so merge restore does not cancelAll
+			// and drop unflushed edits on drafts that stay after the merge.
+			await filesStore.flushPendingAwait();
 			const counts = await restoreFromText(text, replace ? 'replace' : 'merge', passphrase);
 			await Promise.all([filesStore.reload(), workspaceStore.reload(), templatesStore.reload()]);
 			// Partial restore: warn if corrupted entries were

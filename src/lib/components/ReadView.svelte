@@ -10,6 +10,7 @@
 	import { decodeWikiTarget } from '$lib/wiki-links';
 	import { t } from '$lib/i18n';
 	import { mermaidThemeFromDataTheme } from '$lib/theme';
+	import { themeStore } from '$lib/ui/theme.svelte';
 
 	interface Props {
 		fileId: string;
@@ -113,10 +114,12 @@
 		}
 	}
 
-	// Re-render when the content or the file changes. Fires on mount too.
+	// Re-render when content, file, or UI theme changes (Mermaid palette).
 	$effect(() => {
 		const c = content;
 		const f = fileId;
+		// Subscribe to theme pref so light/dark toggles re-run Mermaid.
+		void themeStore.pref;
 		void doRender(c, f);
 	});
 </script>

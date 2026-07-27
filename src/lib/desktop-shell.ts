@@ -81,11 +81,15 @@ async function installAppMenu(
 ): Promise<void> {
 	const { Menu, MenuItem, PredefinedMenuItem, Submenu } = await import('@tauri-apps/api/menu');
 
-	const item = async (id: DesktopMenuAction, text: string, accelerator?: string) =>
+	// No `accelerator` on custom items: the SPA already owns these chords via
+	// `buildKeydownHandler`. On Windows/Linux, native menu accelerators and the
+	// webview keydown both fire → double New/Open/Export. macOS usually consumes
+	// the chord in NSMenu, but dropping accelerators keeps all platforms single-fire.
+	// Users still see shortcuts in the command palette / toolbar tooltips.
+	const item = async (id: DesktopMenuAction, text: string) =>
 		MenuItem.new({
 			id,
 			text,
-			...(accelerator !== undefined ? { accelerator } : {}),
 			action: () => {
 				void Promise.resolve(onAction(id)).catch((err: unknown) => {
 					reportError(`action du menu desktop "${id}"`, err);
@@ -96,16 +100,16 @@ async function installAppMenu(
 	const fileMenu = await Submenu.new({
 		text: labels.file,
 		items: [
-			await item('new', labels.newFile, 'CmdOrCtrl+N'),
-			await item('open', labels.open, 'CmdOrCtrl+O'),
-			await item('save-disk', labels.saveToDisk, 'CmdOrCtrl+Shift+S'),
+			await item('new', labels.newFile),
+			await item('open', labels.open),
+			await item('save-disk', labels.saveToDisk),
 			await PredefinedMenuItem.new({ item: 'Separator' }),
-			await item('export-md', labels.exportMarkdown, 'CmdOrCtrl+S'),
-			await item('export-pdf', labels.exportPdf, 'CmdOrCtrl+P'),
+			await item('export-md', labels.exportMarkdown),
+			await item('export-pdf', labels.exportPdf),
 			await item('export-html', labels.exportHtml),
 			await item('export-zip', labels.exportZip),
 			await PredefinedMenuItem.new({ item: 'Separator' }),
-			await item('settings', labels.settings, 'CmdOrCtrl+,'),
+			await item('settings', labels.settings),
 			await PredefinedMenuItem.new({ item: 'Separator' }),
 			await PredefinedMenuItem.new({ item: 'CloseWindow' }),
 			await PredefinedMenuItem.new({ item: 'Quit' })

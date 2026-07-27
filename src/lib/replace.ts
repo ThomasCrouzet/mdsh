@@ -8,6 +8,8 @@
 //   - regex mode: the `replacement` allows backrefs (`$1`, `$&`);
 //   - literal / whole-word mode: `$` is escaped → literal replacement.
 
+import { userRegexSafetyError } from './search-core';
+
 export interface ReplaceOptions {
 	caseSensitive: boolean;
 	wholeWord: boolean;
@@ -46,7 +48,11 @@ export function buildReplaceRegex(
 ): { re: RegExp | null; error: string | null } {
 	const flags = 'g' + (opts.caseSensitive ? '' : 'i');
 	try {
-		if (opts.useRegex) return { re: new RegExp(query, flags), error: null };
+		if (opts.useRegex) {
+			const safety = userRegexSafetyError(query);
+			if (safety) return { re: null, error: safety };
+			return { re: new RegExp(query, flags), error: null };
+		}
 		const esc = escapeRegex(query);
 		const pattern = opts.wholeWord ? `\\b${esc}\\b` : esc;
 		return { re: new RegExp(pattern, flags), error: null };

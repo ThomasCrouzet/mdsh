@@ -31,6 +31,19 @@ vi.mock('../render/print', () => ({
 	printInIframe: (html: string) => printInIframe(html)
 }));
 
+const desktopMocks = vi.hoisted(() => ({
+	isDesktop: vi.fn(() => false),
+	tauriSaveExportBlob: vi.fn(async (_blob: Blob, _name: string) => true)
+}));
+
+vi.mock('../desktop', () => ({
+	isDesktop: () => desktopMocks.isDesktop()
+}));
+
+vi.mock('../disk-tauri', () => ({
+	tauriSaveExportBlob: (blob: Blob, name: string) => desktopMocks.tauriSaveExportBlob(blob, name)
+}));
+
 import { exportMarkdown, exportHTML, exportPDF, exportZip, sanitizeFilename } from './export';
 
 function makeFile(overrides: Partial<FileItem> = {}): FileItem {
@@ -53,6 +66,8 @@ describe('exportMarkdown', () => {
 	let revokeObjectURLSpy: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
+		desktopMocks.isDesktop.mockReturnValue(false);
+		desktopMocks.tauriSaveExportBlob.mockResolvedValue(true);
 		createdAnchor = null;
 		clickSpy = vi.fn();
 		// Intercepter document.createElement('a') pour récupérer l'anchor créé
@@ -93,17 +108,17 @@ describe('exportMarkdown', () => {
 		restoreCreateElement();
 	});
 
-	it('crée un anchor avec le nom du fichier en download', () => {
+	it('crée un anchor avec le nom du fichier en download', async () => {
 		const file = makeFile({ name: 'mon-doc.md' });
-		exportMarkdown(file);
+		await exportMarkdown(file);
 		expect(clickSpy).toHaveBeenCalledOnce();
 		expect(createdAnchor?.download).toBe('mon-doc.md');
 		expect(createdAnchor?.href).toBe('blob:mocked');
 	});
 
-	it('passe un Blob de type text/markdown à URL.createObjectURL', () => {
+	it('passe un Blob de type text/markdown à URL.createObjectURL', async () => {
 		const file = makeFile({ content: '# Titre' });
-		exportMarkdown(file);
+		await exportMarkdown(file);
 		expect(createObjectURLSpy).toHaveBeenCalledOnce();
 		// mock.calls[0]![0] : le spy a été appelé une fois (assertion above), l'index 0 est garanti.
 		const blob = createObjectURLSpy.mock.calls[0]![0] as Blob;
@@ -111,16 +126,53 @@ describe('exportMarkdown', () => {
 		expect(blob.type).toBe('text/markdown;charset=utf-8');
 	});
 
-	it("révoque l'URL après le click", () => {
-		exportMarkdown(makeFile());
+	it("révoque l'URL après le click", async () => {
+		await exportMarkdown(makeFile());
 		expect(revokeObjectURLSpy).toHaveBeenCalledOnce();
 	});
 
-	it('ne mute pas le FileItem (pureté)', () => {
+	it('ne mute pas le FileItem (pureté)', async () => {
 		const file = makeFile({ dirty: true });
 		const before = { ...file };
-		exportMarkdown(file);
+		await exportMarkdown(file);
 		expect(file).toEqual(before);
+	});
+
+	it('retourne true après download navigateur', async () => {
+		expect(await exportMarkdown(makeFile())).toBe(true);
+	});
+});
+
+describe('exportMarkdown - desktop cancel', () => {
+	beforeEach(() => {
+		desktopMocks.isDesktop.mockReturnValue(true);
+		desktopMocks.tauriSaveExportBlob.mockReset();
+	});
+
+	afterEach(() => {
+		desktopMocks.isDesktop.mockReturnValue(false);
+	});
+
+	it('retourne false si le dialogue de sauvegarde est annulé (pas de blob download)', async () => {
+		desktopMocks.tauriSaveExportBlob.mockResolvedValue(false);
+		const createObjectURLSpy = vi.fn(() => 'blob:should-not');
+		Object.defineProperty(URL, 'createObjectURL', {
+			value: createObjectURLSpy,
+			writable: true,
+			configurable: true
+		});
+		const ok = await exportMarkdown(makeFile({ name: 'x.md', content: '# hi' }));
+		expect(ok).toBe(false);
+		expect(desktopMocks.tauriSaveExportBlob).toHaveBeenCalledOnce();
+		expect(createObjectURLSpy).not.toHaveBeenCalled();
+	});
+
+	it('retourne true et écrit via tauriSaveExportBlob en cas de succès', async () => {
+		desktopMocks.tauriSaveExportBlob.mockResolvedValue(true);
+		const ok = await exportMarkdown(makeFile({ name: 'x.md', content: '# hi' }));
+		expect(ok).toBe(true);
+		expect(desktopMocks.tauriSaveExportBlob).toHaveBeenCalledOnce();
+		expect(desktopMocks.tauriSaveExportBlob).toHaveBeenCalledWith(expect.any(Blob), 'x.md');
 	});
 });
 
@@ -413,6 +465,11 @@ describe('exportHTML', () => {
 		expect(blob).toBeInstanceOf(Blob);
 		expect(blob.type).toBe('text/html;charset=utf-8');
 	});
+
+	it('sanitise un nom path-like pour le download HTML', async () => {
+		await exportHTML(makeFile({ name: 'a/b:c.md', content: 'x' }));
+		expect(dl.getAnchor()?.download).toBe('a_b_c.html');
+	});
 });
 
 describe('exportPDF', () => {
@@ -451,12 +508,12 @@ describe('garde SSR (document/window indisponibles)', () => {
 		vi.clearAllMocks();
 	});
 
-	it('exportMarkdown ne fait rien sans document', () => {
+	it('exportMarkdown ne fait rien sans document', async () => {
 		const realDoc = globalThis.document;
 		// @ts-expect-error suppression volontaire pour simuler le contexte SSR
 		delete globalThis.document;
 		try {
-			expect(() => exportMarkdown(makeFile())).not.toThrow();
+			await expect(exportMarkdown(makeFile())).resolves.toBe(false);
 		} finally {
 			globalThis.document = realDoc;
 		}

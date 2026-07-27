@@ -14,26 +14,48 @@
 
 import { browser } from '$app/environment';
 import { escapeHTML } from './file-utils';
+import { mermaidThemeFromDataTheme } from './theme';
+import { t } from '$lib/i18n';
 
 let mermaidPromise: Promise<typeof import('mermaid').default> | null = null;
+/** Last theme applied via mermaid.initialize - re-init when the UI theme flips. */
+let mermaidThemeApplied: string | null = null;
 
 function loadMermaid(): Promise<typeof import('mermaid').default> {
 	if (!mermaidPromise) {
 		mermaidPromise = (async () => {
 			const { default: mermaid } = await import('mermaid');
+			const theme = mermaidThemeFromDataTheme(
+				typeof document !== 'undefined'
+					? document.documentElement.getAttribute('data-theme')
+					: 'dark'
+			);
 			mermaid.initialize({
 				startOnLoad: false,
 				securityLevel: 'strict',
-				// Dark theme consistent with the app's dark-mode-first. The
-				// preview/PDF render (reading mode) stays on the light theme for
-				// print legibility.
-				theme: 'dark',
+				// Follow live UI theme (same helper as ReadView / PresentationView).
+				theme,
 				fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 			});
+			mermaidThemeApplied = theme;
 			return mermaid;
 		})();
 	}
 	return mermaidPromise;
+}
+
+async function ensureMermaidTheme(mermaid: typeof import('mermaid').default): Promise<void> {
+	const theme = mermaidThemeFromDataTheme(
+		typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : 'dark'
+	);
+	if (theme === mermaidThemeApplied) return;
+	mermaid.initialize({
+		startOnLoad: false,
+		securityLevel: 'strict',
+		theme,
+		fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+	});
+	mermaidThemeApplied = theme;
 }
 
 // Global counter to generate unique IDs on the Mermaid side. Mermaid stores
@@ -100,14 +122,30 @@ export function renderMermaidPreview(
 	return undefined;
 }
 
+/**
+ * Defense-in-depth: Mermaid already uses securityLevel strict, but the read
+ * path also runs DOMPurify. Keep the WYSIWYG preview on the same sanitizer
+ * profile so a future Mermaid SVG bug cannot inject into the editor DOM.
+ */
+async function sanitizePreviewHtml(html: string): Promise<string> {
+	const { default: DOMPurify } = await import('dompurify');
+	return DOMPurify.sanitize(html, {
+		USE_PROFILES: { html: true, svg: true, svgFilters: true },
+		ADD_TAGS: ['foreignObject'],
+		ADD_ATTR: ['target']
+	});
+}
+
 async function renderToSvg(code: string): Promise<string> {
 	const mermaid = await loadMermaid();
+	await ensureMermaidTheme(mermaid);
 	try {
 		const id = `mdsh-wysiwyg-mermaid-${++counter}`;
 		const { svg } = await mermaid.render(id, code);
 		// We wrap the SVG in a container so we can style it and ensure an
 		// auto overflow on wide diagrams.
-		return `<div class="mdsh-mermaid-svg">${svg}</div>`;
+		const wrapped = `<div class="mdsh-mermaid-svg">${svg}</div>`;
+		return await sanitizePreviewHtml(wrapped);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		return buildErrorBlock(msg, code);
@@ -115,5 +153,5 @@ async function renderToSvg(code: string): Promise<string> {
 }
 
 function buildErrorBlock(message: string, code: string): string {
-	return `<div class="mdsh-mermaid-preview-error" role="alert"><strong>Erreur Mermaid</strong><pre>${escapeHTML(message)}</pre><pre class="mdsh-mermaid-preview-error-source">${escapeHTML(code)}</pre></div>`;
+	return `<div class="mdsh-mermaid-preview-error" role="alert"><strong>${escapeHTML(t('read.mermaidError'))}</strong><pre>${escapeHTML(message)}</pre><pre class="mdsh-mermaid-preview-error-source">${escapeHTML(code)}</pre></div>`;
 }

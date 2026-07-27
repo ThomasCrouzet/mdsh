@@ -71,7 +71,14 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 			unreadable++;
 			continue;
 		}
-		const alt = img.name.replace(/\.[^.]+$/, '');
+		// Strip markdown-significant chars so a hostile filename cannot break
+		// the `![alt](url)` token shape (integrity; final HTML is still sanitized).
+		const rawAlt = img.name.replace(/\.[^.]+$/, '');
+		const alt =
+			rawAlt
+				.replace(/[\r\n[\]()!]/g, '')
+				.trim()
+				.slice(0, 80) || 'image';
 		blocks.push(`![${alt}](${dataUri})`);
 	}
 

@@ -1,22 +1,29 @@
 mod disk;
 
-use disk::{collect_argv_paths, PendingOpenPaths};
+use disk::{collect_argv_paths, GrantedPaths, PendingOpenPaths};
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let pending = PendingOpenPaths::default();
-    pending.push_many(collect_argv_paths());
+    let grants = GrantedPaths::default();
+    let argv = collect_argv_paths();
+    pending.push_many(argv.iter().cloned());
+    // Argv paths are trusted at process start (native open).
+    grants.grant_many(argv);
 
     tauri::Builder::default()
         .manage(pending)
+        .manage(grants)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             disk::disk_read,
             disk::disk_write,
+            disk::disk_write_bytes,
             disk::disk_stat,
+            disk::disk_grant,
             disk::take_pending_open_paths,
         ])
         .build(tauri::generate_context!())
@@ -34,6 +41,9 @@ pub fn run() {
                 }
                 if let Some(state) = app_handle.try_state::<PendingOpenPaths>() {
                     state.push_many(paths.clone());
+                }
+                if let Some(grants) = app_handle.try_state::<GrantedPaths>() {
+                    grants.grant_many(paths.clone());
                 }
                 let _ = app_handle.emit("mdsh://open-paths", paths);
             }
