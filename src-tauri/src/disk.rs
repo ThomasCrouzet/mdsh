@@ -58,14 +58,12 @@ impl GrantedPaths {
                     continue;
                 }
                 let path = PathBuf::from(&p);
-                if path_key(&path).is_ok() && ensure_write_allowed(&path).is_ok() {
-                    if guard.insert(normalize_key(&path)) {
-                        n += 1;
-                    }
-                } else if path_key(&path).is_ok() && ensure_read_allowed(&path).is_ok() {
-                    if guard.insert(normalize_key(&path)) {
-                        n += 1;
-                    }
+                // write-allowed is a superset of read-allowed extensions (+ export types).
+                if path_key(&path).is_ok()
+                    && ensure_write_allowed(&path).is_ok()
+                    && guard.insert(normalize_key(&path))
+                {
+                    n += 1;
                 }
             }
         }
