@@ -5,6 +5,14 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.2](https://github.com/ThomasCrouzet/mdsh/compare/v1.2.1...v1.2.2) (2026-07-27)
+
+
+### Bug Fixes
+
+* **desktop:** corrige les lints clippy sur disk_grant ([abfab32](https://github.com/ThomasCrouzet/mdsh/commit/abfab32916f1ee714e93c34b29dc591fad93083b))
+* fiabilise save-queue, trash undo et exports desktop ([7c41c87](https://github.com/ThomasCrouzet/mdsh/commit/7c41c87d4c09b9c52e8928441103e38b9e9b5e75))
+
 ## [1.2.1](https://github.com/ThomasCrouzet/mdsh/compare/v1.2.0...v1.2.1) (2026-07-26)
 
 
