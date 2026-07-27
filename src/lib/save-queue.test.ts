@@ -59,6 +59,53 @@ describe('SaveQueue', () => {
 		expect(put).not.toHaveBeenCalled();
 	});
 
+	it('cancelAll / discardAll / invalidateAll couvrent plusieurs ids', async () => {
+		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
+		const q = new SaveQueue(noopCb);
+		q.schedule('a', () => row('a'));
+		q.schedule('b', () => row('b'));
+		q.cancelAll(['a', 'b', 'ghost']);
+		await vi.advanceTimersByTimeAsync(400);
+		expect(put).not.toHaveBeenCalled();
+
+		q.schedule('c', () => row('c'));
+		q.invalidateAll(['c']);
+		await vi.advanceTimersByTimeAsync(400);
+		expect(put).not.toHaveBeenCalled();
+
+		q.schedule('d', () => row('d'));
+		q.discardAll(['d']);
+		await vi.advanceTimersByTimeAsync(400);
+		expect(put).not.toHaveBeenCalled();
+	});
+
+	it('reverse-delete route les erreurs delete vers onError', async () => {
+		vi.useRealTimers();
+		let resolvePut: ((value: string) => void) | undefined;
+		const pendingPut = new Promise<string>((resolve) => {
+			resolvePut = resolve;
+		});
+		const put = vi
+			.spyOn(db.drafts, 'put')
+			.mockReturnValue(pendingPut as ReturnType<typeof db.drafts.put>);
+		const del = vi.spyOn(db.drafts, 'delete').mockRejectedValue(new Error('delete failed'));
+		const onError = vi.fn();
+		try {
+			const q = new SaveQueue({ ...noopCb, onError });
+			q.schedule('a', () => row('a'));
+			q.flush((id) => row(id));
+			q.discard('a');
+			resolvePut?.('a');
+			await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+			expect(del).toHaveBeenCalledWith('a');
+		} finally {
+			resolvePut?.('x');
+			put.mockRestore();
+			del.mockRestore();
+			vi.useFakeTimers();
+		}
+	});
+
 	it('un getRow renvoyant null n’écrit pas (fichier disparu entre-temps)', async () => {
 		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 		const q = new SaveQueue(noopCb);

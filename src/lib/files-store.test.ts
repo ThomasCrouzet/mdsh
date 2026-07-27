@@ -933,6 +933,34 @@ describe('closeMany / openMany', () => {
 		filesStore.openMany([]);
 		expect(filesStore.files.length).toBe(0);
 	});
+
+	it('openMany restaure linkedToDisk quand un path link existe', async () => {
+		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
+		vi.mocked(fsa.getHandle).mockResolvedValue(null);
+		vi.mocked(fsa.getPathLink).mockImplementation(async (id: string) =>
+			id === 'linked'
+				? ({ path: '/tmp/linked.md', kind: 'path' as const } as Awaited<
+						ReturnType<typeof fsa.getPathLink>
+					>)
+				: null
+		);
+		filesStore.openMany([draftRow('linked', 'linked.md', '# L', 0)]);
+		await vi.waitFor(() => {
+			expect(filesStore.files.find((f) => f.id === 'linked')?.linkedToDisk).toBe(true);
+		});
+		expect(diskSync.refreshBrokenLinks).toHaveBeenCalled();
+	});
+
+	it('reorderToIds no-op sur liste vide ou un seul onglet', () => {
+		const a = filesStore.createNew('a.md', 'a');
+		const b = filesStore.createNew('b.md', 'b');
+		const order = filesStore.files.map((f) => f.id);
+		filesStore.reorderToIds([]);
+		expect(filesStore.files.map((f) => f.id)).toEqual(order);
+		filesStore.close(b.id, { trash: false, keepDB: true });
+		filesStore.reorderToIds([a.id]);
+		expect(filesStore.files.map((f) => f.id)).toEqual([a.id]);
+	});
 });
 
 describe('métadonnées (getTags / displayTitle / wiki-links)', () => {

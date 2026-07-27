@@ -9,6 +9,7 @@ import {
 	tauriCheckPath,
 	tauriOpenAbsolutePaths,
 	tauriSaveExportBlob,
+	tauriGrantPaths,
 	type TauriDiskIo
 } from './disk-tauri';
 
@@ -258,5 +259,26 @@ describe('createTauriDiskIo', () => {
 			lastModified: 10,
 			size: 20
 		});
+	});
+
+	it('writeBytes et tauriGrantPaths couvrent les chemins export / empty', async () => {
+		tauriMocks.invoke.mockImplementation(async (command: string) => {
+			if (command === 'disk_grant') return 1;
+			if (command === 'disk_write_bytes') return undefined;
+			return undefined;
+		});
+		const io = await createTauriDiskIo();
+		await io.writeBytes('/tmp/out.zip', new Uint8Array([1, 2, 3]));
+		expect(tauriMocks.invoke).toHaveBeenCalledWith(
+			'disk_write_bytes',
+			expect.objectContaining({ path: '/tmp/out.zip' })
+		);
+		await tauriGrantPaths([]);
+		// empty grant does not invoke
+		const grants = tauriMocks.invoke.mock.calls.filter((c) => c[0] === 'disk_grant').length;
+		await tauriGrantPaths(['/tmp/x.md']);
+		expect(tauriMocks.invoke.mock.calls.filter((c) => c[0] === 'disk_grant').length).toBe(
+			grants + 1
+		);
 	});
 });

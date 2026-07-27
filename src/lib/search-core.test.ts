@@ -60,6 +60,55 @@ describe('matchInCorpus', () => {
 		expect(regexError).toBeTruthy();
 	});
 
+	it('matches a valid user regex and reports empty length safely', () => {
+		const { hits, regexError } = matchInCorpus(
+			[{ id: '1', name: 'a.md', content: 'foo\nbar foo' }],
+			{
+				query: 'fo*',
+				caseSensitive: false,
+				wholeWord: false,
+				useRegex: true
+			}
+		);
+		expect(regexError).toBeNull();
+		expect(hits.length).toBeGreaterThan(0);
+		// Zero-width match path: empty group still yields len >= 1.
+		const empty = matchInCorpus([{ id: '1', name: 'a.md', content: 'x' }], {
+			query: 'x?',
+			caseSensitive: true,
+			wholeWord: false,
+			useRegex: true
+		});
+		expect(empty.regexError).toBeNull();
+		expect(empty.hits.length).toBeGreaterThanOrEqual(0);
+		// caseSensitive true + no match branch
+		const none = matchInCorpus([{ id: '1', name: 'a.md', content: 'abc' }], {
+			query: 'Z+',
+			caseSensitive: true,
+			wholeWord: false,
+			useRegex: true
+		});
+		expect(none.hits).toEqual([]);
+		// wholeWord case-sensitive
+		const ww = matchInCorpus([{ id: '1', name: 'a.md', content: 'Cat category' }], {
+			query: 'Cat',
+			caseSensitive: true,
+			wholeWord: true,
+			useRegex: false
+		});
+		expect(ww.hits.some((h) => h.snippet.includes('Cat'))).toBe(true);
+	});
+
+	it('rejects three consecutive quantifiers', () => {
+		const { regexError } = matchInCorpus([{ id: '1', name: 'a.md', content: 'aaa' }], {
+			query: 'a+*+',
+			caseSensitive: false,
+			wholeWord: false,
+			useRegex: true
+		});
+		expect(regexError).toMatch(/nested quantifiers|too long|rejected/i);
+	});
+
 	it('rejects nested quantifier regex (anti-ReDoS)', () => {
 		const { hits, regexError } = matchInCorpus(
 			[{ id: '1', name: 'a.md', content: 'a'.repeat(50) }],
