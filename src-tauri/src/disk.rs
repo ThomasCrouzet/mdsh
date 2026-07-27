@@ -74,10 +74,7 @@ impl GrantedPaths {
 
     fn is_granted(&self, path: &Path) -> bool {
         let key = normalize_key(path);
-        self.0
-            .lock()
-            .map(|g| g.contains(&key))
-            .unwrap_or(false)
+        self.0.lock().map(|g| g.contains(&key)).unwrap_or(false)
     }
 }
 
@@ -149,12 +146,7 @@ fn ensure_granted(grants: &GrantedPaths, path: &Path) -> Result<(), String> {
     }
     // Also accept if canonicalize-equivalent key is granted.
     let key = normalize_key(path);
-    if grants
-        .0
-        .lock()
-        .map(|g| g.contains(&key))
-        .unwrap_or(false)
-    {
+    if grants.0.lock().map(|g| g.contains(&key)).unwrap_or(false) {
         return Ok(());
     }
     Err("path not granted for this session".to_string())
@@ -178,10 +170,7 @@ pub fn disk_grant(
 }
 
 #[tauri::command]
-pub fn disk_read(
-    grants: tauri::State<'_, GrantedPaths>,
-    path: String,
-) -> Result<String, String> {
+pub fn disk_read(grants: tauri::State<'_, GrantedPaths>, path: String) -> Result<String, String> {
     let p = PathBuf::from(&path);
     ensure_read_allowed(&p)?;
     ensure_granted(&grants, &p)?;
