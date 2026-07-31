@@ -2,11 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { hasMath, hasMermaid, renderMarkdown } from './markdown';
 
 describe('renderMarkdown - markdown de base', () => {
-	it('rend un titre H1', async () => {
+	it('rend un titre H1 sans décoration interactive par défaut', async () => {
 		const html = await renderMarkdown('# Hello');
-		// §B4.5 - Le rendu inclut maintenant un anchor `#` dans h1-h3.
 		expect(html).toMatch(/<h1[^>]*id="hello"[^>]*>Hello/);
+		expect(html).not.toContain('class="mdsh-anchor"');
+	});
+
+	it('ajoute le permalien des titres uniquement sur demande', async () => {
+		const html = await renderMarkdown('# Hello', { headingPermalinks: true });
 		expect(html).toContain('class="mdsh-anchor"');
+		expect(html).toContain('href="#hello"');
 	});
 
 	it('rend des emphases', async () => {
@@ -37,8 +42,16 @@ describe('renderMarkdown - GFM', () => {
 
 	it('rend une checklist', async () => {
 		const html = await renderMarkdown('- [ ] à faire\n- [x] fait');
+		expect(html).toContain('<ul class="contains-task-list">');
+		expect(html.match(/class="task-list-item"/g)).toHaveLength(2);
 		expect(html).toContain('type="checkbox"');
 		expect(html).toMatch(/checked/);
+	});
+
+	it("conserve le marqueur des éléments ordinaires d'une liste mixte", async () => {
+		const html = await renderMarkdown('- [ ] à faire\n- élément ordinaire');
+		expect(html).toContain('<li class="task-list-item">');
+		expect(html).toContain('<li>élément ordinaire</li>');
 	});
 
 	it('rend strikethrough', async () => {
@@ -307,7 +320,7 @@ describe('renderMarkdown - protection tabnabbing (P1.1)', () => {
 
 	it("n'ajoute pas target/rel sur une ancre locale (#section)", async () => {
 		// Les ancres de heading sont des liens internes - ne doivent pas être altérés.
-		const html = await renderMarkdown('# Mon titre');
+		const html = await renderMarkdown('# Mon titre', { headingPermalinks: true });
 		// L'ancre permalink porte href="#mon-titre"
 		const anchor = html.match(/<a[^>]+href="#mon-titre"[^>]*>/)?.[0] ?? '';
 		expect(anchor).toBeTruthy();

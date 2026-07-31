@@ -101,7 +101,7 @@
 			const mermaidTheme = mermaidThemeFromDataTheme(
 				document.documentElement.getAttribute('data-theme')
 			);
-			const out = await renderMarkdown(md, { mermaidTheme });
+			const out = await renderMarkdown(md, { mermaidTheme, headingPermalinks: true });
 			if (seq !== renderSeq) return; // a more recent render has started
 			if (fid !== fileId) return; // the file changed in the meantime
 			html = out;

@@ -29,6 +29,11 @@ export interface RenderOptions {
 	/** Mermaid theme: `default` (light) for PDF, `dark` for the app preview. */
 	mermaidTheme?: MermaidTheme;
 	/**
+	 * Adds visible-on-hover permalink controls to H1-H3 headings.
+	 * This is a reading-view interaction, not part of exported document content.
+	 */
+	headingPermalinks?: boolean;
+	/**
 	 * Renders the front-matter metadata block at the top of the HTML output.
 	 * Default: true. Set to false for raw exports (zip, copy/paste).
 	 */
@@ -81,7 +86,7 @@ function highlightCode(code: string, lang: string | undefined): string {
  * (two `# Hello` → `#hello` then `#hello-2`). Without dedup, the permalink
  * anchor and the TOC always point to the FIRST duplicated heading - copy/paste bug.
  */
-function buildMarked(mermaidSink: string[]): Marked {
+function buildMarked(mermaidSink: string[], headingPermalinks: boolean): Marked {
 	const marked = new Marked({ gfm: true, breaks: false, pedantic: false });
 	const usedSlugs = new Set<string>();
 
@@ -105,10 +110,26 @@ function buildMarked(mermaidSink: string[]): Marked {
 					slug = `${base}-${suffix++}`;
 				}
 				usedSlugs.add(slug);
-				if (depth > 3) {
+				if (depth > 3 || !headingPermalinks) {
 					return `<h${depth} id="${slug}">${inner}</h${depth}>\n`;
 				}
 				return `<h${depth} id="${slug}">${inner}<a class="mdsh-anchor" href="#${slug}" tabindex="-1" aria-hidden="true">#</a></h${depth}>\n`;
+			},
+			list(token) {
+				let body = '';
+				for (const item of token.items) {
+					body += this.listitem(item);
+				}
+				const type = token.ordered ? 'ol' : 'ul';
+				const startAttr = token.ordered && token.start !== 1 ? ` start="${token.start}"` : '';
+				const classAttr = token.items.some((item) => item.task)
+					? ' class="contains-task-list"'
+					: '';
+				return `<${type}${startAttr}${classAttr}>\n${body}</${type}>\n`;
+			},
+			listitem(item) {
+				const classAttr = item.task ? ' class="task-list-item"' : '';
+				return `<li${classAttr}>${this.parser.parse(item.tokens)}</li>\n`;
 			},
 			code({ text, lang }) {
 				// Mermaid: indexed placeholder (unique per call); rendered async post-parse.
@@ -408,7 +429,7 @@ async function renderMarkdownCore(
 	// and mermaid uses the IDs as internal references within the SVG (which is
 	// then injected via innerHTML).
 	const counter: MermaidCounter = { current: 0 };
-	const marked = buildMarked(mermaidCodes);
+	const marked = buildMarked(mermaidCodes, opts.headingPermalinks === true);
 
 	const htmlRaw = marked.parse(preprocessed, { async: false });
 	let html = typeof htmlRaw === 'string' ? htmlRaw : '';

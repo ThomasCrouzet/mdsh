@@ -117,14 +117,17 @@ li > p {
 	margin: 0.2em 0;
 }
 /* Checklists GFM */
-ul li input[type='checkbox'] {
+li.task-list-item {
+	list-style: none;
+}
+li.task-list-item > input[type='checkbox'] {
 	margin: 0 0.35em 0 -1.25em;
 	vertical-align: middle;
 }
-ul.contains-task-list,
-ul:has(> li > input[type='checkbox']) {
-	padding-left: 1.5em;
-	list-style: none;
+
+/* Les permaliens sont une interaction de la vue lecture, jamais du contenu imprimé. */
+.mdsh-anchor {
+	display: none;
 }
 
 /* --- Blockquotes --------------------------------------------------------- */
