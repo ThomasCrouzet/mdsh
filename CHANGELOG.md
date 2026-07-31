@@ -5,6 +5,13 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.3](https://github.com/ThomasCrouzet/mdsh/compare/v1.2.2...v1.2.3) (2026-07-31)
+
+
+### Bug Fixes
+
+* **export:** corrige les checklists et permaliens HTML ([a74522e](https://github.com/ThomasCrouzet/mdsh/commit/a74522e5717d02a5d588eabb589fa5cb6169694c))
+
 ## [1.2.2](https://github.com/ThomasCrouzet/mdsh/compare/v1.2.1...v1.2.2) (2026-07-27)
 
 
