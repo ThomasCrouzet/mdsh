@@ -4,6 +4,8 @@
 pre-commit:
   parallel: true
   commands:
+    repository-policy:
+      run: 'policy_check="${REPOSITORY_POLICY_CHECK:-$HOME/.config/git/repository-policy/policy-check.sh}"; [ ! -x "$policy_check" ] || "$policy_check" staged'
     prettier:
       glob: '*.{ts,js,svelte,css,md,json,yml,yaml}'
       run: npx prettier --write {staged_files}
@@ -18,6 +20,8 @@ pre-commit:
 pre-push:
   parallel: false
   commands:
+    repository-policy:
+      run: 'policy_check="${REPOSITORY_POLICY_CHECK:-$HOME/.config/git/repository-policy/policy-check.sh}"; [ ! -x "$policy_check" ] || "$policy_check" push'
     typecheck:
       run: npm run check
     tests:
