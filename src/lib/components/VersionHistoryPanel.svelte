@@ -98,7 +98,7 @@
 		use:focusTrap
 	>
 		<div
-			class="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border
+			class="mdsh-dialog-panel flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border
 			       bg-bg-1 shadow-2xl animate-fade-in"
 		>
 			<header class="flex items-center gap-2 border-b border-border px-4 py-2.5">

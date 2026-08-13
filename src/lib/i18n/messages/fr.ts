@@ -472,7 +472,9 @@ export const fr: Record<MessageKey, string> = {
 	'versionHistory.vsCurrent': 'vs version actuelle',
 
 	// welcome
+	'welcome.demoLabel': 'Démo',
 	'welcome.importMd': 'Importer .md',
+	'welcome.initializeLabel': 'Initialiser l’espace',
 	'welcome.legendCloseTab': "Fermer l'onglet",
 	'welcome.legendExport': 'Exporter',
 	'welcome.legendModes': 'Éditer / Lire / Source',
@@ -482,6 +484,7 @@ export const fr: Record<MessageKey, string> = {
 	'welcome.privacy': 'Aucun serveur. Aucune télémétrie. Tes fichiers restent chez toi.',
 	'welcome.tagline': 'Un espace markdown qui ne rentre jamais chez toi.',
 	'welcome.taglineLine2': 'WYSIWYG, lecture, source - tout dans ton navigateur.',
+	'welcome.systemLabel': 'Système documentaire local',
 
 	// workspaces
 	'workspaces.close': 'Fermer',

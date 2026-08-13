@@ -470,7 +470,9 @@ export const en = {
 	'versionHistory.vsCurrent': 'vs current version',
 
 	// welcome
+	'welcome.demoLabel': 'Demo',
 	'welcome.importMd': 'Import .md',
+	'welcome.initializeLabel': 'Initialize workspace',
 	'welcome.legendCloseTab': 'Close tab',
 	'welcome.legendExport': 'Export',
 	'welcome.legendModes': 'Edit / Read / Source',
@@ -480,6 +482,7 @@ export const en = {
 	'welcome.privacy': 'No server. No telemetry. Your files stay with you.',
 	'welcome.tagline': 'A markdown workspace that never phones home.',
 	'welcome.taglineLine2': 'WYSIWYG, read, source - all in your browser.',
+	'welcome.systemLabel': 'Local document system',
 
 	// workspaces
 	'workspaces.close': 'Close',

@@ -29,8 +29,8 @@ milkdown-editor,
 	--crepe-color-selected: color-mix(in oklab, var(--color-accent) 20%, transparent);
 	--crepe-color-inline-area: var(--color-bg-2);
 
-	--crepe-font-title: var(--font-sans);
-	--crepe-font-default: var(--font-sans);
+	--crepe-font-title: var(--font-prose);
+	--crepe-font-default: var(--font-prose);
 	--crepe-font-code: var(--font-mono);
 
 	--crepe-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -40,7 +40,7 @@ milkdown-editor,
 .milkdown {
 	background: transparent;
 	color: var(--color-fg);
-	font-family: var(--font-sans);
+	font-family: var(--font-prose);
 }
 
 .milkdown .ProseMirror {
@@ -75,7 +75,7 @@ milkdown-editor,
 .milkdown .cm-editor {
 	background: var(--color-bg-1);
 	border: 1px solid var(--color-border);
-	border-radius: var(--radius-md);
+	border-radius: var(--radius-sm);
 	font-family: var(--font-mono);
 	font-size: 0.9em;
 }
@@ -103,11 +103,12 @@ milkdown-toolbar,
 milkdown-link-tooltip,
 milkdown-link-preview,
 milkdown-image-block {
-	border-radius: var(--radius-md);
+	border-radius: var(--radius-sm);
 	border: 1px solid var(--color-border);
 	background: var(--color-bg-1);
 	box-shadow: var(--crepe-shadow-2);
 	font-family: var(--font-sans);
+	clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
 }
 
 /* ==========================================================================

@@ -106,7 +106,7 @@
 		use:focusTrap
 	>
 		<div
-			class="flex w-full max-w-md flex-col gap-4 rounded-lg border border-border bg-bg-1 p-4
+			class="mdsh-dialog-panel flex w-full max-w-md flex-col gap-4 rounded-lg border border-border bg-bg-1 p-4
 			       shadow-2xl animate-fade-in"
 		>
 			<header class="flex items-start justify-between gap-3">

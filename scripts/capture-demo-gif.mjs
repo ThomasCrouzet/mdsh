@@ -26,6 +26,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const OUT_DIR = join(ROOT, 'docs');
 const OUT_GIF = join(OUT_DIR, 'demo.gif');
+const VITE_BIN = join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
 const PREVIEW_PORT = 4174;
 const BASE_URL = `http://localhost:${PREVIEW_PORT}`;
 
@@ -52,10 +53,14 @@ async function waitForServer(url, timeoutMs = 60_000) {
 }
 
 function startPreview() {
-	const child = spawn('npm', ['run', 'preview', '--', '--port', String(PREVIEW_PORT)], {
-		cwd: ROOT,
-		stdio: ['ignore', 'pipe', 'pipe']
-	});
+	const child = spawn(
+		process.execPath,
+		[VITE_BIN, 'preview', '--port', String(PREVIEW_PORT), '--strictPort'],
+		{
+			cwd: ROOT,
+			stdio: ['ignore', 'pipe', 'pipe']
+		}
+	);
 	child.stdout?.on('data', (chunk) => process.stdout.write(`[preview] ${chunk}`));
 	child.stderr?.on('data', (chunk) => process.stderr.write(`[preview] ${chunk}`));
 	return child;

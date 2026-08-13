@@ -1,16 +1,18 @@
 # `$ mdsh`
 
-[![Live demo](https://img.shields.io/badge/demo-live-14b8a6.svg)](https://thomascrouzet.github.io/mdsh/)
+[![Live demo](https://img.shields.io/badge/demo-live-c79a55.svg)](https://thomascrouzet.github.io/mdsh/)
 [![Deploy to GitHub Pages](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml/badge.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml)
-[![Tests](https://img.shields.io/badge/tests-838%20passing-14b8a6.svg)](#development)
-[![Bundle](https://img.shields.io/badge/entry%20bundle-%3C%2012%20KB%20gz-14b8a6.svg)](.size-limit.json)
-[![Lighthouse CI](https://img.shields.io/badge/Lighthouse%20CI-on%20PR-14b8a6.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml)
+[![Tests](https://img.shields.io/badge/tests-959%20passing-c79a55.svg)](#development)
+[![Bundle](https://img.shields.io/badge/entry%20bundle-%3C%2012%20KB%20gz-c79a55.svg)](.size-limit.json)
+[![Lighthouse CI](https://img.shields.io/badge/Lighthouse%20CI-on%20PR-c79a55.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ### → [Try the live demo](https://thomascrouzet.github.io/mdsh/)
 
-**A markdown workspace that never phones home.** WYSIWYG editor, offline, 100% client-side - light / dark / system theme.
+**A local-first markdown workspace with a BLACKSITE-inspired technical shell.** WYSIWYG editor, offline, 100% client-side - light / dark / system theme.
 No server, no telemetry, no account. Your files never leave the browser.
+
+Graphite surfaces, warm ivory text and restrained amber instrumentation give the workspace a distinct identity while the document itself stays quiet and readable.
 
 **Why mdsh?** Because writing markdown should not require an account, a connection, or trust in a third-party server: you open a tab, you write in WYSIWYG, everything is saved locally and stays readable offline. Local-first is the one non-negotiable - the feature set below (link graph, presentation mode, version history, templates, encrypted backups) exists to serve that principle, not to turn the editor into a platform.
 

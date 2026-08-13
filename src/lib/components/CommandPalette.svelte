@@ -523,21 +523,22 @@
 		use:focusTrap
 	>
 		<div
-			class="flex w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border
+			class="mdsh-dialog-panel flex w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border
 			       bg-bg-1 shadow-2xl animate-fade-in"
 		>
 			<!-- §B1.5 - ARIA combobox + listbox pattern: the input drives the listbox
 			     via aria-activedescendant. Before: no role nor announcement of
 			     the highlighted item, the SR saw just a text field without context. -->
-			<div class="flex items-center gap-2 border-b border-border px-3 py-2">
-				<Search size={16} class="text-fg-dim" />
+			<div class="palette-input-row flex items-center gap-2 border-b border-border px-3 py-3">
+				<span class="font-mono text-xs text-accent" aria-hidden="true">&gt;_</span>
+				<Search size={15} class="text-fg-dim" />
 				<input
 					bind:this={inputEl}
 					bind:value={query}
 					onkeydown={handleKey}
 					type="text"
 					placeholder={t('palette.inputPlaceholder')}
-					class="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-dim"
+					class="min-w-0 flex-1 bg-transparent font-mono text-sm text-fg outline-none placeholder:text-fg-dim"
 					spellcheck="false"
 					autocapitalize="off"
 					autocomplete="off"
@@ -558,12 +559,18 @@
 					<X size={14} />
 				</button>
 			</div>
+			<div
+				class="palette-meta flex items-center justify-between border-b border-border px-3 py-1.5"
+			>
+				<span>COMMAND INDEX</span>
+				<span>{filtered.length.toString().padStart(2, '0')} AVAILABLE</span>
+			</div>
 
 			<ul
 				id="cmd-palette-listbox"
 				role="listbox"
 				aria-label={t('palette.listboxLabel')}
-				class="max-h-80 overflow-y-auto py-1"
+				class="max-h-80 overflow-y-auto py-1.5"
 			>
 				{#if filtered.length === 0}
 					<li class="px-4 py-6 text-center text-xs text-fg-dim" role="presentation">
@@ -573,7 +580,7 @@
 					{#each filtered as cmd, i (cmd.id)}
 						<li role="option" id={`cmd-palette-opt-${cmd.id}`} aria-selected={i === selected}>
 							<button
-								class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition"
+								class="palette-command flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition"
 								class:bg-bg-2={i === selected}
 								class:text-fg={i === selected}
 								class:text-fg-muted={i !== selected}
@@ -587,6 +594,9 @@
 									? t('palette.commandWithShortcut', { label: cmd.label, kbd: cmd.kbd })
 									: cmd.label}
 							>
+								<span class="palette-command-index" aria-hidden="true"
+									>{(i + 1).toString().padStart(2, '0')}</span
+								>
 								<cmd.icon size={14} class="flex-shrink-0 text-fg-dim" aria-hidden="true" />
 								<span class="flex-1 truncate">{cmd.label}</span>
 								{#if cmd.kbd}
@@ -600,3 +610,47 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	.palette-input-row {
+		background: color-mix(in oklab, var(--color-bg-2) 58%, transparent);
+	}
+	.palette-meta {
+		font-family: var(--font-mono);
+		font-size: 9px;
+		letter-spacing: 0.14em;
+		color: var(--color-fg-dim);
+	}
+	.palette-command {
+		position: relative;
+		border-block: 1px solid transparent;
+	}
+	.palette-command[aria-label]:hover,
+	li[aria-selected='true'] .palette-command {
+		border-block-color: var(--color-border);
+		background: linear-gradient(
+			90deg,
+			color-mix(in oklab, var(--color-accent) 13%, var(--color-bg-2)),
+			var(--color-bg-2) 62%
+		);
+	}
+	li[aria-selected='true'] .palette-command::before {
+		content: '';
+		position: absolute;
+		inset-block: -1px;
+		left: 0;
+		width: 2px;
+		background: var(--color-accent);
+	}
+	.palette-command-index {
+		width: 1.6rem;
+		flex: none;
+		font-family: var(--font-mono);
+		font-size: 9px;
+		letter-spacing: 0.08em;
+		color: var(--color-fg-dim);
+	}
+	li[aria-selected='true'] .palette-command-index {
+		color: var(--color-accent);
+	}
+</style>

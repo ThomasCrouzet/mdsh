@@ -131,11 +131,11 @@
 </script>
 
 <header
-	class="flex h-12 flex-shrink-0 items-center gap-1 border-b border-border bg-bg px-2 md:px-3"
+	class="mdsh-toolbar flex h-12 flex-shrink-0 items-center gap-1 border-b border-border bg-bg px-2 md:px-3"
 	aria-label={t('toolbar.toolbarLabel')}
 >
 	<button
-		class="flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted transition hover:bg-bg-2 hover:text-fg md:hidden"
+		class="mdsh-icon-button flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted md:hidden"
 		onclick={onToggleSidebar}
 		aria-label={t('toolbar.menu')}
 	>
@@ -143,7 +143,7 @@
 	</button>
 
 	<button
-		class="hidden items-center justify-center rounded p-2 text-fg-muted transition hover:bg-bg-2 hover:text-fg md:flex"
+		class="mdsh-icon-button hidden items-center justify-center rounded p-2 text-fg-muted md:flex"
 		onclick={onToggleSidebar}
 		aria-label={t('toolbar.togglePanel')}
 		aria-keyshortcuts="Control+B Meta+B"
@@ -153,7 +153,7 @@
 	</button>
 
 	<!-- File name -->
-	<div class="flex min-w-0 flex-1 items-center gap-1">
+	<div class="hidden min-w-0 flex-1 items-center gap-1 min-[520px]:flex">
 		{#if filesStore.active}
 			<!-- §B1.7 - Visible focus border to signal that the input is editable.
 			     §B3.5 - Accent success flash 800 ms after blur if rename was effective. -->
@@ -202,7 +202,7 @@
 	     Arrow / Home / End navigation per the ARIA Authoring Practices. -->
 	<div
 		bind:this={modeGroup}
-		class="ml-1 flex items-center rounded-md border border-border bg-bg-1 p-0.5 text-fg-muted"
+		class="mdsh-mode-switch ml-auto flex items-center border border-border bg-bg-1 p-0.5 text-fg-muted min-[520px]:ml-1"
 		role="radiogroup"
 		aria-label={t('toolbar.editMode')}
 		tabindex="-1"
@@ -255,9 +255,11 @@
 		</button>
 	</div>
 
+	<span class="mdsh-local-indicator" aria-hidden="true">LOCAL // OFFLINE</span>
+
 	{#if diskLinkingAvailable}
 		<button
-			class="ml-1 flex items-center justify-center rounded p-2 text-fg-muted transition
+			class="mdsh-icon-button ml-1 flex items-center justify-center rounded p-2 text-fg-muted
 			       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 			onclick={onSaveToDisk}
 			disabled={!filesStore.active}
@@ -273,7 +275,7 @@
 	     is for the sighted eye). ARIA format: "Control+B Meta+B" - Meta
 	     covers macOS, Control the rest. -->
 	<button
-		class="flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted transition
+		class="mdsh-icon-button flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 		onclick={onExport}
 		disabled={!filesStore.active}
@@ -285,7 +287,7 @@
 	</button>
 
 	<button
-		class="flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted transition
+		class="mdsh-icon-button flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 		onclick={onExportPDF}
 		disabled={!filesStore.active}
@@ -297,7 +299,7 @@
 	</button>
 
 	<button
-		class="flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted transition hover:bg-bg-2 hover:text-fg"
+		class="mdsh-icon-button flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted"
 		onclick={onOpenPalette}
 		title={`${t('toolbar.commandPalette')} (${formatKbd('⌘⇧P')})`}
 		aria-label={t('toolbar.commandPalette')}

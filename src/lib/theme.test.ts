@@ -50,8 +50,8 @@ describe('isThemePref', () => {
 
 describe('THEME_COLORS', () => {
 	it('mappe chaque thème effectif à une couleur barre système', () => {
-		expect(THEME_COLORS.dark).toBe('#14161a');
-		expect(THEME_COLORS.light).toBe('#fbfbfa');
+		expect(THEME_COLORS.dark).toBe('#0b0c0d');
+		expect(THEME_COLORS.light).toBe('#f0ede5');
 	});
 });
 

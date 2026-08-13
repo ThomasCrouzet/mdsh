@@ -150,7 +150,10 @@
 				color: 'var(--color-fg-dim)',
 				border: 'none'
 			},
-			'.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.02)' },
+			'.cm-activeLine': {
+				backgroundColor: 'color-mix(in oklab, var(--color-accent) 5%, transparent)',
+				boxShadow: 'inset 1px 0 var(--color-accent-dim)'
+			},
 			'.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-fg)' },
 			'.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
 				backgroundColor: 'rgba(127,127,127,0.25)'
@@ -173,7 +176,7 @@
 				backgroundColor: 'var(--color-bg-2)',
 				color: 'var(--color-fg)',
 				border: '1px solid var(--color-border)',
-				borderRadius: '4px',
+				borderRadius: '1px',
 				padding: '2px 6px'
 			},
 			'.cm-search input:focus': {
@@ -184,7 +187,7 @@
 				backgroundColor: 'transparent',
 				color: 'var(--color-fg-muted)',
 				border: '1px solid var(--color-border)',
-				borderRadius: '4px',
+				borderRadius: '1px',
 				padding: '2px 8px',
 				marginLeft: '4px',
 				cursor: 'pointer'

@@ -243,7 +243,7 @@
 		use:focusTrap
 	>
 		<div
-			class="flex w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border
+			class="mdsh-dialog-panel flex w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border
 			       bg-bg-1 shadow-2xl animate-fade-in"
 		>
 			<!-- §B1.5 - ARIA combobox + listbox pattern identical to CommandPalette. -->

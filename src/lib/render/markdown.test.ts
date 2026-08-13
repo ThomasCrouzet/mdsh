@@ -12,6 +12,8 @@ describe('renderMarkdown - markdown de base', () => {
 		const html = await renderMarkdown('# Hello', { headingPermalinks: true });
 		expect(html).toContain('class="mdsh-anchor"');
 		expect(html).toContain('href="#hello"');
+		expect(html).toContain('aria-hidden="true"></a>');
+		expect(html).not.toContain('>#</a>');
 	});
 
 	it('rend des emphases', async () => {

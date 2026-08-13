@@ -255,7 +255,7 @@
 {/if}
 
 <aside
-	class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-bg-1
+	class="mdsh-sidebar fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-bg-1
 	       transform transition-transform duration-200 ease-out
 	       md:static md:w-60 md:translate-x-0"
 	class:-translate-x-full={!open}
@@ -264,10 +264,15 @@
 	use:focusTrap={{ active: trapActive }}
 >
 	<!-- Header -->
-	<div class="flex h-12 items-center justify-between border-b border-border px-4">
+	<div class="mdsh-sidebar-head flex h-12 items-center justify-between border-b border-border px-4">
 		<div class="flex items-center gap-2 font-mono text-sm font-semibold tracking-tight">
-			<span class="text-accent">$</span>
-			<span>mdsh</span>
+			<span class="mdsh-brand-mark" aria-hidden="true">M</span>
+			<div class="flex flex-col leading-none">
+				<span class="tracking-[0.08em]">MDSH</span>
+				<span class="mt-1 text-[8px] font-normal tracking-[0.18em] text-fg-dim" aria-hidden="true"
+					>LOCAL WORKSPACE</span
+				>
+			</div>
 		</div>
 		<button
 			class="text-fg-subtle hover:text-fg md:hidden"
@@ -288,7 +293,7 @@
 		>
 			<button
 				type="button"
-				class="rounded-full px-2 py-0.5 text-[11px] transition-colors"
+				class="mdsh-tag px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors"
 				class:bg-accent={activeTag === null}
 				class:text-bg={activeTag === null}
 				class:bg-bg-2={activeTag !== null}
@@ -301,7 +306,7 @@
 			{#each tags as tag (tag)}
 				<button
 					type="button"
-					class="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors"
+					class="mdsh-tag flex items-center gap-1 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors"
 					class:bg-accent={activeTag === tag}
 					class:text-bg={activeTag === tag}
 					class:bg-bg-2={activeTag !== tag}
@@ -383,7 +388,7 @@
 					{@const label = filesStore.displayTitle(file.id)}
 					{@const isSelected = filesStore.selectedIds.has(file.id)}
 					<li
-						class="group relative flex items-stretch transition-colors
+						class="mdsh-file-row group relative flex items-stretch transition-colors
 						       before:pointer-events-none before:absolute before:left-0 before:top-0 before:bottom-0
 						       before:w-0.5 before:bg-accent before:opacity-0 before:transition-opacity"
 						class:bg-bg-2={isActive || dragOverId === file.id}
@@ -510,3 +515,40 @@
 		</button>
 	</div>
 </aside>
+
+<style>
+	.mdsh-sidebar {
+		box-shadow: 16px 0 48px rgba(0, 0, 0, 0.12);
+	}
+	.mdsh-sidebar-head {
+		position: relative;
+		background: color-mix(in oklab, var(--color-bg-1) 94%, var(--color-accent));
+	}
+	.mdsh-sidebar-head::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		bottom: -1px;
+		width: 72px;
+		height: 1px;
+		background: var(--color-accent);
+	}
+	.mdsh-brand-mark {
+		display: grid;
+		width: 22px;
+		height: 22px;
+		place-items: center;
+		border: 1px solid var(--color-accent);
+		color: var(--color-accent);
+		font-size: 11px;
+		font-weight: 700;
+		clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 0 100%);
+	}
+	.mdsh-tag {
+		border: 1px solid var(--color-border);
+		border-radius: 0;
+	}
+	.mdsh-file-row[class*='bg-bg-2'] {
+		clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+	}
+</style>

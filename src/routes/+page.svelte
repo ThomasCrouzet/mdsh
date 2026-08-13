@@ -455,7 +455,7 @@
 	</div>
 {/if}
 
-<div class="flex h-[100dvh] w-full overflow-hidden bg-bg text-fg">
+<div class="mdsh-shell flex h-[100dvh] w-full overflow-hidden bg-bg text-fg">
 	<Sidebar
 		open={sidebarOpen}
 		onClose={() => (sidebarOpen = false)}
@@ -463,7 +463,7 @@
 		onImport={handleImport}
 	/>
 
-	<div class="flex min-w-0 flex-1 flex-col">
+	<div class="mdsh-workspace flex min-w-0 flex-1 flex-col">
 		<Toolbar
 			{mode}
 			onToggleSidebar={toggleSidebar}

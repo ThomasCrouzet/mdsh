@@ -49,6 +49,9 @@ test.describe('Snapshots visuels - 3 modes', () => {
 		await createFirstFile(page);
 
 		// Injecter le contenu fixture dans CodeMirror (mode source)
+		// La restauration asynchrone du dernier mode peut gagner la course au boot :
+		// on sélectionne donc explicitement la source comme le ferait l'utilisateur.
+		await page.locator('button[data-mode="source"]').click();
 		const cm = page.locator('.cm-content').first();
 		await expect(cm).toBeVisible({ timeout: 10_000 });
 		await cm.click();

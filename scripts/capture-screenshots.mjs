@@ -29,6 +29,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const OUT_DIR = join(ROOT, 'docs', 'screenshots');
+const VITE_BIN = join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
 const PREVIEW_PORT = 4173;
 const BASE_URL = `http://localhost:${PREVIEW_PORT}`;
 
@@ -63,20 +64,25 @@ async function waitForServer(url, timeoutMs = 60_000) {
 	throw new Error(`Le serveur ${url} n'a pas démarré dans les temps`);
 }
 
-/** Démarre `npm run preview` en sous-processus. */
+/** Démarre Vite preview directement en sous-processus. */
 function startPreview() {
-	const child = spawn('npm', ['run', 'preview', '--', '--port', String(PREVIEW_PORT)], {
-		cwd: ROOT,
-		stdio: ['ignore', 'pipe', 'pipe']
-	});
+	const child = spawn(
+		process.execPath,
+		[VITE_BIN, 'preview', '--port', String(PREVIEW_PORT), '--strictPort'],
+		{
+			cwd: ROOT,
+			stdio: ['ignore', 'pipe', 'pipe']
+		}
+	);
 	child.stdout?.on('data', (chunk) => process.stdout.write(`[preview] ${chunk}`));
 	child.stderr?.on('data', (chunk) => process.stderr.write(`[preview] ${chunk}`));
 	return child;
 }
 
 /**
- * Reset complet : IndexedDB + localStorage, puis force le mode source pour
- * que les nouveaux fichiers s'ouvrent dans CodeMirror (insertText déterministe).
+ * Reset complet : IndexedDB + localStorage, puis force la locale française
+ * utilisée par les sélecteurs et le mode source pour que les nouveaux fichiers
+ * s'ouvrent dans CodeMirror (insertText déterministe).
  */
 async function resetState(page) {
 	await page.goto(BASE_URL);
@@ -93,6 +99,7 @@ async function resetState(page) {
 			)
 		);
 		localStorage.clear();
+		localStorage.setItem('mdsh:locale', 'fr');
 		localStorage.setItem('mdsh:mode', 'source');
 	});
 	await page.reload();
@@ -119,6 +126,7 @@ async function renameActive(page, newName) {
  * remplace tout : sélection complète + Delete + insertText.
  */
 async function writeContent(page, content) {
+	await page.locator('button[data-mode="source"]').click();
 	const editor = page.locator('.cm-content').first();
 	await editor.waitFor({ timeout: 5000 });
 	await editor.click();

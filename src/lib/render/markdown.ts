@@ -113,7 +113,7 @@ function buildMarked(mermaidSink: string[], headingPermalinks: boolean): Marked 
 				if (depth > 3 || !headingPermalinks) {
 					return `<h${depth} id="${slug}">${inner}</h${depth}>\n`;
 				}
-				return `<h${depth} id="${slug}">${inner}<a class="mdsh-anchor" href="#${slug}" tabindex="-1" aria-hidden="true">#</a></h${depth}>\n`;
+				return `<h${depth} id="${slug}">${inner}<a class="mdsh-anchor" href="#${slug}" tabindex="-1" aria-hidden="true"></a></h${depth}>\n`;
 			},
 			list(token) {
 				let body = '';

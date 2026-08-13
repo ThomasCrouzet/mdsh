@@ -1,20 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <!-- Fond conforme au theme color du projet -->
-  <rect width="1200" height="630" fill="#14161a"/>
-
-  <!-- Liseré accent en haut, écho subtil au focus indicator de la sidebar -->
-  <rect x="0" y="0" width="1200" height="4" fill="#7ee0b8"/>
-
-  <!-- Titre principal "$ mdsh" en mono accent -->
-  <text x="600" y="280" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="160" font-weight="700" fill="#7ee0b8" text-anchor="middle" dominant-baseline="middle">$ mdsh</text>
-
-  <!-- Sous-titre principal -->
-  <text x="600" y="395" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="32" font-weight="500" fill="#9aa3ad" text-anchor="middle">Éditeur markdown WYSIWYG minimaliste</text>
-
-  <!-- Tagline secondaire -->
-  <text x="600" y="450" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="28" fill="#5e6770" text-anchor="middle">dark · PWA · 100 % offline</text>
-
-  <!-- Footer URL repo -->
-  <text x="600" y="565" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="22" fill="#5e6770" text-anchor="middle">github.com/ThomasCrouzet/mdsh</text>
+  <rect width="1200" height="630" fill="#0b0c0d"/>
+  <g stroke="#e6dfd1" stroke-opacity="0.025">
+    <path d="M0 96h1200M0 192h1200M0 288h1200M0 384h1200M0 480h1200M0 576h1200"/>
+    <path d="M96 0v630M192 0v630M288 0v630M384 0v630M480 0v630M576 0v630M672 0v630M768 0v630M864 0v630M960 0v630M1056 0v630M1152 0v630"/>
+  </g>
+  <path d="M0 0h1090l110 110v520H0z" fill="none" stroke="#30302e" stroke-width="2"/>
+  <rect x="96" y="94" width="150" height="3" fill="#c79a55"/>
+  <rect x="246" y="94" width="56" height="3" fill="#5a5348"/>
+  <text x="96" y="152" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" letter-spacing="5" fill="#c79a55">LOCAL DOCUMENT SYSTEM</text>
+  <text x="82" y="344" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="172" font-weight="700" letter-spacing="-14" fill="#e6dfd1"><tspan fill="#c79a55">M</tspan>DSH</text>
+  <text x="96" y="412" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="30" font-weight="500" fill="#bbb1a2">Markdown, sous contrôle.</text>
+  <text x="96" y="461" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="19" letter-spacing="2" fill="#82786b">WYSIWYG  /  PWA  /  100 % OFFLINE</text>
+  <path d="M96 520h1008" stroke="#30302e"/>
+  <text x="96" y="560" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="16" letter-spacing="2" fill="#82786b">MDSH // PRIVATE BY DEFAULT</text>
+  <text x="1104" y="560" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="16" fill="#82786b" text-anchor="end">github.com/ThomasCrouzet/mdsh</text>
 </svg>

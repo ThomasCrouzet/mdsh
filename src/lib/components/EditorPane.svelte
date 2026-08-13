@@ -219,6 +219,7 @@
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
+		background: color-mix(in oklab, var(--color-bg-1) 56%, transparent);
 	}
 	@media (max-width: 1023px) {
 		.mdsh-toc-col {

@@ -13,8 +13,8 @@ export const THEME_STORAGE_KEY = 'mdsh:theme';
 
 /** System bar color (PWA / mobile) per effective theme. */
 export const THEME_COLORS: Record<EffectiveTheme, string> = {
-	light: '#fbfbfa',
-	dark: '#14161a'
+	light: '#f0ede5',
+	dark: '#0b0c0d'
 };
 
 /** Type guard: validates a value read from localStorage. */

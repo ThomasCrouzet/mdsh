@@ -18,6 +18,7 @@
 	margin: 1.6em 0 0.5em;
 	letter-spacing: -0.02em;
 	line-height: 1.2;
+	color: var(--color-fg);
 }
 
 :where(.milkdown .ProseMirror, .mdsh-preview) h2 {
@@ -26,6 +27,7 @@
 	margin: 1.4em 0 0.45em;
 	letter-spacing: -0.015em;
 	line-height: 1.25;
+	color: color-mix(in oklab, var(--color-fg) 94%, var(--color-accent));
 }
 
 :where(.milkdown .ProseMirror, .mdsh-preview) h3 {
