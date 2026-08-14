@@ -413,9 +413,18 @@ describe('sanitizeFilename', () => {
 		expect(sanitizeFilename('.md')).toBe('.md');
 	});
 
-	it('retombe sur sans-titre pour un nom vide ou blanc sans extension', () => {
-		expect(sanitizeFilename('')).toBe('sans-titre');
-		expect(sanitizeFilename('   ')).toBe('sans-titre');
+	it('retombe sur le nom sans titre de la locale pour un nom vide', async () => {
+		const { i18n } = await import('$lib/i18n');
+		const { untitledBasename } = await import('$lib/file-utils');
+		const prev = i18n.locale;
+		i18n.locale = 'fr';
+		expect(sanitizeFilename('')).toBe(untitledBasename());
+		expect(sanitizeFilename('')).toBe('Sans titre');
+		expect(sanitizeFilename('   ')).toBe('Sans titre');
+		i18n.locale = 'en';
+		expect(sanitizeFilename('')).toBe('Untitled');
+		expect(sanitizeFilename('   ')).toBe('Untitled');
+		i18n.locale = prev;
 	});
 });
 

@@ -4,8 +4,10 @@ import {
 	isMarkdownFile,
 	normalizeRename,
 	stripMdExtension,
-	uniqueName
+	uniqueName,
+	untitledFilename
 } from './file-utils';
+import { i18n } from '$lib/i18n';
 import { computeBrokenLinks } from './broken-links';
 import type { FileItem } from './types';
 
@@ -52,8 +54,14 @@ describe('normalizeRename', () => {
 	it('garde .markdown', () => {
 		expect(normalizeRename('doc.markdown')).toBe('doc.markdown');
 	});
-	it('tombe sur Untitled.md si vide', () => {
+	it('tombe sur le nom sans titre de la locale courante si vide', () => {
+		const prev = i18n.locale;
+		i18n.locale = 'fr';
+		expect(normalizeRename('   ')).toBe(untitledFilename());
+		expect(normalizeRename('   ')).toBe('Sans titre.md');
+		i18n.locale = 'en';
 		expect(normalizeRename('   ')).toBe('Untitled.md');
+		i18n.locale = prev;
 	});
 });
 

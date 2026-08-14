@@ -1,3 +1,5 @@
+import { t } from '$lib/i18n';
+
 export function isMarkdownFile(f: { name: string; type?: string }): boolean {
 	const name = f.name.toLowerCase();
 	return (
@@ -11,6 +13,16 @@ export function isMarkdownFile(f: { name: string; type?: string }): boolean {
 	);
 }
 
+/** Live-locale untitled filename (`Untitled.md` / `Sans titre.md`). */
+export function untitledFilename(): string {
+	return t('files.untitledFilename');
+}
+
+/** Untitled basename without the markdown extension. */
+export function untitledBasename(): string {
+	return stripMdExtension(untitledFilename());
+}
+
 export function uniqueName(existing: string[], base: string): string {
 	if (!existing.includes(base)) return base;
 	const dot = base.lastIndexOf('.');
@@ -22,7 +34,7 @@ export function uniqueName(existing: string[], base: string): string {
 }
 
 export function normalizeRename(raw: string): string {
-	const clean = raw.trim() || 'Untitled.md';
+	const clean = raw.trim() || untitledFilename();
 	return clean.endsWith('.md') || clean.endsWith('.markdown') ? clean : `${clean}.md`;
 }
 

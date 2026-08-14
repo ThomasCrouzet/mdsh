@@ -15,7 +15,7 @@
 // calling store cannot guarantee the context (jsdom OK, SSR no).
 
 import type { FileItem } from '$lib/types';
-import { stripMdExtension } from '$lib/file-utils';
+import { stripMdExtension, untitledBasename, untitledFilename } from '$lib/file-utils';
 
 /**
  * Sanitizes a filename for export: replaces characters forbidden on common
@@ -24,9 +24,9 @@ import { stripMdExtension } from '$lib/file-utils';
  * depending on the OS. Control characters are also neutralized. The file's
  * stored name is never modified - sanitization only happens at export time.
  *
- * Empty case (or containing only forbidden characters): fallback to
- * `sans-titre`, preserving a possible `.md` extension. An already valid name
- * is returned as is (no regression).
+ * Empty case (or containing only forbidden characters): fallback to the
+ * live-locale untitled name (`files.untitledFilename`), preserving a possible
+ * `.md` extension. An already valid name is returned as is (no regression).
  */
 export function sanitizeFilename(name: string): string {
 	// eslint-disable-next-line no-control-regex
@@ -34,7 +34,7 @@ export function sanitizeFilename(name: string): string {
 	const trimmed = cleaned.trim();
 	if (trimmed) return trimmed;
 	// Empty name after sanitization: preserve the `.md` extension if present.
-	return name.toLowerCase().endsWith('.md') ? 'sans-titre.md' : 'sans-titre';
+	return name.toLowerCase().endsWith('.md') ? untitledFilename() : untitledBasename();
 }
 
 /**
