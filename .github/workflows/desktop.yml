@@ -131,6 +131,8 @@ jobs:
           releaseName: ${{ env.RELEASE_TAG && format('mdsh {0}', env.RELEASE_TAG) || '' }}
           releaseDraft: false
           prerelease: false
-          generateReleaseNotes: true
+          # release-please already wrote CHANGELOG notes on the GitHub release.
+          # Regenerating notes here replaces that body with an empty/auto draft.
+          generateReleaseNotes: false
           uploadUpdaterJson: false
           uploadWorkflowArtifacts: true
