@@ -5,6 +5,21 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.3.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.2.3...v1.3.0) (2026-08-14)
+
+
+### Features
+
+* redesign workspace with BLACKSITE shell ([4d56996](https://github.com/ThomasCrouzet/mdsh/commit/4d56996b39c3a37b267034fcd919ec7e8afc8cc8))
+
+
+### Bug Fixes
+
+* **deps:** mettre à jour brace-expansion ([dcdfad1](https://github.com/ThomasCrouzet/mdsh/commit/dcdfad120fdbaadb8c5531d85ebf0b259fae7a76))
+* **deps:** override postcss nanoid to 3.3.18 ([ebdb71d](https://github.com/ThomasCrouzet/mdsh/commit/ebdb71dbd16e855668bd0e4062eb6e2c119c5053))
+* **i18n:** localize untitled filename fallbacks ([ce6b846](https://github.com/ThomasCrouzet/mdsh/commit/ce6b8460c26d85eacf9b58469e8aff3a21dc387e))
+* **security:** share remote style url sanitizer with Mermaid preview ([cafb372](https://github.com/ThomasCrouzet/mdsh/commit/cafb3728c92b4ca17bd0fd8a93beb3665109c55d))
+
 ## [1.2.3](https://github.com/ThomasCrouzet/mdsh/compare/v1.2.2...v1.2.3) (2026-07-31)
 
 
