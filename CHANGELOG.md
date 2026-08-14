@@ -5,6 +5,15 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.3.1](https://github.com/ThomasCrouzet/mdsh/compare/v1.3.0...v1.3.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* **ci:** keep release-please notes when uploading desktop assets ([1b65aef](https://github.com/ThomasCrouzet/mdsh/commit/1b65aef8e8ee1e3e28289d815cfb8f55e7ba514c))
+* **ci:** pass CHANGELOG body and release id to tauri-action ([9eaa0f5](https://github.com/ThomasCrouzet/mdsh/commit/9eaa0f51abdb373e7a621be20e4163f778ca1d44))
+* **ci:** resolve desktop release notes outside the Windows matrix ([9429e2f](https://github.com/ThomasCrouzet/mdsh/commit/9429e2f88e5b0bb05c4ac0d38623ad3d7b0aa5c6))
+
 ## [1.3.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.2.3...v1.3.0) (2026-08-14)
 
 
