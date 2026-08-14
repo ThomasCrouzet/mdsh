@@ -34,6 +34,7 @@ import { reportError, reportWarning } from './report';
 import { recordVersion, deleteVersionsFor } from './version-history';
 import { replaceInFiles, type ReplaceOptions } from './replace';
 import { createCrossTab, type CrossTabMessage } from './cross-tab';
+import { handleCrossTabPolicy } from './cross-tab-policy';
 import { t } from '$lib/i18n';
 import { notify } from './notify.svelte';
 import { DEMO_DOCS } from './demo-doc';
@@ -119,39 +120,22 @@ class FilesStore {
 	 */
 	private handleCrossTabMessage(msg: CrossTabMessage): void {
 		if (!browser) return;
-		if (msg.type === 'draft-written') {
-			void this.syncDraftFromOtherTab(msg.id);
-		} else if (msg.type === 'removed') {
-			this.syncRemovalFromOtherTab(msg.id);
-		} else if (msg.type === 'reorder' || msg.type === 'backup-applied') {
-			// A tab reordered or restored a backup: if no local editing is in
-			// progress, we reload everything to stay consistent. Otherwise we notify
-			// (a reload would overwrite the unflushed local keystroke).
-			//
-			// On backup-applied with local pending: invalidate writers so they
-			// skip further puts over the restored tables (must NOT discard -
-			// reverse-delete would erase the restored drafts). Memory stays
-			// until the user clicks reload.
-			if (this.hasLocalPendingEdits()) {
-				if (msg.type === 'backup-applied') {
-					this.saveQueue.invalidateAll(this.files.map((f) => f.id));
-				}
-				this.notifyCrossTabConflict(t('files.otherTabChanges'));
-			} else {
-				// `reload(false)`: do NOT re-broadcast (otherwise an infinite reload
-				// loop between tabs).
-				void this.reload(false);
-				if (msg.type === 'backup-applied') {
-					// A backup restored in another tab rewrites the three tables
-					// (drafts + workspaces + templates). We also resynchronize the
-					// sibling stores, otherwise their in-memory rows stay stale and
-					// could re-overwrite the freshly restored data. Dynamic import:
-					// `workspaces`/`templates` import `filesStore` (cycle).
-					void import('./workspaces.svelte').then((m) => m.workspaceStore.reload());
-					void import('./templates.svelte').then((m) => m.templatesStore.reload());
-				}
-			}
-		}
+		handleCrossTabPolicy(msg, {
+			isLoaded: (id) => this.files.some((f) => f.id === id),
+			isPending: (id) => this.saveQueue.has(id),
+			hasAnyPending: () => this.hasLocalPendingEdits(),
+			fileName: (id) => this.files.find((f) => f.id === id)?.name ?? id,
+			syncDraft: (id) => this.syncDraftFromOtherTab(id),
+			closeRemoved: (id) => this.close(id, { trash: false, keepDB: true }),
+			reloadQuiet: () => this.reload(false),
+			reloadSiblings: () => {
+				void import('./workspaces.svelte').then((m) => m.workspaceStore.reload());
+				void import('./templates.svelte').then((m) => m.templatesStore.reload());
+			},
+			invalidateAll: () => this.saveQueue.invalidateAll(this.files.map((f) => f.id)),
+			notifyConflict: (message) => this.notifyCrossTabConflict(message),
+			t
+		});
 	}
 
 	/** §M3 - Is there at least one draft with a local write pending? */
@@ -196,21 +180,6 @@ class FilesStore {
 		} catch (err) {
 			reportError('cross-tab resync', err);
 		}
-	}
-
-	/** §M3 - Another tab deleted/trashed a draft: removes the local tab if safe. */
-	private syncRemovalFromOtherTab(id: string): void {
-		const file = this.files.find((f) => f.id === id);
-		if (!file) return;
-		// Local editing in progress on this file: do not make it disappear under
-		// the user's fingers - we only notify.
-		if (this.saveQueue.has(id)) {
-			this.notifyCrossTabConflict(t('files.deletedInOtherTab', { name: file.name }));
-			return;
-		}
-		// Pure removal from the view (the row already disappeared from Dexie on the
-		// other tab); keepDB so we do not re-trigger a DB deletion here.
-		this.close(id, { trash: false, keepDB: true });
 	}
 
 	async load(): Promise<void> {

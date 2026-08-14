@@ -10,9 +10,9 @@
 //   - no exception ever propagated (an unavailable channel does not break the app);
 //   - no shared state outside the channel itself.
 //
-// The POLICY (reload vs notify) lives in `files.svelte.ts`: this module only
-// publishes/receives messages. Conservative choice: we never merge automatically
-// - we reload a non-dirty draft, we notify a dirty conflict, period.
+// The POLICY (reload vs notify) lives in `cross-tab-policy.ts`: this module
+// only publishes/receives messages. Conservative choice: we never merge
+// automatically - we reload a non-dirty draft, we notify a dirty conflict.
 
 import { browser } from '$app/environment';
 

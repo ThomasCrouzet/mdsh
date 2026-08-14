@@ -11,6 +11,12 @@
 	import { reportError } from '$lib/report';
 	import { spinnerStore } from '$lib/spinner.svelte';
 	import { copyMarkdown, copyRichHtml, isClipboardSupported } from '$lib/services/clipboard';
+	import {
+		runPaletteCopyActive,
+		runPaletteDirectoryImport,
+		runPaletteSaveTemplate,
+		runPaletteSaveWorkspace
+	} from '$lib/palette-ops';
 	import { isDirectoryPickerSupported } from '$lib/fsa';
 	import type { EditMode } from '$lib/types';
 	import { EDITOR } from '$lib/config';
@@ -124,42 +130,32 @@
 
 	// §2.3 - "Vault" import: opens a directory and creates a tab per .md file.
 	async function importDirectory(): Promise<void> {
-		const dismiss = spinnerStore.show(t('palette.importingDirectory'));
 		try {
-			const { count, truncated } = await filesStore.importDirectory();
-			if (count === 0) return;
-			notify.success(
-				truncated
-					? t('palette.importedFilesTruncated', { n: count })
-					: t('palette.importedFiles', { n: count })
-			);
-		} catch (err) {
-			reportError('directory import', err, { notifyUser: t('palette.importDirectoryFailed') });
-		} finally {
-			dismiss();
+			await runPaletteDirectoryImport({
+				importDirectory: () => filesStore.importDirectory(),
+				showSpinner: (label) => spinnerStore.show(label),
+				notifySuccess: (message) => notify.success(message),
+				reportError,
+				t
+			});
+		} catch {
+			// reportError already toasted; keep the command fire-and-forget.
 		}
 	}
 
 	// §2.5 - Copies the active file (raw markdown or rich HTML) to the
 	// clipboard, with user feedback via toasts.
 	async function copyActive(format: 'md' | 'html'): Promise<void> {
-		const file = filesStore.active;
-		if (!file) return;
-		if (!isClipboardSupported()) {
-			notify.error(t('palette.clipboardUnavailable'));
-			return;
-		}
-		try {
-			if (format === 'md') {
-				await copyMarkdown(file.content);
-				notify.success(t('palette.markdownCopied'));
-			} else {
-				await copyRichHtml(file.content);
-				notify.success(t('palette.htmlCopied'));
-			}
-		} catch (err) {
-			reportError('clipboard copy', err, { notifyUser: t('palette.copyFailed') });
-		}
+		await runPaletteCopyActive(format, {
+			getActive: () => filesStore.active,
+			isClipboardSupported,
+			copyMarkdown,
+			copyRichHtml,
+			notifySuccess: (message) => notify.success(message),
+			notifyError: (message) => notify.error(message),
+			reportError,
+			t
+		});
 	}
 
 	const baseCommands: Command[] = $derived([
@@ -293,16 +289,16 @@
 			// palette before the prompt to avoid a nested focus-trap.
 			run: () => {
 				if (!browser) return;
-				void (async () => {
-					const name = await promptStore.prompt({
-						title: t('palette.workspaceNamePrompt'),
-						placeholder: t('palette.workspaceNamePlaceholder')
-					});
-					if (name === null) return;
-					// save() returns null if the Dexie write failed (already reported by
-					// the store): only confirm success on a non-null value.
-					if (await workspaceStore.save(name)) notify.success(t('palette.workspaceSaved'));
-				})();
+				void runPaletteSaveWorkspace({
+					promptName: () =>
+						promptStore.prompt({
+							title: t('palette.workspaceNamePrompt'),
+							placeholder: t('palette.workspaceNamePlaceholder')
+						}),
+					save: (name) => workspaceStore.save(name),
+					notifySuccess: (message) => notify.success(message),
+					t
+				});
 			}
 		},
 		{
@@ -347,20 +343,19 @@
 			icon: FileText,
 			run: () => {
 				if (!browser) return;
-				const file = filesStore.active;
-				if (!file) return;
-				void (async () => {
-					const name = await promptStore.prompt({
-						title: t('palette.templateNamePrompt'),
-						defaultValue: stripExt(file.name),
-						placeholder: t('palette.templateNamePlaceholder')
-					});
-					if (name === null) return;
-					// save() returns null if the Dexie write failed (already reported by
-					// the store): only confirm success on a non-null value.
-					if (await templatesStore.save(name, file.content))
-						notify.success(t('palette.templateSaved'));
-				})();
+				void runPaletteSaveTemplate({
+					getActive: () => filesStore.active,
+					promptName: (defaultValue) =>
+						promptStore.prompt({
+							title: t('palette.templateNamePrompt'),
+							defaultValue,
+							placeholder: t('palette.templateNamePlaceholder')
+						}),
+					save: (name, content) => templatesStore.save(name, content),
+					notifySuccess: (message) => notify.success(message),
+					stripExt,
+					t
+				});
 			}
 		},
 		{
