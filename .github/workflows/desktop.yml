@@ -118,6 +118,26 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
 
+      # tauri-action always updateRelease()s an existing tag with `releaseBody`
+      # (empty if omitted), even when generateReleaseNotes is false. Pass the
+      # CHANGELOG section and, when the release already exists, its id so the
+      # action uploads assets without clearing notes.
+      - name: Resolve release notes and id
+        id: gh_release
+        if: env.RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          notes="$(node scripts/changelog-section.mjs "$RELEASE_TAG")"
+          {
+            echo "notes<<MDSH_NOTES_EOF"
+            printf '%s\n' "$notes"
+            echo "MDSH_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+          id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq .id || true)"
+          echo "id=${id}" >> "$GITHUB_OUTPUT"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
@@ -129,10 +149,10 @@ jobs:
           args: ${{ matrix.args }}
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: ${{ env.RELEASE_TAG && format('mdsh {0}', env.RELEASE_TAG) || '' }}
+          releaseBody: ${{ steps.gh_release.outputs.notes }}
+          releaseId: ${{ steps.gh_release.outputs.id }}
           releaseDraft: false
           prerelease: false
-          # release-please already wrote CHANGELOG notes on the GitHub release.
-          # Regenerating notes here replaces that body with an empty/auto draft.
           generateReleaseNotes: false
           uploadUpdaterJson: false
           uploadWorkflowArtifacts: true
