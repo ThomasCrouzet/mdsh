@@ -61,7 +61,7 @@ Out of scope / accepted constraints:
 - **DOMPurify** on all markdown → HTML paths (`src/lib/render/markdown.ts`),
   including stripping hostile `url(...)` values inside inline `style`
   (KaTeX / Mermaid still need geometric `style` attributes).
-- **Production dependency audit** gate in CI (`npm audit --audit-level=high --omit=dev`).
+- **Production dependency audit** gate in CI (`npm audit --audit-level=high` on the full install tree, including build-time deps).
 - **Secret scanning** on the GitHub repo + **gitleaks** on history
   (`.github/workflows/gitleaks.yml`).
 - **Encrypted backups** optional via WebCrypto (`src/lib/crypto.ts`).

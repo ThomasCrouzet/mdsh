@@ -63,11 +63,13 @@ Icons: `npx tauri icon static/pwa-512x512.png`. CI: `.github/workflows/desktop.y
 | `src/routes/+layout.svelte` | Root layout: imports `app.css` + renders `children` (minimal shell) |
 | `src/lib/files.svelte.ts` | Files store (runes singleton: `$state`, multi-selection, current mode). **Thin facade**: delegates most of the logic to pure modules wired in via callbacks - `export-ops` (exports), `disk-sync` (FSA), `meta-index` (tags/backlinks/titles), `save-queue` (IDB debounce), `trash` (trash bin). Holds the `$state` itself (Svelte 5 constraint) and orchestrates |
 | `src/lib/export-ops.ts` | Pure export operations (md / HTML / PDF / ZIP, selection or everything) with a spinner - wrappers extracted from the store, delegating to `services/export`, resetting `dirty=false` + scheduling a save |
-| `src/lib/disk-sync.ts` | Disk synchronization (File System Access API): `openFromDisk` / `saveToDisk` / `saveActiveToDisk` / `unlinkFromDisk` / `refreshBrokenLinks` wrapping `fsa.ts` + `broken-links.ts`. Pure module (mutations via store callbacks) |
+| `src/lib/disk-sync.ts` | Disk synchronization across browser FSA and desktop path links: `openFromDisk` / `openPathsFromDesktop` / `saveToDisk` / `unlinkFromDisk` / `refreshBrokenLinks`. Pure module (mutations via store callbacks) |
 | `src/lib/meta-index.ts` | Corpus metadata index (pure class): per-file cache (title / tags / wiki targets) + inverted backlinks index, lazy rebuild. Data source via the `() => FileItem[]` accessor |
 | `src/lib/save-queue.ts` | Dexie save queue with 400 ms debounce (pure class). Surfaces `hasPendingSave` / `lastSavedAt` / write errors via callbacks - an IDB failure is never swallowed silently |
 | `src/lib/trash.ts` | Pure trash-bin logic (move-to-trash, restore, purge, reorder, purge timers) extracted from the store - Dexie operations testable without mounting the store |
-| `src/lib/cross-tab.ts` | Cross-tab synchronization (`BroadcastChannel`): fail-soft `createCrossTab` wrapper (post/close). The policy (reload when not dirty / notify on dirty conflict) lives in `files.svelte.ts`. No-op if the API is absent |
+| `src/lib/cross-tab.ts` | Cross-tab synchronization (`BroadcastChannel`): fail-soft `createCrossTab` wrapper (post/close). No-op if the API is absent |
+| `src/lib/cross-tab-policy.ts` | Pure dirty/conflict policy (reload vs notify). `files.svelte.ts` supplies Dexie / toast callbacks |
+| `src/lib/palette-ops.ts` | Palette I/O (directory import, copy active, workspace/template save) extracted from CommandPalette |
 | `src/lib/config.ts` | Shared centralized constants (editor widths + `EDITOR` presets, `TIMERS` including the 400 ms debounce, `READING.wpm`) |
 | `src/lib/file-utils.ts` | Pure file helpers: `isMarkdownFile` (accepted extensions / MIME types), `uniqueName` (deduplication), `normalizeRename`, `stripMdExtension` |
 | `src/lib/types.ts` | Shared types (`EditMode`, `FileItem`, `TrashedFile`, `Hit`...) - no logic |
@@ -148,7 +150,7 @@ Icons: `npx tauri icon static/pwa-512x512.png`. CI: `.github/workflows/desktop.y
 - **E2E** (Playwright, chromium): `e2e/*.spec.ts` - config `playwright.config.ts`, shared helpers in `e2e/helpers.ts`.
 - **Visual snapshots**: `e2e/visual.spec.ts-snapshots/` - platform-sensitive (Linux ≠ macOS), both baselines versioned (`*-chromium-linux.png`, `*-chromium-darwin.png`), deliberately skipped in CI (see CONTRIBUTING.md).
 - **E2E a11y**: `e2e/a11y.spec.ts` - informational, non-blocking.
-- **WebKit**: the `webkit` project runs only `golden-path.spec.ts` (basic persistence flow). The FSA specs (`drop-image`, `export`, `disk-links`, etc.) are skipped outside Chromium - the File System Access API is unsupported in WebKit/Safari.
+- **WebKit**: the `webkit` project runs only `golden-path.spec.ts` (basic persistence flow). The FSA specs (`drop-image`, `export`, etc.) are skipped outside Chromium - the File System Access API is unsupported in WebKit/Safari.
 
 ## Design limits (deliberate)
 
@@ -156,7 +158,7 @@ Deliberate decisions - do not "fix" them without context.
 
 - **Bilingual UI (English default + French).** All user-facing strings go through the i18n layer (`src/lib/i18n/`): English is the default locale, French is auto-detected from the browser and switchable in Settings. Both dictionaries (`messages/en.ts`, `messages/fr.ts`) must define exactly the same keys; plurals use the parenthetical "(s)" form in both locales. Adding a third locale is a dedicated task, not currently planned.
 - **Storage = IndexedDB, hardened best-effort.** No backend. Write failures are surfaced to the user via the `notify` store (`src/lib/notify.svelte.ts`), the quota is monitored, and persistent storage is requested at boot (`src/lib/storage.ts`). **Never re-swallow an IDB error in a silent `console.error`** - route it to `reportPersistenceError`.
-- **Scales to ~ a few hundred files.** `allTags` rebuilds a sorted `Set` on every access (O(N) over the file count) but front-matter parsing is memoized by `MetaIndex`: on each keystroke, only the modified file is re-parsed (the residual cost - rebuilding the `Set` + `sort` - is negligible at the target ceiling). The search worker, however, serializes the whole corpus per query. Comfortable up to ~200-300 files; beyond that, pre-index `filesByTag` and switch the worker to incremental/delta sync (not done - outside the target use case).
+- **Scales to ~ a few hundred files.** `allTags` rebuilds a sorted `Set` on every access (O(N) over the file count) but front-matter parsing is memoized by `MetaIndex`: on each keystroke, only the modified file is re-parsed (the residual cost - rebuilding the `Set` + `sort` - is negligible at the target ceiling). The search worker keeps a corpus snapshot and resyncs only when `corpusFingerprint` changes (`SearchPanel`). Comfortable up to ~200-300 files; beyond that, pre-index `filesByTag` and switch the worker to incremental/delta sync (not done - outside the target use case).
 
 ## Pitfalls
 
