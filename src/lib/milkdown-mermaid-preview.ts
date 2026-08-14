@@ -16,6 +16,7 @@ import { browser } from '$app/environment';
 import { escapeHTML } from './file-utils';
 import { mermaidThemeFromDataTheme } from './theme';
 import { t } from '$lib/i18n';
+import { sanitizeMermaidPreviewHtml } from './render/sanitize-html';
 
 let mermaidPromise: Promise<typeof import('mermaid').default> | null = null;
 /** Last theme applied via mermaid.initialize - re-init when the UI theme flips. */
@@ -122,19 +123,8 @@ export function renderMermaidPreview(
 	return undefined;
 }
 
-/**
- * Defense-in-depth: Mermaid already uses securityLevel strict, but the read
- * path also runs DOMPurify. Keep the WYSIWYG preview on the same sanitizer
- * profile so a future Mermaid SVG bug cannot inject into the editor DOM.
- */
-async function sanitizePreviewHtml(html: string): Promise<string> {
-	const { default: DOMPurify } = await import('dompurify');
-	return DOMPurify.sanitize(html, {
-		USE_PROFILES: { html: true, svg: true, svgFilters: true },
-		ADD_TAGS: ['foreignObject'],
-		ADD_ATTR: ['target']
-	});
-}
+/** Re-export so tests drive the same function the preview uses. */
+export { sanitizeMermaidPreviewHtml as sanitizePreviewHtml } from './render/sanitize-html';
 
 async function renderToSvg(code: string): Promise<string> {
 	const mermaid = await loadMermaid();
@@ -145,7 +135,7 @@ async function renderToSvg(code: string): Promise<string> {
 		// We wrap the SVG in a container so we can style it and ensure an
 		// auto overflow on wide diagrams.
 		const wrapped = `<div class="mdsh-mermaid-svg">${svg}</div>`;
-		return await sanitizePreviewHtml(wrapped);
+		return await sanitizeMermaidPreviewHtml(wrapped);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		return buildErrorBlock(msg, code);

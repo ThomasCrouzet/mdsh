@@ -15,6 +15,7 @@ import { escapeHTML } from '../file-utils';
 import { getTags, getTitle, parseFrontmatter } from '../frontmatter';
 import { preprocessWikiLinks, slugify } from '../wiki-links';
 import { t } from '$lib/i18n';
+import { MARKDOWN_PURIFY, sanitizeHtml } from './sanitize-html';
 
 type MathToken = Tokens.Generic & {
 	type: 'blockMath' | 'inlineMath';
@@ -217,15 +218,6 @@ function buildMarked(mermaidSink: string[], headingPermalinks: boolean): Marked 
 // singleton): a re-init is forced if the requested theme changes.
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// DOMPurify - tabnabbing hook (module singleton)
-// ---------------------------------------------------------------------------
-
-// Module-level guard: DOMPurify is a singleton - the `afterSanitizeAttributes`
-// hook can only be registered once, even if `sanitize()` is called multiple
-// times (otherwise the hook accumulates, causing duplicates).
-let _hookRegistered = false;
-
 // Mermaid singleton cache: the theme is a global state of the lib (a single
 // active `initialize()`), so we avoid useless re-inits between calls.
 let _mermaidInitTheme: MermaidTheme | null = null;
@@ -285,51 +277,9 @@ async function renderMermaidDiagram(
  * because the app is browser-only - no need for the jsdom wrapper (~150 KB raw, useless).
  */
 async function sanitize(html: string): Promise<string> {
-	const { default: DOMPurify } = await import('dompurify');
-
-	// Tabnabbing protection - registered only once (module-level guard).
-	// For any external link (href starting with http:// or https://), we
-	// force `target="_blank"` + `rel="noopener noreferrer"`. An internal
-	// wiki link (anchor `#mdsh-wiki-...`) or a local anchor (`#section`) is
-	// not affected because its href does not start with `https?:`.
-	if (!_hookRegistered) {
-		DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-			if (node.tagName === 'A' && node.hasAttribute('href')) {
-				const href = node.getAttribute('href') ?? '';
-				if (/^https?:/i.test(href)) {
-					node.setAttribute('target', '_blank');
-					node.setAttribute('rel', 'noopener noreferrer');
-				}
-			}
-			// §sec - The inline `style` attribute survives (KaTeX/Mermaid set it on
-			// their own SVG/MathML nodes). We do however neutralize passive
-			// beaconing: a hostile `.md` could set
-			// `style="background:url(https://tracker/px)"` which leaks the IP on
-			// open. We strip any REMOTE `url()` (http/https/protocol-relative);
-			// the geometric/color styles of KaTeX/Mermaid (never use url()) and
-			// data:/blob:/relative ones are kept.
-			if (typeof node.getAttribute === 'function' && node.hasAttribute('style')) {
-				const style = node.getAttribute('style') ?? '';
-				if (/url\(/i.test(style)) {
-					const cleaned = style.replace(/url\(\s*(['"]?)\s*(?:https?:)?\/\/[^)]*\)/gi, '');
-					if (cleaned !== style) node.setAttribute('style', cleaned);
-				}
-			}
-		});
-		_hookRegistered = true;
-	}
-
-	return DOMPurify.sanitize(html, {
-		USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
-		// KaTeX exposes classes via `class`; so does highlight.js; Mermaid uses them
-		// for SVG styles. DOMPurify preserves them by default with the profiles enabled.
-		// §5.2 - `data-mdsh-wiki`: wiki-link target read by ReadView on click.
-		ADD_ATTR: ['target', 'data-mdsh-wiki'],
-		FORBID_TAGS: ['style', 'form'],
-		// Paranoia: we explicitly forbid event handlers, even though
-		// DOMPurify already strips them without the `html` profiles.
-		FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur']
-	}) as string;
+	// Shared hook (sanitize-html): external links get noopener, remote style
+	// url() beacons are stripped. Same hook as the WYSIWYG Mermaid preview.
+	return sanitizeHtml(html, MARKDOWN_PURIFY);
 }
 
 /**
