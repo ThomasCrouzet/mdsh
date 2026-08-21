@@ -176,8 +176,9 @@ jobs:
           SOURCE_TAG: ${{ env.RELEASE_TAG }}
           DESKTOP_TAG: desktop-${{ env.RELEASE_TAG }}
         run: |
+          source_sha=$(gh api "repos/$GH_REPO/commits/$SOURCE_TAG" --jq '.sha')
           gh release view "$DESKTOP_TAG" >/dev/null 2>&1 || gh release create "$DESKTOP_TAG" \
-            --target "$SOURCE_TAG" \
+            --target "$source_sha" \
             --title "mdsh editor Desktop Beta $SOURCE_TAG" \
             --notes "Desktop Beta installers. Review SHA256SUMS, SBOMs, and build provenance before installation. The desktop shell is a beta distribution channel." \
             --prerelease
