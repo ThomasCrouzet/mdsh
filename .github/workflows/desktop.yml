@@ -172,6 +172,7 @@ jobs:
       - name: Publish distinct Desktop Beta release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           SOURCE_TAG: ${{ env.RELEASE_TAG }}
           DESKTOP_TAG: desktop-${{ env.RELEASE_TAG }}
         run: |
