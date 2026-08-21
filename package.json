@@ -40,7 +40,7 @@
 		"check:katex-assets": "node scripts/sync-katex-assets.mjs --check",
 		"notices:generate": "node scripts/generate-third-party-notices.mjs",
 		"notices:check": "node scripts/generate-third-party-notices.mjs --check",
-		"sbom:npm": "npm sbom --sbom-format cyclonedx > sbom-npm.cdx.json",
+		"sbom:npm": "npm sbom --sbom-format cyclonedx --package-lock-only > sbom-npm.cdx.json",
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"lint": "eslint . && prettier --check .",
