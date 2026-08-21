@@ -17,7 +17,7 @@ test.describe('Command palette', () => {
 
 		// Filtre "wysiwyg" → exactement 1 commande (Mode WYSIWYG)
 		await input.fill('wysiwyg');
-		await expect(dialog.locator('ul li button')).toHaveCount(1);
+		await expect(dialog.getByRole('option')).toHaveCount(1);
 
 		// Escape ferme
 		await page.keyboard.press('Escape');
@@ -29,7 +29,7 @@ test.describe('Command palette', () => {
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
 		// Clic direct par name pour disambiguer (plusieurs commandes contiennent
 		// « mode » depuis l'ajout de typewriter / focus).
-		await dialog.getByRole('button', { name: /Mode lecture/i }).click();
+		await dialog.getByRole('option', { name: /Mode lecture/i }).click();
 
 		// Mode lecture → le rendu preview doit apparaître
 		await expect(page.locator('.mdsh-preview')).toBeVisible({ timeout: 15_000 });
@@ -38,7 +38,7 @@ test.describe('Command palette', () => {
 	test('bascule le mode focus via la palette', async ({ page }) => {
 		await openPalette(page);
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
-		await dialog.getByRole('button', { name: /Activer le mode focus/i }).click();
+		await dialog.getByRole('option', { name: /Activer le mode focus/i }).click();
 
 		await expect(page.locator('body')).toHaveClass(/focus-mode/);
 	});

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SaveQueue } from './save-queue';
+import { SaveQueue, SaveQueueFlushError } from './save-queue';
 import { db } from './db';
 import type { DraftRow } from './db';
 
@@ -181,6 +181,43 @@ describe('SaveQueue', () => {
 		q.schedule('a', () => row('a'));
 		await q.flushAwait((id) => row(id));
 		expect(q.has('a')).toBe(false);
+	});
+
+	it('flushAwait reports a Dexie rejection without an unhandled rejection', async () => {
+		const error = new DOMException('plein', 'QuotaExceededError');
+		vi.spyOn(db.drafts, 'put').mockRejectedValue(error);
+		const onError = vi.fn();
+		const unhandled = vi.fn();
+		window.addEventListener('unhandledrejection', unhandled);
+		try {
+			const q = new SaveQueue({ ...noopCb, onError });
+			q.schedule('a', () => ({ ...row('a'), content: 'latest' }));
+			await expect(q.flushAwait((id) => row(id))).rejects.toMatchObject({
+				name: 'SaveQueueFlushError',
+				failures: [{ id: 'a', error }]
+			} satisfies Partial<SaveQueueFlushError>);
+			expect(onError).toHaveBeenCalled();
+			await Promise.resolve();
+			expect(unhandled).not.toHaveBeenCalled();
+		} finally {
+			window.removeEventListener('unhandledrejection', unhandled);
+		}
+	});
+
+	it('recovers when IndexedDB returns while preserving per-document serialization', async () => {
+		const put = vi
+			.spyOn(db.drafts, 'put')
+			.mockRejectedValueOnce(new Error('temporary'))
+			.mockResolvedValue('a' as never);
+		const onSaved = vi.fn();
+		const q = new SaveQueue({ ...noopCb, onSaved });
+		const latest = { ...row('a'), content: 'latest', updatedAt: 2 };
+		q.schedule('a', () => latest);
+		await expect(q.flushAwait(() => latest)).rejects.toBeInstanceOf(SaveQueueFlushError);
+		await expect(q.flushAwait(() => latest)).resolves.toBeUndefined();
+		expect(put).toHaveBeenCalledTimes(2);
+		expect(put.mock.calls.at(-1)?.[0]).toMatchObject({ content: 'latest', updatedAt: 2 });
+		expect(onSaved).toHaveBeenCalledOnce();
 	});
 
 	it('serialise les puts : un put lent v1 ne peut pas ecraser v2', async () => {

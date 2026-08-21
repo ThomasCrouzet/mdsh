@@ -11,7 +11,7 @@
 	import type { SearchRequest, SearchResponse } from '$lib/workers/search.worker';
 	import { corpusFingerprint } from '$lib/search-core';
 	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { Search, X, CaseSensitive, Regex, WholeWord, Replace } from 'lucide-svelte';
+	import { Search, X, CaseSensitive, Regex, WholeWord, Replace } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;

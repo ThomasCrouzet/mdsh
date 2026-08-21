@@ -7,6 +7,7 @@
 
 import { isDesktop } from './desktop';
 import { reportError, reportWarning } from './report';
+import type { NativeDiskGrant } from './disk-tauri';
 
 export type DesktopMenuAction =
 	| 'new'
@@ -33,8 +34,8 @@ export interface DesktopMenuLabels {
 
 export interface DesktopShellHandlers {
 	onMenuAction: (action: DesktopMenuAction) => void | Promise<void>;
-	/** Absolute paths from argv / OS "Open with" / subsequent Opened events. */
-	onOpenPaths: (paths: string[]) => void | Promise<void>;
+	/** Native capabilities from argv, OS "Open with" and subsequent open events. */
+	onOpenPaths: (grants: NativeDiskGrant[]) => void | Promise<void>;
 	labels: DesktopMenuLabels;
 }
 
@@ -62,7 +63,7 @@ export async function initDesktopShell(handlers: DesktopShellHandlers): Promise<
 
 	try {
 		const { invoke } = await import('@tauri-apps/api/core');
-		const pending = await invoke<string[]>('take_pending_open_paths');
+		const pending = await invoke<NativeDiskGrant[]>('take_pending_open_paths');
 		if (Array.isArray(pending) && pending.length > 0) {
 			await handlers.onOpenPaths(pending);
 		}
@@ -139,10 +140,10 @@ async function listenOpenPaths(
 	onOpenPaths: DesktopShellHandlers['onOpenPaths']
 ): Promise<() => void> {
 	const { listen } = await import('@tauri-apps/api/event');
-	const unlisten = await listen<string[]>('mdsh://open-paths', (event) => {
-		const paths = event.payload;
-		if (Array.isArray(paths) && paths.length > 0) {
-			void Promise.resolve(onOpenPaths(paths)).catch((err: unknown) => {
+	const unlisten = await listen<NativeDiskGrant[]>('mdsh://open-paths', (event) => {
+		const grants = event.payload;
+		if (Array.isArray(grants) && grants.length > 0) {
+			void Promise.resolve(onOpenPaths(grants)).catch((err: unknown) => {
 				reportError('ouverture depuis un événement desktop', err);
 			});
 		}

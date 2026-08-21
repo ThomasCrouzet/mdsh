@@ -29,6 +29,27 @@ export interface SaveQueueCallbacks {
 	onDraftSaved?: (id: string, updatedAt: number) => void;
 }
 
+export interface SaveQueueFailure {
+	id: string;
+	error: unknown;
+}
+
+/**
+ * Raised by `flushAwait` when at least one live draft is still only in memory.
+ * Individual write promises never reject, so unload and debounce paths cannot
+ * create unhandled rejections. The awaited durability barrier is the single
+ * fail-closed boundary.
+ */
+export class SaveQueueFlushError extends Error {
+	readonly failures: SaveQueueFailure[];
+
+	constructor(failures: SaveQueueFailure[]) {
+		super(`Unable to persist ${failures.length} draft(s)`);
+		this.name = 'SaveQueueFlushError';
+		this.failures = failures;
+	}
+}
+
 /**
  * Save queue with per-file debounce. A `schedule(id, getRow)` cancels the
  * previous timer for `id` and reschedules a new one. After 400 ms without a
@@ -52,6 +73,8 @@ export class SaveQueue {
 	private writingIds = new Map<string, number>();
 	/** In-flight put promises - used by `flushAwait` / backup to wait for durability. */
 	private putPromises = new Set<Promise<void>>();
+	/** Latest unresolved durability failure per live draft. Cleared only by a successful put. */
+	private durabilityFailures = new Map<string, unknown>();
 	/** Per-id serial chain so puts never race each other on the same draft. */
 	private chains = new Map<string, Promise<void>>();
 	/**
@@ -138,6 +161,7 @@ export class SaveQueue {
 					!this.discardedIds.has(id) &&
 					!this.invalidatedIds.has(id)
 				) {
+					this.durabilityFailures.set(id, err);
 					this.cb.onError(err);
 				}
 				return;
@@ -154,6 +178,7 @@ export class SaveQueue {
 			// Invalidate / newer generation: do not notify (and do not delete -
 			// the row may be the restored backup / reloaded authority).
 			if (this.invalidatedIds.has(id) || this.generations.get(id) !== gen) return;
+			this.durabilityFailures.delete(id);
 			this.cb.onSaved(Date.now());
 			// §M3 - Notifies the other tabs of the successful write.
 			this.cb.onDraftSaved?.(row.id, row.updatedAt);
@@ -221,6 +246,7 @@ export class SaveQueue {
 		this.cancel(id);
 		this.invalidatedIds.delete(id);
 		this.discardedIds.add(id);
+		this.durabilityFailures.delete(id);
 		// Bump generation so any chain link still holding a stale row skips put.
 		this.bumpGeneration(id);
 		this.updateFlag();
@@ -235,6 +261,7 @@ export class SaveQueue {
 		this.cancel(id);
 		this.discardedIds.delete(id);
 		this.invalidatedIds.add(id);
+		this.durabilityFailures.delete(id);
 		this.bumpGeneration(id);
 		this.updateFlag();
 	}
@@ -357,17 +384,34 @@ export class SaveQueue {
 	 * keystrokes.
 	 */
 	async flushAwait(getRow: (id: string) => DraftRow | null): Promise<void> {
+		// Retry rows that failed previously even if no new edit re-armed a timer.
+		// This lets a temporary quota/IDB outage recover without another keystroke.
+		for (const id of [...this.durabilityFailures.keys()]) {
+			if (this.has(id)) continue;
+			const row = getRow(id);
+			if (row) this.enqueuePut(row);
+		}
 		// Bound the loop so a pathological continuous schedule cannot hang forever.
 		for (let i = 0; i < 8; i++) {
 			this.flush(getRow);
-			if (this.putPromises.size === 0 && this.timers.size === 0) return;
+			if (this.putPromises.size === 0 && this.timers.size === 0) break;
 			if (this.putPromises.size > 0) {
 				await Promise.all([...this.putPromises]);
 			}
-			if (this.timers.size === 0 && this.putPromises.size === 0) return;
+			if (this.timers.size === 0 && this.putPromises.size === 0) break;
 		}
-		// Final best-effort flush of anything still armed.
+		// Final flush of anything still armed. A continuous producer is reported
+		// as non-durable instead of being presented as a successful barrier.
 		this.flush(getRow);
 		if (this.putPromises.size > 0) await Promise.all([...this.putPromises]);
+		const failures = [...this.durabilityFailures].map(([id, error]) => ({ id, error }));
+		if (this.timers.size > 0) {
+			for (const id of this.timers.keys()) {
+				if (!failures.some((failure) => failure.id === id)) {
+					failures.push({ id, error: new Error('Draft changed during durability flush') });
+				}
+			}
+		}
+		if (failures.length > 0) throw new SaveQueueFlushError(failures);
 	}
 }

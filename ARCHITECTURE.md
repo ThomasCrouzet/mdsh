@@ -88,3 +88,19 @@ proves the keys line up, not that nobody left a key's value empty). For two
 locales with an app of this size, that was less code and a stricter guarantee
 than pulling in a general-purpose i18n library and configuring it to enforce
 the same thing.
+
+## Durability is a state transition, not a timer
+
+The 400 ms save debounce is an optimization, not proof that content is durable. `SaveQueue` serializes writes per document and records a rejected IndexedDB revision as a durability failure. `flushAwait()` retries failed rows and rejects while any in-memory revision is not represented in IndexedDB. Backup export, restore, and workspace replacement stop at that barrier. The UI reports the error without converting it into a successful save.
+
+Visibility, page-hide, and before-unload events trigger an immediate flush to reduce the residual recovery point. They cannot guarantee execution after a browser or operating-system kill. External backup remains the recovery mechanism for loss of the browser profile.
+
+## Native file access uses session capabilities
+
+The Desktop Beta does not accept JavaScript paths for file commands. A Rust-owned picker or operating-system open event canonicalizes the path and returns an opaque session token. The capability store retains the path and permissions; IndexedDB records cannot recreate a grant after restart.
+
+Native writes stage data in the target directory, synchronize it, compare a SHA-256 content revision immediately before replacement, preserve permissions, and then use the platform replacement primitive. This prevents a same-size, same-timestamp external edit from being overwritten silently and keeps the original intact if staging fails.
+
+## Measured corpus budget
+
+`performance-budget.test.ts` constructs representative corpora of 50, 200, and 300 documents, builds metadata and backlinks, and performs a cross-file search. Each case has a deliberately generous 1.5 second release budget to remain stable on shared CI runners. The target corpus stays within that gate, so the current in-memory model remains intentional and lazy hydration is deferred. The budget is a regression alarm, not a universal device benchmark.

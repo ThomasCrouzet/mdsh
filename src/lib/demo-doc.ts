@@ -85,7 +85,7 @@ or Settings (\`⌘,\`):
   fullscreen slides.
 - **Version history** - local snapshots with a lightweight diff and restore.
 - **Templates** - dated builtins and your own document starters.
-- **Encrypted backup** - full JSON export of drafts, optional AES-GCM passphrase.
+- **Encrypted backup** - portable JSON export of drafts, workspaces, and custom templates with an optional AES-GCM passphrase.
 `
 	}
 ];

@@ -4,7 +4,7 @@
 //   - handleLaunchQueue: PWA File Handling API integration (launch_handler)
 //   - handleShareTarget: PWA Share Target API integration (incoming share)
 //   - title $effect: `document.title` derived from the active file
-//   - flush $effect: saves drafts before closing (pagehide/beforeunload)
+//   - flush $effect: saves drafts when hidden and before closing
 //
 // Exposes a `createFileIntents()` factory to call top-level in the parent
 // component's `<script>` (Svelte 5 constraint: $effect within the init scope).
@@ -49,15 +49,20 @@ export function createFileIntents(opts: FileIntentsOptions) {
 		if (document.title !== titleString) document.title = titleString;
 	});
 
-	// §A2.8 - Flush pending saves before closing / navigating.
-	// `pagehide` is more reliable than `beforeunload` (mobile + iOS).
-	// We listen to both to cover every exit path.
+	// §A2.8 - Flush pending saves when the page becomes hidden and before exit.
+	// This reduces the debounce loss window but cannot guarantee survival after
+	// an abrupt browser or operating-system kill.
 	$effect(() => {
 		if (!browser) return;
 		const flush = () => opts.getFilesStore().flushPending();
+		const flushWhenHidden = () => {
+			if (document.visibilityState === 'hidden') flush();
+		};
+		document.addEventListener('visibilitychange', flushWhenHidden);
 		window.addEventListener('pagehide', flush);
 		window.addEventListener('beforeunload', flush);
 		return () => {
+			document.removeEventListener('visibilitychange', flushWhenHidden);
 			window.removeEventListener('pagehide', flush);
 			window.removeEventListener('beforeunload', flush);
 		};

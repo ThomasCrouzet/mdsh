@@ -54,7 +54,7 @@ export default defineConfig(({ mode }) => {
 				manifest: {
 					name: 'mdsh - local-first markdown editor',
 					short_name: 'mdsh',
-					description: 'A local-first WYSIWYG markdown editor, 100% dark, offline.',
+					description: 'A local-first offline Markdown workspace with light and dark themes.',
 					theme_color: '#0b0c0d',
 					background_color: '#0b0c0d',
 					display: 'standalone',

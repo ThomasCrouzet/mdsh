@@ -1,24 +1,21 @@
 name: Desktop
 
-# Validation runs before desktop changes land. Multi-OS packaging stays limited
-# to releases, manual runs, and manually pushed version tags.
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing or new GitHub release tag (optional)
-        required: false
+        description: Source release tag used for the Desktop Beta
+        required: true
         type: string
   workflow_call:
     inputs:
       release_tag:
-        description: Existing GitHub release tag receiving the binaries
+        description: Source release tag used for the Desktop Beta
         required: true
         type: string
 
@@ -35,130 +32,152 @@ env:
 
 jobs:
   validate-desktop:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+        with:
+          persist-credentials: false
       - name: Install Linux WebKit dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
-
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
-          toolchain: stable
+          toolchain: 1.97.1
           components: rustfmt, clippy
-
       - name: Rust cache
         uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: src-tauri -> target
-
       - name: Format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-
       - name: Clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
-
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
       - name: Tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-  # Ubuntu-only: CHANGELOG notes + existing release id. Must not run on the
-  # Windows matrix (pwsh would break a bash resolver; empty id= would wipe notes).
-  resolve-release-meta:
-    runs-on: ubuntu-22.04
-    if: >-
-      inputs.release_tag != '' ||
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v')
-    outputs:
-      notes: ${{ steps.meta.outputs.notes }}
-      id: ${{ steps.meta.outputs.id }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-
-      - name: Resolve CHANGELOG notes and release id
-        id: meta
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/desktop-release-meta.mjs
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
   build-desktop:
-    needs: [validate-desktop, resolve-release-meta]
-    # A reusable workflow keeps the caller's event name, so a release call is
-    # identified by its required tag input rather than `workflow_call`.
-    if: >-
-      inputs.release_tag != '' ||
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
+    needs: validate-desktop
+    if: inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-15
             args: --target aarch64-apple-darwin
-          - platform: macos-15-intel
+          - platform: macos-14
             args: --target x86_64-apple-darwin
-          - platform: ubuntu-22.04
+          - platform: ubuntu-24.04
             args: ''
-          - platform: windows-latest
+          - platform: windows-2022
             args: ''
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+        with:
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
-
       - name: Install Linux packaging dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
-          toolchain: stable
+          toolchain: 1.97.1
           targets: ${{ runner.os == 'macOS' && (contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || '' }}
-
       - name: Rust cache
         uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: src-tauri -> target
-
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
-
-      - name: Build Tauri app
+      - name: Build workflow artifacts
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BASE_PATH: ''
         with:
           projectPath: .
           tauriScript: npm run tauri
           args: ${{ matrix.args }}
-          tagName: ${{ env.RELEASE_TAG }}
-          releaseName: ${{ env.RELEASE_TAG && format('mdsh {0}', env.RELEASE_TAG) || '' }}
-          releaseBody: ${{ needs.resolve-release-meta.outputs.notes }}
-          releaseId: ${{ needs.resolve-release-meta.outputs.id }}
-          releaseDraft: false
-          prerelease: false
-          generateReleaseNotes: false
-          uploadUpdaterJson: false
           uploadWorkflowArtifacts: true
+
+  build-sbom:
+    needs: validate-desktop
+    if: inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Generate npm SBOM
+        run: npm run sbom:npm
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.1
+      - name: Install Cargo SBOM generator
+        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+      - name: Generate Cargo SBOM
+        run: cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --spec-version 1.5 --override-filename sbom-cargo
+      - name: Collect Cargo SBOM
+        run: cp src-tauri/sbom-cargo.json sbom-cargo.cdx.json
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: desktop-sboms
+          path: sbom-*.cdx.json
+          if-no-files-found: error
+
+  publish-desktop-beta:
+    needs: [build-desktop, build-sbom]
+    if: inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: release-assets
+        run: |
+          checksum_file=$(mktemp)
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$checksum_file"
+          mv "$checksum_file" SHA256SUMS
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-assets/**
+      - name: Publish distinct Desktop Beta release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_TAG: ${{ env.RELEASE_TAG }}
+          DESKTOP_TAG: desktop-${{ env.RELEASE_TAG }}
+        run: |
+          gh release view "$DESKTOP_TAG" >/dev/null 2>&1 || gh release create "$DESKTOP_TAG" \
+            --target "$SOURCE_TAG" \
+            --title "mdsh editor Desktop Beta $SOURCE_TAG" \
+            --notes "Desktop Beta installers. Review SHA256SUMS, SBOMs, and build provenance before installation. The desktop shell is a beta distribution channel." \
+            --prerelease
+          find release-assets -type f -print0 | xargs -0 -n 1 gh release upload "$DESKTOP_TAG" --clobber

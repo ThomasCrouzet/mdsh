@@ -1,35 +1,43 @@
 /**
- * Path-based disk I/O for the Tauri desktop shell.
+ * Opaque-capability disk I/O for the Tauri desktop shell.
  *
- * All `@tauri-apps/*` imports are dynamic so the PWA boot graph never pulls
- * them in. I/O is injectable for unit tests (`createTauriDiskIo` production
- * factory vs mock in tests).
+ * Native Rust dialogs are the only source of capabilities. The webview sees a
+ * display path but can invoke read, stat and write operations only with the
+ * unguessable token returned by Rust for the current process session.
  */
 
-import {
-	pathBasename,
-	isMarkdownDiskPath,
-	ensureMarkdownDiskPath,
-	type PathLinkRecord,
-	pathLinkRecord
-} from './disk-link';
-import { t } from '$lib/i18n';
+import { pathBasename, isMarkdownDiskPath, type PathLinkRecord, pathLinkRecord } from './disk-link';
 
 export interface DiskFileMeta {
 	lastModified: number;
 	size: number;
+	revision: string;
 }
 
-/** Boundary used by open/save helpers - mockable without a real webview. */
+export interface NativeDiskGrant {
+	token: string;
+	path: string;
+	stat: DiskFileMeta | null;
+}
+
 export interface TauriDiskIo {
-	openPaths(multiple: boolean): Promise<string[]>;
-	savePath(suggestedName: string): Promise<string | null>;
-	/** Save dialog for export/backup artifacts (md/html/zip/json). */
-	saveExportPath(suggestedName: string): Promise<string | null>;
-	readText(path: string): Promise<string>;
-	writeText(path: string, content: string): Promise<void>;
-	writeBytes(path: string, contents: Uint8Array): Promise<void>;
-	stat(path: string): Promise<DiskFileMeta | null>;
+	openGrants(multiple: boolean): Promise<NativeDiskGrant[]>;
+	saveGrant(suggestedName: string): Promise<NativeDiskGrant | null>;
+	saveExportGrant(suggestedName: string): Promise<NativeDiskGrant | null>;
+	readText(token: string): Promise<string>;
+	writeText(
+		token: string,
+		content: string,
+		expectedRevision: string | null,
+		force: boolean
+	): Promise<DiskFileMeta>;
+	writeBytes(
+		token: string,
+		contents: Uint8Array,
+		expectedRevision: string | null,
+		force: boolean
+	): Promise<DiskFileMeta>;
+	stat(token: string): Promise<DiskFileMeta | null>;
 }
 
 export interface OpenedDiskFile {
@@ -38,6 +46,7 @@ export interface OpenedDiskFile {
 	path: string;
 	lastModified: number;
 	size: number;
+	revision: string;
 	link: PathLinkRecord;
 }
 
@@ -46,155 +55,143 @@ export interface OpenedDiskFiles {
 	failed: number;
 }
 
-let _io: TauriDiskIo | null = null;
-let _ioPromise: Promise<TauriDiskIo> | null = null;
+let io: TauriDiskIo | null = null;
+let ioPromise: Promise<TauriDiskIo> | null = null;
+const grantsByPath = new Map<string, NativeDiskGrant>();
 
-/** Test seam: inject a mock I/O implementation. */
-export function setTauriDiskIoForTests(io: TauriDiskIo | null): void {
-	_io = io;
-	_ioPromise = io ? Promise.resolve(io) : null;
+function registerGrants(grants: NativeDiskGrant[]): void {
+	for (const grant of grants) {
+		if (grant.token && isMarkdownDiskPath(grant.path)) grantsByPath.set(grant.path, grant);
+		else if (grant.token) grantsByPath.set(grant.path, grant);
+	}
 }
 
-/**
- * Production I/O: dialog plugin for pickers + Rust `disk_*` commands for
- * read/write/stat (extension-gated, works for argv-opened paths too).
- */
+function grantForPath(path: string): NativeDiskGrant {
+	const grant = grantsByPath.get(path);
+	if (!grant) throw new Error('Disk capability expired. Choose the file again.');
+	return grant;
+}
+
+export function setTauriDiskIoForTests(value: TauriDiskIo | null): void {
+	io = value;
+	ioPromise = value ? Promise.resolve(value) : null;
+	grantsByPath.clear();
+}
+
 export async function createTauriDiskIo(): Promise<TauriDiskIo> {
-	const { open, save } = await import('@tauri-apps/plugin-dialog');
 	const { invoke } = await import('@tauri-apps/api/core');
-
-	const extensions = ['md', 'markdown', 'mdx', 'txt'];
-	const filters = [
-		{
-			name: t('disk.fileFilter'),
-			extensions
-		}
-	];
-	const exportFilters = [
-		{
-			name: t('disk.fileFilter'),
-			extensions: ['md', 'markdown', 'mdx', 'txt', 'html', 'htm', 'zip', 'json']
-		}
-	];
-
-	/**
-	 * Registers dialog / argv paths with the Rust grant set.
-	 * Intentionally NOT called from bare read/write/stat: those require a prior
-	 * grant (dialog, argv, or explicit grant for a known path-link).
-	 * Residual: `disk_grant` remains JS-callable (webview XSS can still grant);
-	 * full dialog-in-Rust would close that further.
-	 */
-	async function grantPaths(paths: string[]): Promise<void> {
-		if (paths.length === 0) return;
-		await invoke('disk_grant', { paths });
-	}
+	const toMeta = (stat: { mtimeMs: number; size: number; revision: string }): DiskFileMeta => ({
+		lastModified: stat.mtimeMs,
+		size: stat.size,
+		revision: stat.revision
+	});
+	const toGrant = (grant: {
+		token: string;
+		path: string;
+		stat: { mtimeMs: number; size: number; revision: string } | null;
+	}): NativeDiskGrant => ({
+		token: grant.token,
+		path: grant.path,
+		stat: grant.stat ? toMeta(grant.stat) : null
+	});
 
 	return {
-		async openPaths(multiple) {
-			const selected = await open({
-				multiple,
-				filters,
-				directory: false
+		async openGrants(multiple) {
+			const grants = await invoke<
+				Array<{
+					token: string;
+					path: string;
+					stat: { mtimeMs: number; size: number; revision: string } | null;
+				}>
+			>('disk_open_dialog', { multiple });
+			return grants.map(toGrant);
+		},
+		async saveGrant(suggestedName) {
+			const grant = await invoke<{
+				token: string;
+				path: string;
+				stat: { mtimeMs: number; size: number; revision: string } | null;
+			} | null>('disk_save_dialog', { suggestedName, export: false });
+			return grant ? toGrant(grant) : null;
+		},
+		async saveExportGrant(suggestedName) {
+			const grant = await invoke<{
+				token: string;
+				path: string;
+				stat: { mtimeMs: number; size: number; revision: string } | null;
+			} | null>('disk_save_dialog', { suggestedName, export: true });
+			return grant ? toGrant(grant) : null;
+		},
+		readText(token) {
+			return invoke<string>('disk_read', { token });
+		},
+		async writeText(token, content, expectedRevision, force) {
+			const stat = await invoke<{ mtimeMs: number; size: number; revision: string }>('disk_write', {
+				token,
+				content,
+				expectedRevision,
+				force
 			});
-			if (selected === null) return [];
-			const list = Array.isArray(selected) ? selected : [selected];
-			const paths = list.filter((p) => typeof p === 'string' && isMarkdownDiskPath(p));
-			await grantPaths(paths);
-			return paths;
+			return toMeta(stat);
 		},
-		async savePath(suggestedName) {
-			const selected = await save({
-				defaultPath: suggestedName,
-				filters
-			});
-			// Dialog may omit the extension - append `.md` so Rust ensure_allowed accepts it.
-			const path = typeof selected === 'string' ? ensureMarkdownDiskPath(selected) : null;
-			if (path) await grantPaths([path]);
-			return path;
+		async writeBytes(token, contents, expectedRevision, force) {
+			const stat = await invoke<{ mtimeMs: number; size: number; revision: string }>(
+				'disk_write_bytes',
+				{ token, contents: Array.from(contents), expectedRevision, force }
+			);
+			return toMeta(stat);
 		},
-		async saveExportPath(suggestedName) {
-			const selected = await save({
-				defaultPath: suggestedName,
-				filters: exportFilters
-			});
-			if (typeof selected !== 'string') return null;
-			// Preserve known export extensions; default bare names to the suggested ext.
-			const lower = selected.toLowerCase();
-			const path = /\.(md|markdown|mdx|txt|html|htm|zip|json)$/.test(lower)
-				? selected
-				: `${selected}${suggestedName.match(/(\.[^.]+)$/)?.[1] ?? '.md'}`;
-			await grantPaths([path]);
-			return path;
-		},
-		async readText(path) {
-			return invoke<string>('disk_read', { path });
-		},
-		async writeText(path, content) {
-			await invoke('disk_write', { path, content });
-		},
-		async writeBytes(path, contents) {
-			// Tauri serializes Uint8Array as number[]; pass a plain array for IPC.
-			await invoke('disk_write_bytes', { path, contents: Array.from(contents) });
-		},
-		async stat(path) {
-			const s = await invoke<{ mtimeMs: number; size: number } | null>('disk_stat', {
-				path
-			});
-			if (!s) return null;
-			return { lastModified: s.mtimeMs, size: s.size };
+		async stat(token) {
+			const stat = await invoke<{ mtimeMs: number; size: number; revision: string } | null>(
+				'disk_stat',
+				{ token }
+			);
+			return stat ? toMeta(stat) : null;
 		}
 	};
 }
 
 async function getIo(): Promise<TauriDiskIo> {
-	if (_io) return _io;
-	if (!_ioPromise) {
-		_ioPromise = createTauriDiskIo().then((io) => {
-			_io = io;
-			return io;
+	if (io) return io;
+	if (!ioPromise) {
+		ioPromise = createTauriDiskIo().then((created) => {
+			io = created;
+			return created;
 		});
 	}
-	return _ioPromise;
+	return ioPromise;
 }
 
 export async function tauriPickAndOpen(): Promise<OpenedDiskFiles> {
-	const io = await getIo();
-	const paths = await io.openPaths(true);
-	return openPaths(paths, io);
+	const currentIo = await getIo();
+	const grants = await currentIo.openGrants(true);
+	registerGrants(grants);
+	return openGrants(grants, currentIo);
 }
 
 export async function tauriPickSaveTarget(suggestedName: string): Promise<PathLinkRecord | null> {
-	const io = await getIo();
-	const path = await io.savePath(suggestedName);
-	if (!path) return null;
-	return pathLinkRecord(path);
+	const currentIo = await getIo();
+	const grant = await currentIo.saveGrant(suggestedName);
+	if (!grant) return null;
+	registerGrants([grant]);
+	return pathLinkRecord(grant.path);
 }
 
-/** Grant a previously linked / dialog path then write (session re-open). */
-export async function tauriGrantPaths(paths: string[]): Promise<void> {
-	if (paths.length === 0) return;
-	const { invoke } = await import('@tauri-apps/api/core');
-	await invoke('disk_grant', { paths });
+export async function tauriWritePath(
+	path: string,
+	content: string,
+	expectedRevision: string | null,
+	force = false
+): Promise<DiskFileMeta> {
+	const currentIo = await getIo();
+	const grant = grantForPath(path);
+	const stat = await currentIo.writeText(grant.token, content, expectedRevision, force);
+	grant.stat = stat;
+	return stat;
 }
 
-export async function tauriWritePath(path: string, content: string): Promise<void> {
-	const io = await getIo();
-	// Path-link save after restart: re-register the known absolute path.
-	await tauriGrantPaths([path]);
-	await io.writeText(path, content);
-}
-
-/**
- * Desktop-native save for export/backup blobs (md/html/zip/json).
- * Returns true when the user picked a path and the write succeeded;
- * false when the dialog was cancelled.
- */
-/** Reads blob bytes - works in real browsers and jsdom (no Blob.arrayBuffer). */
 async function readBlobBytes(blob: Blob): Promise<Uint8Array> {
-	if (typeof blob.arrayBuffer === 'function') {
-		return new Uint8Array(await blob.arrayBuffer());
-	}
-	// jsdom / older engines: FileReader path.
+	if (typeof blob.arrayBuffer === 'function') return new Uint8Array(await blob.arrayBuffer());
 	return new Promise((resolve, reject) => {
 		const reader = new FileReader();
 		reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
@@ -204,71 +201,70 @@ async function readBlobBytes(blob: Blob): Promise<Uint8Array> {
 }
 
 export async function tauriSaveExportBlob(blob: Blob, suggestedName: string): Promise<boolean> {
-	const io = await getIo();
-	const path = await io.saveExportPath(suggestedName);
-	if (!path) return false;
+	const currentIo = await getIo();
+	const grant = await currentIo.saveExportGrant(suggestedName);
+	if (!grant) return false;
+	registerGrants([grant]);
 	const bytes = await readBlobBytes(blob);
-	// Prefer text write for UTF-8 text exports (smaller IPC than number arrays for large HTML).
-	const isText = /\.(md|markdown|mdx|txt|html|htm|json)$/i.test(path);
-	if (isText) {
-		const text = new TextDecoder('utf-8').decode(bytes);
-		await io.writeText(path, text);
+	const expectedRevision = grant.stat?.revision ?? null;
+	if (/\.(md|markdown|mdx|txt|html|htm|json)$/i.test(grant.path)) {
+		grant.stat = await currentIo.writeText(
+			grant.token,
+			new TextDecoder('utf-8').decode(bytes),
+			expectedRevision,
+			false
+		);
 	} else {
-		await io.writeBytes(path, bytes);
+		grant.stat = await currentIo.writeBytes(grant.token, bytes, expectedRevision, false);
 	}
 	return true;
 }
 
 export async function tauriReadMeta(path: string): Promise<DiskFileMeta | null> {
-	const io = await getIo();
-	await tauriGrantPaths([path]);
-	return io.stat(path);
+	const currentIo = await getIo();
+	return currentIo.stat(grantForPath(path).token);
 }
 
 export async function tauriCheckPath(path: string): Promise<'ok' | 'broken' | 'permission-needed'> {
-	const io = await getIo();
 	try {
-		await tauriGrantPaths([path]);
-		return (await io.stat(path)) ? 'ok' : 'broken';
+		return (await tauriReadMeta(path)) ? 'ok' : 'broken';
 	} catch {
 		return 'permission-needed';
 	}
 }
 
-/**
- * Opens absolute paths from argv / file association (no dialog).
- * Skips non-markdown paths; fails soft per file.
- */
-export async function tauriOpenAbsolutePaths(paths: string[]): Promise<OpenedDiskFiles> {
-	const io = await getIo();
-	// Argv paths are also granted in Rust on take_pending; re-grant for path-link I/O.
-	const md = paths.filter((p) => isMarkdownDiskPath(p));
-	await tauriGrantPaths(md);
-	return openPaths(paths, io);
+export async function tauriOpenNativeGrants(grants: NativeDiskGrant[]): Promise<OpenedDiskFiles> {
+	const currentIo = await getIo();
+	const markdownGrants = grants.filter((grant) => isMarkdownDiskPath(grant.path));
+	registerGrants(markdownGrants);
+	return openGrants(markdownGrants, currentIo);
 }
 
-async function openPaths(paths: string[], io: TauriDiskIo): Promise<OpenedDiskFiles> {
-	const out: OpenedDiskFile[] = [];
+async function openGrants(
+	grants: NativeDiskGrant[],
+	currentIo: TauriDiskIo
+): Promise<OpenedDiskFiles> {
+	const files: OpenedDiskFile[] = [];
 	let failed = 0;
-	for (const path of paths) {
-		if (!isMarkdownDiskPath(path)) continue;
+	for (const grant of grants) {
+		if (!isMarkdownDiskPath(grant.path)) continue;
 		try {
-			const content = await io.readText(path);
-			const meta = (await io.stat(path)) ?? {
-				lastModified: Date.now(),
-				size: content.length
-			};
-			out.push({
-				name: pathBasename(path) || 'untitled.md',
+			const content = await currentIo.readText(grant.token);
+			const stat = (await currentIo.stat(grant.token)) ?? grant.stat;
+			if (!stat) throw new Error('Selected file disappeared before it could be opened.');
+			grant.stat = stat;
+			files.push({
+				name: pathBasename(grant.path) || 'untitled.md',
 				content,
-				path,
-				lastModified: meta.lastModified,
-				size: meta.size,
-				link: pathLinkRecord(path)
+				path: grant.path,
+				lastModified: stat.lastModified,
+				size: stat.size,
+				revision: stat.revision,
+				link: pathLinkRecord(grant.path)
 			});
 		} catch {
 			failed += 1;
 		}
 	}
-	return { files: out, failed };
+	return { files, failed };
 }

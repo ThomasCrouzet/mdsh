@@ -808,10 +808,22 @@ describe('disque (délégation → disk-sync)', () => {
 	});
 
 	it('openPathsFromDesktop() délègue les chemins et ses callbacks', async () => {
-		await filesStore.openPathsFromDesktop(['/tmp/a.md']);
+		await filesStore.openPathsFromDesktop([
+			{
+				token: 'native-token',
+				path: '/tmp/a.md',
+				stat: { lastModified: 1, size: 1, revision: 'sha256:test' }
+			}
+		]);
 		expect(diskSync.openPathsFromDesktop).toHaveBeenCalledTimes(1);
-		const [paths, deps] = vi.mocked(diskSync.openPathsFromDesktop).mock.calls[0]!;
-		expect(paths).toEqual(['/tmp/a.md']);
+		const [grants, deps] = vi.mocked(diskSync.openPathsFromDesktop).mock.calls[0]!;
+		expect(grants).toEqual([
+			{
+				token: 'native-token',
+				path: '/tmp/a.md',
+				stat: { lastModified: 1, size: 1, revision: 'sha256:test' }
+			}
+		]);
 		const created = deps.onCreate('desktop.md', '# Desktop');
 		deps.scheduleSave(created.id);
 	});

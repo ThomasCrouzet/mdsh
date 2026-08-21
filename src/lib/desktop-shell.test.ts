@@ -59,8 +59,18 @@ interface MenuItemOptions {
 }
 
 interface OpenEvent {
-	payload: string[];
+	payload: Array<{
+		token: string;
+		path: string;
+		stat: { lastModified: number; size: number; revision: string } | null;
+	}>;
 }
+
+const nativeGrant = (path: string) => ({
+	token: `token:${path}`,
+	path,
+	stat: { lastModified: 1, size: 1, revision: 'sha256:test' }
+});
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -94,7 +104,7 @@ describe('initDesktopShell', () => {
 
 	it('installs the menu, handles pending paths and disposes the listener', async () => {
 		mocks.isDesktop.mockReturnValue(true);
-		mocks.invoke.mockResolvedValue(['/tmp/pending.md']);
+		mocks.invoke.mockResolvedValue([nativeGrant('/tmp/pending.md')]);
 		const onMenuAction = vi.fn(async () => {});
 		const onOpenPaths = vi.fn(async () => {});
 
@@ -103,7 +113,7 @@ describe('initDesktopShell', () => {
 		expect(mocks.setAsAppMenu).toHaveBeenCalledOnce();
 		expect(mocks.listen).toHaveBeenCalledWith('mdsh://open-paths', expect.any(Function));
 		expect(mocks.invoke).toHaveBeenCalledWith('take_pending_open_paths');
-		expect(onOpenPaths).toHaveBeenCalledWith(['/tmp/pending.md']);
+		expect(onOpenPaths).toHaveBeenCalledWith([nativeGrant('/tmp/pending.md')]);
 
 		const menuCalls = mocks.menuItemNew.mock.calls as unknown as Array<[MenuItemOptions]>;
 		const newItem = menuCalls.map(([options]) => options).find((options) => options.id === 'new');
@@ -113,8 +123,10 @@ describe('initDesktopShell', () => {
 		const listenCalls = mocks.listen.mock.calls as unknown as Array<
 			[string, (event: OpenEvent) => void]
 		>;
-		listenCalls[0]![1]({ payload: ['/tmp/event.md'] });
-		await vi.waitFor(() => expect(onOpenPaths).toHaveBeenCalledWith(['/tmp/event.md']));
+		listenCalls[0]![1]({ payload: [nativeGrant('/tmp/event.md')] });
+		await vi.waitFor(() =>
+			expect(onOpenPaths).toHaveBeenCalledWith([nativeGrant('/tmp/event.md')])
+		);
 
 		dispose();
 		expect(mocks.unlisten).toHaveBeenCalledOnce();
@@ -146,7 +158,7 @@ describe('initDesktopShell', () => {
 		const listenCalls = mocks.listen.mock.calls as unknown as Array<
 			[string, (event: OpenEvent) => void]
 		>;
-		listenCalls[0]![1]({ payload: ['/tmp/failing.md'] });
+		listenCalls[0]![1]({ payload: [nativeGrant('/tmp/failing.md')] });
 		await vi.waitFor(() =>
 			expect(mocks.reportError).toHaveBeenCalledWith(
 				'ouverture depuis un événement desktop',

@@ -178,7 +178,8 @@ class WorkspaceStore {
 			await filesStore.flushPendingAwait();
 		} catch (err) {
 			reportPersistenceError(err, 'save');
-			// Continue restore - partial flush is still better than aborting.
+			// Fail closed: keep every current tab and its in-memory content intact.
+			return;
 		}
 
 		// 1. Open the missing files from Dexie (preserve the ids).

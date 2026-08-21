@@ -14,7 +14,7 @@
 		Archive,
 		CircleX,
 		AlertTriangle
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import { formatKbd } from '$lib/platform';
 	import { spinnerStore } from '$lib/spinner.svelte';
 	import { t } from '$lib/i18n';

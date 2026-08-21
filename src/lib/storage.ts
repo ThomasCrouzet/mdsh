@@ -22,7 +22,121 @@ import { notify } from './notify.svelte';
 /** Context of a storage operation, for a tailored error message. */
 export type PersistenceContext = 'save' | 'trash' | 'reorder' | 'delete' | 'load';
 
-/** Detects a storage quota overflow, across all browsers. */
+const BACKUP_SUCCESS_KEY = 'mdsh:storage:last-external-backup';
+const BACKUP_ERROR_KEY = 'mdsh:storage:last-backup-error';
+const BACKUP_REMINDER_KEY = 'mdsh:storage:last-backup-reminder';
+const BACKUP_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const BACKUP_REMINDER_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export interface StorageHealth {
+	persistence: 'persistent' | 'best-effort' | 'unavailable';
+	usage: number | null;
+	quota: number | null;
+	lastExternalBackupAt: number | null;
+	lastBackupErrorAt: number | null;
+	backupReminderDue: boolean;
+}
+
+function readTimestamp(key: string): number | null {
+	if (!browser) return null;
+	try {
+		const value = Number(localStorage.getItem(key));
+		return Number.isFinite(value) && value > 0 ? value : null;
+	} catch {
+		return null;
+	}
+}
+
+function writeTimestamp(key: string, value: number | null): void {
+	if (!browser) return;
+	try {
+		if (value === null) localStorage.removeItem(key);
+		else localStorage.setItem(key, String(value));
+	} catch {
+		// Local health metadata is best-effort and never blocks the actual backup.
+	}
+}
+
+export function recordExternalBackupSuccess(now = Date.now()): void {
+	writeTimestamp(BACKUP_SUCCESS_KEY, now);
+	writeTimestamp(BACKUP_ERROR_KEY, null);
+	writeTimestamp(BACKUP_REMINDER_KEY, now);
+}
+
+export function recordExternalBackupFailure(now = Date.now()): void {
+	writeTimestamp(BACKUP_ERROR_KEY, now);
+}
+
+export function recordBackupReminderShown(now = Date.now()): void {
+	writeTimestamp(BACKUP_REMINDER_KEY, now);
+}
+
+export function isBackupReminderDue(
+	now: number,
+	lastBackupAt: number | null,
+	lastReminderAt: number | null
+): boolean {
+	const backupTooOld = lastBackupAt === null || now - lastBackupAt >= BACKUP_MAX_AGE_MS;
+	const reminderWindowOpen =
+		lastReminderAt === null || now - lastReminderAt >= BACKUP_REMINDER_INTERVAL_MS;
+	return backupTooOld && reminderWindowOpen;
+}
+
+export async function getStorageHealth(now = Date.now()): Promise<StorageHealth> {
+	const lastExternalBackupAt = readTimestamp(BACKUP_SUCCESS_KEY);
+	const lastBackupErrorAt = readTimestamp(BACKUP_ERROR_KEY);
+	const lastReminderAt = readTimestamp(BACKUP_REMINDER_KEY);
+	if (!browser || !navigator.storage) {
+		return {
+			persistence: 'unavailable',
+			usage: null,
+			quota: null,
+			lastExternalBackupAt,
+			lastBackupErrorAt,
+			backupReminderDue: isBackupReminderDue(now, lastExternalBackupAt, lastReminderAt)
+		};
+	}
+
+	let persistence: StorageHealth['persistence'] = 'best-effort';
+	let usage: number | null = null;
+	let quota: number | null = null;
+	try {
+		if (navigator.storage.persisted && (await navigator.storage.persisted())) {
+			persistence = 'persistent';
+		}
+	} catch {
+		persistence = 'best-effort';
+	}
+	try {
+		const estimate = await navigator.storage.estimate?.();
+		usage = typeof estimate?.usage === 'number' ? estimate.usage : null;
+		quota = typeof estimate?.quota === 'number' ? estimate.quota : null;
+	} catch {
+		// Estimates are optional. Keep the unknown values initialized above.
+	}
+	return {
+		persistence,
+		usage,
+		quota,
+		lastExternalBackupAt,
+		lastBackupErrorAt,
+		backupReminderDue: isBackupReminderDue(now, lastExternalBackupAt, lastReminderAt)
+	};
+}
+
+export function formatStorageBytes(value: number): string {
+	if (value < 1024) return `${value} B`;
+	const units = ['KiB', 'MiB', 'GiB', 'TiB'];
+	let amount = value / 1024;
+	let unit = units[0]!;
+	for (let index = 1; index < units.length && amount >= 1024; index++) {
+		amount /= 1024;
+		unit = units[index]!;
+	}
+	return `${amount.toFixed(amount >= 10 ? 0 : 1)} ${unit}`;
+}
+
+/** Detects the quota error variants exposed by supported browsers. */
 export function isQuotaError(err: unknown): boolean {
 	if (err instanceof DOMException) {
 		return (

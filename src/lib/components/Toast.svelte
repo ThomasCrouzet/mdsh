@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { filesStore } from '$lib/files.svelte';
 	import { t } from '$lib/i18n';
-	import { RotateCcw } from 'lucide-svelte';
+	import { RotateCcw } from '@lucide/svelte';
 
 	function stripExt(name: string) {
 		return name.replace(/\.(md|markdown|mdx|txt)$/i, '');

@@ -18,7 +18,7 @@
 	import SourceEditor from '$lib/components/SourceEditor.svelte';
 	import ReadView from '$lib/components/ReadView.svelte';
 	import Welcome from '$lib/components/Welcome.svelte';
-	import { Upload } from 'lucide-svelte';
+	import { Upload } from '@lucide/svelte';
 	import type { EditMode, FileItem } from '$lib/types';
 	import type { createEditorWidth } from '$lib/ui/editor-width.svelte';
 	import type { createModals } from '$lib/ui/modals.svelte';

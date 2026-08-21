@@ -46,12 +46,16 @@ export default defineConfig({
 			testMatch: '**/mobile.spec.ts'
 		},
 		{
-			// WebKit (Safari) - valide le golden path sur le navigateur des PWA mobiles.
-			// Limité à golden-path.spec.ts : les specs FSA (File System Access API)
-			// ne sont pas supportées hors Chromium et sont intentionnellement exclues.
+			name: 'firefox',
+			use: { ...devices['Desktop Firefox'] },
+			testMatch: '**/golden-path.spec.ts'
+		},
+		{
+			// WebKit covers persistence, localization, and command interactions.
+			// FSA-dependent tests remain intentionally limited to Chromium.
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
-			testMatch: '**/golden-path.spec.ts'
+			testMatch: ['**/golden-path.spec.ts', '**/locale-en.spec.ts', '**/palette.spec.ts']
 		}
 	],
 	webServer: {

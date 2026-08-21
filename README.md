@@ -1,134 +1,86 @@
 # `$ mdsh`
 
-[![Live demo](https://img.shields.io/badge/demo-live-c79a55.svg)](https://thomascrouzet.github.io/mdsh/)
-[![Deploy to GitHub Pages](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml/badge.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml)
-[![Tests](https://img.shields.io/badge/tests-959%20passing-c79a55.svg)](#development)
-[![Bundle](https://img.shields.io/badge/entry%20bundle-%3C%2012%20KB%20gz-c79a55.svg)](.size-limit.json)
-[![Lighthouse CI](https://img.shields.io/badge/Lighthouse%20CI-on%20PR-c79a55.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml)
+[![Deploy and tests](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml/badge.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml)
+[![Security](https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml/badge.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-### → [Try the live demo](https://thomascrouzet.github.io/mdsh/)
+**mdsh editor is a local-first, offline Markdown workspace.** Write in WYSIWYG, source, or reading mode without an account, backend, cloud sync, collaboration service, telemetry, or tracking.
 
-**A local-first markdown workspace with a BLACKSITE-inspired technical shell.** WYSIWYG editor, offline, 100% client-side - light / dark / system theme.
-No server, no telemetry, no account. Your files never leave the browser.
+[Try web app](https://thomascrouzet.github.io/mdsh/) | [Install PWA](docs/USER_GUIDE.md#install-the-pwa) | [Download Desktop Beta](https://github.com/ThomasCrouzet/mdsh/releases) | [User guide](docs/USER_GUIDE.md) | [Contribute](CONTRIBUTING.md)
 
-Graphite surfaces, warm ivory text and restrained amber instrumentation give the workspace a distinct identity while the document itself stays quiet and readable.
+The BLACKSITE interface uses graphite surfaces, warm ivory text, and restrained amber instrumentation. Light, dark, and system themes are available; system is the initial preference.
 
-**Why mdsh?** Because writing markdown should not require an account, a connection, or trust in a third-party server: you open a tab, you write in WYSIWYG, everything is saved locally and stays readable offline. Local-first is the one non-negotiable - the feature set below (link graph, presentation mode, version history, templates, encrypted backups) exists to serve that principle, not to turn the editor into a platform.
+![WYSIWYG editing, source mode, the command palette, the link graph and a wiki-link click](docs/demo.gif)
 
-![WYSIWYG editing, source mode, the command palette, the link graph and a wiki-link click, recorded end to end](docs/demo.gif)
+## What it does
 
-<table>
-	<tr>
-		<td width="50%"><img src="docs/screenshots/mode-wysiwyg.webp" alt="WYSIWYG mode (Milkdown) with H1, KaTeX math, code, checklist and a populated sidebar" /></td>
-		<td width="50%"><img src="docs/screenshots/mode-source.webp" alt="CodeMirror source mode with markdown syntax highlighting" /></td>
-	</tr>
-	<tr>
-		<td width="50%"><img src="docs/screenshots/mode-read.webp" alt="Reading mode with a floating table of contents, rendered KaTeX and backlinks" /></td>
-		<td width="50%"><img src="docs/screenshots/palette.webp" alt="Command palette ⌘⇧P with keyboard shortcuts" /></td>
-	</tr>
-</table>
+- Three editing modes: Milkdown WYSIWYG, CodeMirror source, and rendered reading view.
+- GFM, code highlighting, KaTeX, Mermaid, YAML front matter, wiki links, backlinks, and a link graph.
+- Local tabs, workspaces, version history, templates, trash, tags, search, and cross-file replace.
+- Markdown, content-only PDF, self-contained offline HTML, and ZIP exports.
+- Installable offline PWA with file and share intents where the browser supports them.
+- Optional encrypted JSON backup using WebCrypto AES-GCM and PBKDF2.
+- English and French interface.
+- Documented keyboard support and release-blocking automated accessibility checks. These checks are not a WCAG certification or a substitute for a human audit.
 
-## Features
+## Browser and desktop support
 
-- **3 modes** - WYSIWYG (Milkdown Crepe), source (CodeMirror 6), reading (with a floating TOC)
-- **Full markdown** - GFM, code highlighting, KaTeX math, Mermaid (live preview in WYSIWYG too), YAML front-matter, wiki-links `[[Target]]` + backlinks
-- **Multi-file** - tabs, drag-reorder, multi-selection, filter by tag, broken-link badge
-- **Workspaces** - named sessions of open tabs
-- **Link graph** - force-directed view of wiki-links and backlinks across the corpus
-- **Presentation mode** - splits a document on `---` into fullscreen slides
-- **Version history** - throttled local snapshots, lightweight diff, restore
-- **Templates** - dated builtins and custom document templates
-- **Auto-save** - IndexedDB (Dexie, 400 ms debounce), trash with 5 s undo
-- **Backups** - full JSON export/restore, optional AES-GCM encryption
-- **File System Access API** - in-place editing on disk (Chromium)
-- **Exports** - markdown, PDF, standalone HTML, ZIP of all files
-- **PWA** - installable, offline, opens `.md` files from the OS, accepts shares
-- **Search** - cross-file (`⌘⇧F`) and in-file (`⌘F`), cross-file replace
-- **Focus mode** + **typewriter mode** + command palette
-- **Bilingual** - English default, French auto-detected, switchable in Settings
-- **A11y** - WCAG AA contrast (AAA for main text), full keyboard navigation, `prefers-reduced-motion`
+| Capability | Chromium | Firefox | Safari / WebKit | Tauri Desktop Beta |
+| --- | --- | --- | --- | --- |
+| Edit, read, search, export | Tested | Golden path tested | Golden path tested | Same static application |
+| Offline PWA shell | Tested | Browser-dependent install UX | Browser-dependent install UX | Bundled locally |
+| Direct save back to an opened path | File System Access API | Download fallback | Download fallback | Native capability token |
+| Remote Markdown images | Blocked until explicit per-document consent | Same | Same | Same |
+| Native installers | Not applicable | Not applicable | Not applicable | Unsigned beta, OS warnings may appear |
+
+Desktop downloads are published separately as prerelease Desktop Beta artifacts. They are not notarized on macOS or signed for Windows. Each beta release includes checksums, npm and Cargo SBOMs, and build provenance. Verify those files before installation.
+
+## Local data and backups
+
+Drafts are saved to IndexedDB after a 400 ms debounce. A failed write remains visible and blocks backup, restore, workspace replacement, and other durability-sensitive actions. The app also flushes when the page becomes hidden, but no browser can guarantee the final keystrokes survive a process kill or device failure.
+
+IndexedDB is still one local storage domain, not a backup. Export backups regularly from Settings. The JSON backup includes drafts, workspaces, and custom templates. It excludes trash, version history, browser file handles, and native path capabilities. See the [user guide](docs/USER_GUIDE.md#backups-and-storage-health).
+
+## Privacy model
+
+- The application has no backend, account, telemetry, cloud sync, or runtime CDN.
+- User HTML is sanitized. CSS URLs are limited to validated local fragments.
+- Remote Markdown images are placeholders until the user explicitly loads them for that document. Loading them reveals the client IP to their hosts, with no referrer sent.
+- Drafts and preferences remain in browser storage unless the user exports or opens a file.
+- See [SECURITY.md](SECURITY.md) for the browser and Desktop threat models.
 
 ## Shortcuts
 
-> On Windows / Linux, `⌘` is automatically replaced by `Ctrl`.
+On Windows and Linux, the displayed Command shortcuts become Control shortcuts.
 
 | Shortcut | Action |
-|-----------|--------|
-| `⌘N` / `⌘O` / `⌘S` / `⌘⇧S` | New · open · export `.md` · save to disk (FSA) |
-| `⌘P` / `⌘,` | Export PDF · settings |
-| `⌘E` / `⌘R` / `⌘/` | WYSIWYG mode · reading · source |
-| `⌘B` / `⌘W` / `⌘⇧.` | Sidebar · close tab · focus mode |
-| `⌘⇧P` / `⌘F` / `⌘⇧F` | Palette · in-file search/replace · cross-file search |
-| `Cmd`/`Shift` + click, `Alt + ↑/↓` | Multi-selection / reorder sidebar |
+| --- | --- |
+| `Cmd+N`, `Cmd+O`, `Cmd+S`, `Cmd+Shift+S` | New, open, export Markdown, save to disk |
+| `Cmd+P`, `Cmd+,` | Export PDF, settings |
+| `Cmd+E`, `Cmd+R`, `Cmd+/` | WYSIWYG, reading, source |
+| `Cmd+B`, `Cmd+W`, `Cmd+Shift+.` | Sidebar, close tab, focus mode |
+| `Cmd+Shift+P`, `Cmd+F`, `Cmd+Shift+F` | Palette, in-file search, cross-file search |
 
-## Stack
+## Scope and limits
 
-SvelteKit 2 + Svelte 5 (runes) · TypeScript strict · Milkdown Crepe · Tailwind 4 · Dexie · `vite-plugin-pwa`. Markdown rendering (reading mode) and PDF/HTML exports: `marked` + KaTeX + highlight.js + Mermaid, loaded on demand, outside the initial bundle.
-
-**How it's built** - the design decisions behind the offline-first architecture, the bundle-size budget, and the store/module split are written up as a case study: [ARCHITECTURE.md](ARCHITECTURE.md).
+- No backend, account, cloud sync, collaboration, plugins, or telemetry.
+- The in-memory corpus model targets about 200 to 300 documents. Larger corpora are outside the current performance target.
+- Milkdown may normalize Markdown formatting during AST serialization. Use source mode when byte-for-byte formatting matters.
+- Browser-generated print headers and footers, such as date, URL, title, and page number, are controlled by the browser print dialog. Disable them there for a content-only PDF.
 
 ## Development
 
 ```sh
-npm install --legacy-peer-deps   # required (Milkdown peer deps)
+npm ci --legacy-peer-deps
 npm run dev
-npm run build && npm run preview
-npm run check && npm run lint && npm test
+npm run check
+npm run lint
+npm test
+npm run build
 ```
 
-`--legacy-peer-deps` is enabled via `.npmrc` - a plain `npm install` is enough.
+The stack is SvelteKit 2, Svelte 5 runes, strict TypeScript, Milkdown, CodeMirror, Dexie, Tailwind CSS, Vite PWA, and Tauri 2. Heavy rendering libraries remain behind dynamic imports and blocking bundle budgets.
 
-### Desktop (beta)
+Architecture decisions are documented in [ARCHITECTURE.md](ARCHITECTURE.md). Setup and contribution policy are in [CONTRIBUTING.md](CONTRIBUTING.md). Support is described in [SUPPORT.md](SUPPORT.md).
 
-Native shells for macOS, Linux, and Windows are built with [Tauri 2](https://v2.tauri.app/) around the same offline SPA. Same offline editor, no account, no telemetry. Requires a Rust toolchain (web-only contributors can ignore this).
-
-```sh
-npm run desktop:dev     # native window + Vite
-npm run desktop:build   # platform installers under src-tauri/target/release/bundle/
-```
-
-**Included:** native open/save to disk (path links), app menu (new / open / save / export / settings), window position restore, `.md` / `.markdown` / `.mdx` / `.txt` file association and CLI open.
-
-**Not yet:** authenticated distribution signing / notarization, auto-update, store listings (see [ROADMAP.md](ROADMAP.md)). macOS builds receive an ad hoc signature so the app bundle is structurally valid, but downloadable beta builds may still show OS trust warnings.
-
-Rust checks run on pull requests and `main`. Multi-OS installers are built by [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml) for release-please releases, `v*` tags, and manual runs.
-
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#desktop-shell-tauri-2) for platform prerequisites.
-
-## Deployment
-
-Push to `main` → the `.github/workflows/deploy.yml` workflow builds and publishes to GitHub Pages (Settings → Pages → Source: GitHub Actions).
-`BASE_PATH` is derived from the repo name; for a custom domain, export `BASE_PATH=""`.
-
-Automatic releases via `release-please` (conventional commits). A [Lighthouse CI](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml) audit (performance, accessibility, best practices, SEO) runs on every PR.
-
-## Privacy
-
-- Static SPA, no backend, no telemetry, no dependency that phones home
-- Strict CSP (`connect-src 'self'`) emitted by SvelteKit in `hash` mode - directives in `svelte.config.js`
-- Drafts in local IndexedDB (`mdsh`, `mdsh-fs`) - `DevTools → Application → Clear storage` to reset
-- Security policy and vulnerability reporting: [SECURITY.md](SECURITY.md)
-
-## Scope & limits (deliberate choices)
-
-mdsh is built around one non-negotiable: everything stays local. A few explicit trade-offs that follow from that principle, to avoid misplaced expectations:
-
-- **Available in English and French (auto-detected, switchable in Settings).** English is the default locale; French is auto-detected from the browser on first launch, and the language can be switched at any time in Settings.
-- **No backend, no synchronization.** Everything lives in the browser (IndexedDB). No account, no cloud, no real-time collaboration. Saving to disk goes through the File System Access API (Chromium); the `.md` / ZIP / PDF / HTML exports work everywhere.
-- **Target: a few hundred files.** The architecture is comfortable up to ~200-300 documents. Beyond that, some operations (cross-file search, tag index) are not optimized - outside the intended use case.
-
-## FAQ
-
-**Why not Firefox / Safari for `⌘⇧S`?**
-The File System Access API is only implemented in Chromium. The other exports (`.md`, ZIP, PDF, HTML) work everywhere.
-
-**Which themes are available?**
-Dark by default (the original typographic calibration, designed for long-form prose), plus a light theme and a "system" mode that follows the OS preferences. The choice is made in Settings (`⌘,`) and is persisted locally.
-
-**Does WYSIWYG mode modify the source markdown?**
-Milkdown re-serializes from the ProseMirror AST and may normalize slightly (`*foo*` → `_foo_`, table spacing, YAML key order, etc.). For a strict round-trip, use source mode (`⌘/`).
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). License: [MIT](LICENSE).
+License: [MIT](LICENSE). Redistributed asset notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -51,7 +51,7 @@
 		FolderOpen,
 		History,
 		Workflow
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	interface Command {
 		id: string;
@@ -573,31 +573,39 @@
 					</li>
 				{:else}
 					{#each filtered as cmd, i (cmd.id)}
-						<li role="option" id={`cmd-palette-opt-${cmd.id}`} aria-selected={i === selected}>
-							<button
-								class="palette-command flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition"
-								class:bg-bg-2={i === selected}
-								class:text-fg={i === selected}
-								class:text-fg-muted={i !== selected}
-								onclick={() => {
+						<li
+							role="option"
+							id={`cmd-palette-opt-${cmd.id}`}
+							aria-selected={i === selected}
+							aria-label={cmd.kbd
+								? t('palette.commandWithShortcut', { label: cmd.label, kbd: cmd.kbd })
+								: cmd.label}
+							class="palette-command flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-left text-sm transition"
+							class:bg-bg-2={i === selected}
+							class:text-fg={i === selected}
+							class:text-fg-muted={i !== selected}
+							onclick={() => {
+								onClose();
+								cmd.run();
+							}}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
 									onClose();
 									cmd.run();
-								}}
-								onmouseenter={() => (selected = i)}
-								tabindex="-1"
-								aria-label={cmd.kbd
-									? t('palette.commandWithShortcut', { label: cmd.label, kbd: cmd.kbd })
-									: cmd.label}
+								}
+							}}
+							onmousedown={(event) => event.preventDefault()}
+							onmouseenter={() => (selected = i)}
+						>
+							<span class="palette-command-index" aria-hidden="true"
+								>{(i + 1).toString().padStart(2, '0')}</span
 							>
-								<span class="palette-command-index" aria-hidden="true"
-									>{(i + 1).toString().padStart(2, '0')}</span
-								>
-								<cmd.icon size={14} class="flex-shrink-0 text-fg-dim" aria-hidden="true" />
-								<span class="flex-1 truncate">{cmd.label}</span>
-								{#if cmd.kbd}
-									<kbd class="flex-shrink-0 text-xs text-fg-dim" aria-hidden="true">{cmd.kbd}</kbd>
-								{/if}
-							</button>
+							<cmd.icon size={14} class="flex-shrink-0 text-fg-dim" aria-hidden="true" />
+							<span class="flex-1 truncate">{cmd.label}</span>
+							{#if cmd.kbd}
+								<kbd class="flex-shrink-0 text-xs text-fg-dim" aria-hidden="true">{cmd.kbd}</kbd>
+							{/if}
 						</li>
 					{/each}
 				{/if}
@@ -620,8 +628,8 @@
 		position: relative;
 		border-block: 1px solid transparent;
 	}
-	.palette-command[aria-label]:hover,
-	li[aria-selected='true'] .palette-command {
+	.palette-command:hover,
+	.palette-command[aria-selected='true'] {
 		border-block-color: var(--color-border);
 		background: linear-gradient(
 			90deg,
@@ -629,7 +637,7 @@
 			var(--color-bg-2) 62%
 		);
 	}
-	li[aria-selected='true'] .palette-command::before {
+	.palette-command[aria-selected='true']::before {
 		content: '';
 		position: absolute;
 		inset-block: -1px;
@@ -645,7 +653,7 @@
 		letter-spacing: 0.08em;
 		color: var(--color-fg-dim);
 	}
-	li[aria-selected='true'] .palette-command-index {
+	.palette-command[aria-selected='true'] .palette-command-index {
 		color: var(--color-accent);
 	}
 </style>

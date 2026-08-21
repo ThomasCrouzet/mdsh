@@ -87,9 +87,12 @@
 	// enough to avoid disrupting a fast workflow.
 	let loading = $state(false);
 	let err = $state<string | null>(null);
+	let allowRemoteImages = $state(false);
+	let hasBlockedRemoteImages = $state(false);
 	let renderSeq = 0;
+	let remoteImagesFileId = '';
 
-	async function doRender(md: string, fid: string) {
+	async function doRender(md: string, fid: string, allowNetworkImages: boolean) {
 		const seq = ++renderSeq;
 		err = null;
 		const loadingTimer = setTimeout(() => {
@@ -101,10 +104,15 @@
 			const mermaidTheme = mermaidThemeFromDataTheme(
 				document.documentElement.getAttribute('data-theme')
 			);
-			const out = await renderMarkdown(md, { mermaidTheme, headingPermalinks: true });
+			const out = await renderMarkdown(md, {
+				mermaidTheme,
+				headingPermalinks: true,
+				allowRemoteImages: allowNetworkImages
+			});
 			if (seq !== renderSeq) return; // a more recent render has started
 			if (fid !== fileId) return; // the file changed in the meantime
 			html = out;
+			hasBlockedRemoteImages = out.includes('data-mdsh-remote-src');
 		} catch (e) {
 			if (seq !== renderSeq) return;
 			err = e instanceof Error ? e.message : String(e);
@@ -118,9 +126,14 @@
 	$effect(() => {
 		const c = content;
 		const f = fileId;
+		if (f !== remoteImagesFileId) {
+			remoteImagesFileId = f;
+			allowRemoteImages = false;
+		}
+		const allowNetworkImages = allowRemoteImages;
 		// Subscribe to theme pref so light/dark toggles re-run Mermaid.
 		void themeStore.pref;
-		void doRender(c, f);
+		void doRender(c, f, allowNetworkImages);
 	});
 </script>
 
@@ -132,6 +145,14 @@
 				<pre>{err}</pre>
 			</div>
 		{:else}
+			{#if hasBlockedRemoteImages && !allowRemoteImages}
+				<div class="mdsh-remote-images-notice" role="status">
+					<span>{t('read.remoteImagesBlocked')}</span>
+					<button type="button" onclick={() => (allowRemoteImages = true)}>
+						{t('read.loadRemoteImages')}
+					</button>
+				</div>
+			{/if}
 			<!-- Delegated onclick + onkeydown: capture the activation of child
 			     `.wiki-link` elements - the article itself is not interactive,
 			     it is the internal <a> elements (keyboard-focusable) that are. The
@@ -180,6 +201,29 @@
 		border-radius: var(--radius-xs);
 		opacity: 0.85;
 		pointer-events: none;
+	}
+	.mdsh-remote-images-notice {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		max-width: 720px;
+		margin: 0.75rem auto 0;
+		padding: 0.65rem 0.8rem;
+		color: var(--color-fg-dim);
+		background: var(--color-bg-1);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		font-size: 12px;
+	}
+	.mdsh-remote-images-notice button {
+		flex: none;
+		padding: 0.35rem 0.55rem;
+		color: var(--color-fg);
+		background: var(--color-bg-2);
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-xs);
+		cursor: pointer;
 	}
 	.mdsh-read-error {
 		max-width: 720px;

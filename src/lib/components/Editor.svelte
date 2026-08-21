@@ -107,6 +107,8 @@
 			await instance.destroy().catch(() => {});
 			return;
 		}
+		const proseMirror = container.querySelector<HTMLElement>('.ProseMirror');
+		proseMirror?.setAttribute('aria-label', t('editor.ariaLabel'));
 		instance.setReadonly(readonly);
 		crepe = instance;
 		mountedFileId = idForMount;

@@ -30,11 +30,12 @@ import {
 import { computeBrokenLinks } from './broken-links';
 import {
 	tauriCheckPath,
-	tauriOpenAbsolutePaths,
+	tauriOpenNativeGrants,
 	tauriPickAndOpen,
 	tauriPickSaveTarget,
 	tauriReadMeta,
-	tauriWritePath
+	tauriWritePath,
+	type NativeDiskGrant
 } from './disk-tauri';
 import { t } from '$lib/i18n';
 import { notify } from './notify.svelte';
@@ -118,11 +119,11 @@ async function openFromDiskDesktop(deps: DiskSyncDeps): Promise<FileItem[]> {
  * Same store outcome as a dialog open (tab + path link).
  */
 export async function openPathsFromDesktop(
-	paths: string[],
+	grants: NativeDiskGrant[],
 	deps: DiskSyncDeps
 ): Promise<FileItem[]> {
-	if (!browser || !isDesktop() || paths.length === 0) return [];
-	const result = await tauriOpenAbsolutePaths(paths);
+	if (!browser || !isDesktop() || grants.length === 0) return [];
+	const result = await tauriOpenNativeGrants(grants);
 	return ingestDesktopOpens(result.files, deps, result.failed);
 }
 
@@ -133,6 +134,7 @@ async function ingestDesktopOpens(
 		path: string;
 		lastModified: number;
 		size: number;
+		revision: string;
 		link: { kind: 'path'; path: string };
 	}>,
 	deps: DiskSyncDeps,
@@ -146,6 +148,7 @@ async function ingestDesktopOpens(
 			item.linkedToDisk = true;
 			item.diskLastModified = file.lastModified;
 			item.diskSize = file.size;
+			item.diskRevision = file.revision;
 			await savePathLink(item.id, file.link);
 			created.push(item);
 		} catch (err) {
@@ -259,59 +262,66 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 
 async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps): Promise<boolean> {
 	let pathRec = await getPathLink(id);
-	if (pathRec) {
-		if (file.diskLastModified !== undefined) {
-			try {
-				const onDisk = await tauriReadMeta(pathRec.path);
-				if (onDisk) {
-					const diverged =
-						onDisk.lastModified !== file.diskLastModified ||
-						(file.diskSize !== undefined && onDisk.size !== file.diskSize);
-					if (diverged) {
-						const overwrite = await confirmOverwrite(file.name);
-						if (!overwrite) {
-							notify.info(t('disk.saveCancelled', { name: file.name }));
-							return false;
-						}
-					}
-				}
-			} catch (err) {
-				reportError('disk mtime check', err);
-			}
-		}
-	} else {
+	if (!pathRec) {
 		const picked = await tauriPickSaveTarget(file.name);
 		if (!picked) return false;
 		pathRec = picked;
 		await savePathLink(id, pathRec);
+		const selected = await tauriReadMeta(pathRec.path);
+		file.diskRevision = selected?.revision;
 	}
+	let written;
 	try {
-		await tauriWritePath(pathRec.path, file.content);
+		written = await tauriWritePath(pathRec.path, file.content, file.diskRevision ?? null, false);
 	} catch (err) {
-		file.brokenLink = true;
-		notify.error(t('disk.saveFailed', { name: file.name }));
-		reportError('saveToDisk', err);
-		return false;
+		const message = err instanceof Error ? err.message : String(err);
+		if (message.includes('disk conflict')) {
+			const overwrite = await confirmOverwrite(file.name);
+			if (!overwrite) {
+				notify.info(t('disk.saveCancelled', { name: file.name }));
+				return false;
+			}
+			try {
+				written = await tauriWritePath(pathRec.path, file.content, file.diskRevision ?? null, true);
+			} catch (retryError) {
+				return reportDesktopWriteFailure(file, retryError);
+			}
+		} else if (message.includes('capability expired')) {
+			const picked = await tauriPickSaveTarget(file.name);
+			if (!picked) return false;
+			pathRec = picked;
+			await savePathLink(id, pathRec);
+			const selected = await tauriReadMeta(pathRec.path);
+			try {
+				written = await tauriWritePath(
+					pathRec.path,
+					file.content,
+					selected?.revision ?? null,
+					false
+				);
+			} catch (retryError) {
+				return reportDesktopWriteFailure(file, retryError);
+			}
+		} else {
+			return reportDesktopWriteFailure(file, err);
+		}
 	}
 	file.linkedToDisk = true;
 	file.brokenLink = false;
 	file.dirty = false;
-	try {
-		const written = await tauriReadMeta(pathRec.path);
-		if (written) {
-			file.diskLastModified = written.lastModified;
-			file.diskSize = written.size;
-		} else {
-			file.diskLastModified = undefined;
-			file.diskSize = undefined;
-		}
-	} catch {
-		file.diskLastModified = undefined;
-		file.diskSize = undefined;
-	}
+	file.diskLastModified = written.lastModified;
+	file.diskSize = written.size;
+	file.diskRevision = written.revision;
 	deps.scheduleSave(id);
 	notify.success(t('disk.saved', { name: file.name }));
 	return true;
+}
+
+function reportDesktopWriteFailure(file: FileItem, err: unknown): false {
+	file.brokenLink = true;
+	notify.error(t('disk.saveFailed', { name: file.name }));
+	reportError('saveToDisk', err);
+	return false;
 }
 
 async function confirmOverwrite(name: string): Promise<boolean> {

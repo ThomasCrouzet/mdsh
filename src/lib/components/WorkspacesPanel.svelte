@@ -17,7 +17,7 @@
 	import { promptStore } from '$lib/prompt.svelte';
 	import { focusTrap } from '$lib/a11y/focusTrap';
 	import { formatSaveAge } from '$lib/stats';
-	import { Layers, Plus, Play, RefreshCw, Pencil, Trash2, X } from 'lucide-svelte';
+	import { Layers, Plus, Play, RefreshCw, Pencil, Trash2, X } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;

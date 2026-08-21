@@ -106,10 +106,9 @@ export async function exportHTML(file: FileItem): Promise<boolean> {
  * (the user picks "Save as PDF").
  * Async because the renderer and the print iframe are lazy-loaded.
  *
- * The PDF title (and the print-ready `<h1>` header) uses the front-matter
- * `title` if present. The `<aside class="mdsh-frontmatter">` block (author,
- * date, tags…) is inserted by `renderMarkdown` at the top of `bodyHtml`,
- * just under the header - rendered discreetly in grayed italics via print.css.
+ * The filename-derived title is metadata only. The printable body contains
+ * exactly the rendered Markdown content, without generated branding, title,
+ * filename or front matter.
  */
 export async function exportPDF(file: FileItem): Promise<void> {
 	if (typeof document === 'undefined') return;
@@ -120,7 +119,9 @@ export async function exportPDF(file: FileItem): Promise<void> {
 			import('$lib/i18n')
 		]);
 	const fallback = stripMdExtension(file.name);
-	const { html: bodyHtml, title } = await renderMarkdownDetailed(file.content);
+	const { html: bodyHtml, title } = await renderMarkdownDetailed(file.content, {
+		showFrontmatter: false
+	});
 	const docTitle = title || fallback;
 	const html = buildPrintDocument({
 		title: docTitle,

@@ -23,10 +23,18 @@
 	import { reportError } from '$lib/report';
 	import { spinnerStore } from '$lib/spinner.svelte';
 	import { themeStore } from '$lib/ui/theme.svelte';
+	import {
+		formatStorageBytes,
+		getStorageHealth,
+		recordBackupReminderShown,
+		recordExternalBackupFailure,
+		recordExternalBackupSuccess,
+		type StorageHealth
+	} from '$lib/storage';
 	import type { createEditorWidth } from '$lib/ui/editor-width.svelte';
 	import type { createUiPrefs } from '$lib/ui/prefs.svelte';
 	import type { ThemePref } from '$lib/theme';
-	import { Settings, X, Download, Upload, Check, Lock } from 'lucide-svelte';
+	import { Settings, X, Download, Upload, Check, Lock } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;
@@ -39,10 +47,24 @@
 
 	let closeButton: HTMLButtonElement | null = $state(null);
 	let importInput: HTMLInputElement | null = $state(null);
+	let storageHealth: StorageHealth | null = $state(null);
+
+	async function refreshStorageHealth(): Promise<void> {
+		storageHealth = await getStorageHealth();
+		if (storageHealth.backupReminderDue) recordBackupReminderShown();
+	}
+
+	function formatBackupDate(value: number): string {
+		return new Intl.DateTimeFormat(i18n.locale, {
+			dateStyle: 'medium',
+			timeStyle: 'short'
+		}).format(value);
+	}
 
 	$effect(() => {
 		if (!open || !browser) return;
 		tick().then(() => closeButton?.focus());
+		void refreshStorageHealth();
 	});
 
 	const themeOptions: { value: ThemePref; label: string }[] = $derived([
@@ -70,8 +92,14 @@
 			await filesStore.flushPendingAwait();
 			const ok = await downloadBackup();
 			// Desktop dialog cancel returns false - do not claim success.
-			if (ok) notify.success(t('settings.backupExported'));
+			if (ok) {
+				recordExternalBackupSuccess();
+				await refreshStorageHealth();
+				notify.success(t('settings.backupExported'));
+			}
 		} catch (err) {
+			recordExternalBackupFailure();
+			await refreshStorageHealth();
 			reportError('backup export', err, { notifyUser: t('settings.backupExportFailed') });
 		}
 	}
@@ -92,8 +120,14 @@
 		try {
 			await filesStore.flushPendingAwait();
 			const ok = await downloadBackup(passphrase);
-			if (ok) notify.success(t('settings.encryptedBackupExported'));
+			if (ok) {
+				recordExternalBackupSuccess();
+				await refreshStorageHealth();
+				notify.success(t('settings.encryptedBackupExported'));
+			}
 		} catch (err) {
+			recordExternalBackupFailure();
+			await refreshStorageHealth();
 			reportError('encrypted backup export', err, {
 				notifyUser: t('settings.encryptedExportFailed')
 			});
@@ -310,6 +344,45 @@
 					<p class="mb-2 text-xs text-fg-dim">
 						{t('settings.dataDescription')}
 					</p>
+					<div class="mb-3 rounded-md border border-border bg-bg px-3 py-2" aria-live="polite">
+						<h4 class="mb-1 text-xs font-medium text-fg">{t('settings.storageHealth')}</h4>
+						{#if storageHealth}
+							<ul class="space-y-0.5 text-xs text-fg-dim">
+								<li>
+									{storageHealth.persistence === 'persistent'
+										? t('settings.storagePersistent')
+										: storageHealth.persistence === 'best-effort'
+											? t('settings.storageBestEffort')
+											: t('settings.storageUnavailable')}
+								</li>
+								<li>
+									{storageHealth.usage !== null && storageHealth.quota !== null
+										? t('settings.storageUsage', {
+												usage: formatStorageBytes(storageHealth.usage),
+												quota: formatStorageBytes(storageHealth.quota)
+											})
+										: t('settings.storageUsageUnavailable')}
+								</li>
+								<li>
+									{storageHealth.lastExternalBackupAt
+										? t('settings.lastBackup', {
+												date: formatBackupDate(storageHealth.lastExternalBackupAt)
+											})
+										: t('settings.noBackup')}
+								</li>
+							</ul>
+							{#if storageHealth.lastBackupErrorAt}
+								<p class="mt-1 text-xs text-danger" role="alert">
+									{t('settings.backupHealthError')}
+								</p>
+							{/if}
+							{#if storageHealth.backupReminderDue}
+								<p class="mt-1 text-xs text-fg-muted">{t('settings.backupReminder')}</p>
+							{/if}
+						{:else}
+							<p class="text-xs text-fg-dim">{t('settings.storageUnavailable')}</p>
+						{/if}
+					</div>
 					<div class="flex flex-wrap gap-2">
 						<button
 							class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-bg-2 hover:text-fg"

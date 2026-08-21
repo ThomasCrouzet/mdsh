@@ -22,7 +22,7 @@
 	import { tick } from 'svelte';
 	import { focusTrap } from '$lib/a11y/focusTrap';
 	import { t } from '$lib/i18n';
-	import { X } from 'lucide-svelte';
+	import { X } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;

@@ -1,81 +1,50 @@
-# Security Policy
+# Security policy
 
-mdsh is a **local-first, client-side only** PWA: there is no application backend,
-no accounts, and no telemetry. Drafts live in the browser (IndexedDB). That
-shapes both the threat model and how to report issues.
+mdsh editor is a local-first static PWA with an optional Tauri Desktop Beta shell. It has no application backend, account, cloud synchronization, or telemetry. Browser drafts live in IndexedDB.
 
 ## Supported versions
 
-| Version | Supported |
-| ------- | --------- |
-| `1.x` (latest release / `main`) | Yes |
-| Older tags | Best-effort only |
+| Version | Support |
+| --- | --- |
+| Latest `1.x` release and `main` | Supported |
+| Older tags | Best effort |
 
-## Reporting a vulnerability
+## Report a vulnerability privately
 
-Please **do not** open a public GitHub issue for security-sensitive findings.
+Do not open a public issue for a security-sensitive finding. Use [GitHub Private Vulnerability Reporting](https://github.com/ThomasCrouzet/mdsh/security/advisories/new). This is the private enforcement and conduct contact for this repository as well as the preferred security channel.
 
-1. Prefer **GitHub Private vulnerability reporting** on this repository
-   (Security tab → Report a vulnerability), when enabled for the repo.
-2. If that channel is unavailable, open a **draft GitHub Security Advisory**
-   from the Security tab, or contact the maintainer via the email on their
-   GitHub profile (use a clear subject such as `mdsh security`).
+Include the version or commit, browser or operating system, reproduction steps, impact, and any planned disclosure. The solo maintainer aims to acknowledge a report within seven days on a best-effort basis. Disclosure timing is coordinated after a fix or an explicit risk decision.
 
-You can expect an initial acknowledgement within **7 days** on a best-effort
-basis (solo maintainer). Please include:
+## Browser threat model
 
-- mdsh version or commit SHA, and browser / OS
-- steps to reproduce
-- impact (XSS, data loss, offline bypass, CSP bypass, etc.)
-- whether a public write-up is planned
+In scope:
 
-We will coordinate disclosure once a fix is available or the risk is accepted.
+- script or markup injection through imported Markdown, reading mode, presentations, or exports;
+- CSS or image requests that disclose network metadata without consent;
+- a CSP or offline-shell bypass;
+- silent IndexedDB loss, stale backups, or a false durability status;
+- weaknesses in encrypted backup handling.
 
-## Threat model (summary)
+The renderer uses DOMPurify as a final sanitizer. CSS `url()` values from user content are accepted only for validated local SVG fragments. Remote image sources are removed by default and can be loaded only after an explicit per-document action. Loading them contacts third-party hosts and reveals the client IP, but the request uses a no-referrer policy. The project does not proxy images.
 
-In scope examples:
+The production CSP blocks scripts, objects, forms, framing, and external connections. Inline styles remain necessary for the editor, KaTeX, and Mermaid. Mermaid runs in strict security mode. Standalone HTML exports contain no scripts or remote font dependencies.
 
-- XSS or script injection via imported / rendered markdown (reading mode,
-  presentation, exports)
-- CSP bypass that enables remote script execution
-- Silent data loss or corruption of IndexedDB drafts
-- Offline shell failures that leave a blank installable PWA
-- Weaknesses in encrypted backup (AES-GCM / PBKDF2) handling
+## Desktop threat model
 
-Out of scope / accepted constraints:
+The Desktop Beta treats the WebView as potentially compromised. JavaScript cannot grant itself an arbitrary path. A native file picker or an operating-system file-open event canonicalizes an allowed path and creates an opaque, random, session-only capability token in Rust. Read, stat, and write commands accept that token rather than a path. Persisted browser records are not treated as native capabilities and require a fresh picker after restart.
 
-- **No cloud sync**: there is no server-side multi-user isolation to break
-- **File System Access API** behaviour outside Chromium
-- Content the user deliberately pastes (images as data-URIs, remote image URLs
-  allowed by `img-src` for markdown authoring)
-- Supply-chain issues in transitive devDependencies that never ship to the
-  static Pages build (tracked via Dependabot + `npm audit` on production deps
-  in CI)
+Native file operations reject relative paths, parent traversal, unsupported extensions, and symlink substitutions. Writes use a same-directory temporary file, file synchronization, permission preservation, a final content-revision conflict check, atomic replacement, and directory synchronization where supported. An external edit requires an explicit user decision. Windows uses the native replace API for an existing target.
 
-## Hardening already in place
+These boundaries reduce the impact of a WebView compromise but do not make an already compromised local operating-system account safe. Desktop installers remain unsigned beta artifacts until platform signing and notarization are available. There is no auto-update channel.
 
-- **CSP** emitted by SvelteKit in `hash` mode (`svelte.config.js`):
-  `default-src 'self'`, `connect-src 'self'`, `object-src 'none'`,
-  `frame-ancestors 'none'`, `form-action 'none'`. See below for deliberate
-  relaxations.
-- **DOMPurify** on all markdown → HTML paths (`src/lib/render/markdown.ts`),
-  including stripping hostile `url(...)` values inside inline `style`
-  (KaTeX / Mermaid still need geometric `style` attributes).
-- **Production dependency audit** gate in CI (`npm audit --audit-level=high` on the full install tree, including build-time deps).
-- **Secret scanning** on the GitHub repo + **gitleaks** on history
-  (`.github/workflows/gitleaks.yml`).
-- **Encrypted backups** optional via WebCrypto (`src/lib/crypto.ts`).
+## Durability and backup limits
 
-### CSP notes (deliberate)
+IndexedDB writes are debounced by 400 ms and flushed when the page becomes hidden, on page hide, and before relevant navigation. A rejected write makes the durability barrier fail closed and blocks backup, restore, and workspace replacement. A browser or device kill can still lose edits within the debounce window, and IndexedDB can be removed with browser profile data.
 
-| Directive | Value | Why |
-| --------- | ----- | --- |
-| `script-src` | `'self'` + build-time hashes | No `'unsafe-eval'` and no `'wasm-unsafe-eval'`: no runtime dependency instantiates WebAssembly (verified on mermaid 11.16, katex, highlight.js). The e2e render tests exercise the built app under this CSP, so a future WASM consumer fails CI rather than shipping. |
-| `style-src` | `'self' 'unsafe-inline'` | Runtime styles from the editor stack, KaTeX, and Mermaid SVGs. |
-| `img-src` | `'self' data: blob: https:` | Markdown images: local data-URIs plus optional remote `https:` figures. Remote images can perform a simple IP beacon; that is an accepted authoring trade-off, documented here. Inline `style` `url(https://...)` beacons are stripped by the sanitize pass. |
+External backups include drafts, workspaces, and custom templates. They exclude trash, version history, File System Access handles, and Desktop capability tokens. Encrypted backups are unrecoverable without their passphrase.
 
-## Prefer fixes over silence
+## Supply chain
 
-Security-relevant regressions belong in tests when practical (e.g. sanitize
-non-regression for `style` + `url()`, offline PWA shell in `e2e/pwa.spec.ts`).
-Thank you for helping keep an offline-first editor trustworthy.
+CI audits the complete npm tree and Cargo lockfile, reviews dependency changes, scans TypeScript and Rust with CodeQL, scans Git history for secrets, verifies third-party notices, and enforces tests and bundle budgets. Release builds run without write credentials. A separate final job publishes Desktop Beta artifacts with SHA-256 checksums, npm and Cargo SBOMs, and GitHub build provenance.
+
+Security controls and scanners reduce risk; they are not a guarantee that every vulnerability has been found.

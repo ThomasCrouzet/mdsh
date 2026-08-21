@@ -60,6 +60,36 @@ export async function createFirstFile(page: Page) {
 	await expect(page.locator('input[aria-label^="Nom du fichier"]')).toBeVisible({
 		timeout: 10_000
 	});
+	await expect
+		.poll(
+			() =>
+				page.evaluate(
+					() =>
+						new Promise<number>((resolve) => {
+							const request = indexedDB.open('mdsh');
+							request.onerror = () => resolve(0);
+							request.onsuccess = () => {
+								const database = request.result;
+								if (!database.objectStoreNames.contains('drafts')) {
+									database.close();
+									resolve(0);
+									return;
+								}
+								const count = database.transaction('drafts').objectStore('drafts').count();
+								count.onerror = () => {
+									database.close();
+									resolve(0);
+								};
+								count.onsuccess = () => {
+									database.close();
+									resolve(count.result);
+								};
+							};
+						})
+				),
+			{ timeout: 10_000 }
+		)
+		.toBeGreaterThan(0);
 }
 
 /** Ouvre la palette via le bouton toolbar (évite les conflits keyboard). */

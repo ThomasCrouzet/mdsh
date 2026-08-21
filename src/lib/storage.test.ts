@@ -3,7 +3,13 @@ import {
 	isQuotaError,
 	reportPersistenceError,
 	requestPersistentStorage,
-	checkStoragePressure
+	checkStoragePressure,
+	getStorageHealth,
+	recordExternalBackupFailure,
+	recordExternalBackupSuccess,
+	recordBackupReminderShown,
+	isBackupReminderDue,
+	formatStorageBytes
 } from './storage';
 import { notify } from './notify.svelte';
 
@@ -14,6 +20,7 @@ function mockStorage(value: unknown): void {
 
 beforeEach(() => {
 	notify.clear();
+	localStorage.clear();
 });
 afterEach(() => {
 	if (originalStorage) Object.defineProperty(navigator, 'storage', originalStorage);
@@ -119,5 +126,79 @@ describe('checkStoragePressure', () => {
 		expect(notify.toasts).toHaveLength(1);
 		expect(notify.toasts[0]!.level).toBe('info');
 		expect(notify.toasts[0]!.message).toContain('90');
+	});
+});
+
+describe('storage health', () => {
+	it('reports persistent status, usage and quota', async () => {
+		mockStorage({
+			persisted: async () => true,
+			estimate: async () => ({ usage: 12_000, quota: 100_000 })
+		});
+		await expect(getStorageHealth(100)).resolves.toMatchObject({
+			persistence: 'persistent',
+			usage: 12_000,
+			quota: 100_000
+		});
+	});
+
+	it('keeps successful backup and failure timestamps locally', async () => {
+		recordExternalBackupFailure(100);
+		let health = await getStorageHealth(200);
+		expect(health.lastBackupErrorAt).toBe(100);
+		recordExternalBackupSuccess(300);
+		health = await getStorageHealth(400);
+		expect(health.lastExternalBackupAt).toBe(300);
+		expect(health.lastBackupErrorAt).toBeNull();
+	});
+
+	it('bounds backup reminders to once per week and after thirty days', () => {
+		const day = 24 * 60 * 60 * 1000;
+		expect(isBackupReminderDue(40 * day, 0, null)).toBe(true);
+		expect(isBackupReminderDue(40 * day, 20 * day, null)).toBe(false);
+		expect(isBackupReminderDue(40 * day, null, 38 * day)).toBe(false);
+		recordBackupReminderShown(40 * day);
+		expect(localStorage.getItem('mdsh:storage:last-backup-reminder')).toBe(String(40 * day));
+	});
+
+	it('formats storage sizes without locale-dependent output', () => {
+		expect(formatStorageBytes(900)).toBe('900 B');
+		expect(formatStorageBytes(1536)).toBe('1.5 KiB');
+		expect(formatStorageBytes(12 * 1024 * 1024)).toBe('12 MiB');
+	});
+
+	it('falls back safely when persistence metadata APIs fail', async () => {
+		mockStorage({
+			persisted: async () => {
+				throw new Error('blocked');
+			},
+			estimate: async () => ({})
+		});
+		await expect(getStorageHealth()).resolves.toMatchObject({
+			persistence: 'best-effort',
+			usage: null,
+			quota: null
+		});
+	});
+
+	it('treats inaccessible local health metadata as unavailable', async () => {
+		vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+			throw new Error('blocked');
+		});
+		const health = await getStorageHealth();
+		expect(health.lastExternalBackupAt).toBeNull();
+		expect(health.lastBackupErrorAt).toBeNull();
+	});
+
+	it('ignores unavailable quota values and estimate failures', async () => {
+		mockStorage({ estimate: async () => ({ usage: 0, quota: 100 }) });
+		await checkStoragePressure();
+		expect(notify.toasts).toHaveLength(0);
+		mockStorage({
+			estimate: async () => {
+				throw new Error('blocked');
+			}
+		});
+		await expect(checkStoragePressure()).resolves.toBeUndefined();
 	});
 });

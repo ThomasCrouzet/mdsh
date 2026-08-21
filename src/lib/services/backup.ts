@@ -1,4 +1,4 @@
-// §1.1 - Full backup / restore of the application state.
+// §1.1 - Versioned backup / restore of portable application state.
 //
 // All of mdsh lives in IndexedDB (no backend). A "Clear site data", a quota
 // eviction, a browser switch or a PWA reinstall = total and silent loss. The
@@ -22,6 +22,11 @@ import { t } from '$lib/i18n';
 
 export const BACKUP_FORMAT = 'mdsh-backup';
 export const BACKUP_SCHEMA_VERSION = 1;
+
+async function ensureLiveDraftsDurable(): Promise<void> {
+	const { filesStore } = await import('../files.svelte');
+	await filesStore.flushPendingAwait();
+}
 
 export interface BackupFile {
 	format: typeof BACKUP_FORMAT;
@@ -300,8 +305,12 @@ async function triggerDownload(blob: Blob, filename: string): Promise<boolean> {
  *
  * @returns `false` if the desktop save dialog was cancelled (no success toast).
  */
-export async function downloadBackup(passphrase?: string): Promise<boolean> {
+export async function downloadBackup(
+	passphrase?: string,
+	ensureDurable: () => Promise<void> = ensureLiveDraftsDurable
+): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
+	await ensureDurable();
 	const now = Date.now();
 	const backup = await collectBackup(now);
 	const json = serializeBackup(backup);
@@ -343,8 +352,10 @@ export async function decryptBackupText(text: string, passphrase: string): Promi
 export async function restoreFromText(
 	text: string,
 	mode: RestoreMode,
-	passphrase?: string
+	passphrase?: string,
+	ensureDurable: () => Promise<void> = ensureLiveDraftsDurable
 ): Promise<RestoreCounts> {
+	await ensureDurable();
 	let json = text;
 	if (isEncryptedBackup(text)) {
 		if (!passphrase) throw new BackupParseError(t('backup.passphraseRequired'));

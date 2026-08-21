@@ -24,22 +24,19 @@ describe('buildPrintDocument - structure', () => {
 		);
 	});
 
-	it('inclut le titre dans <title> et dans le header par défaut', () => {
+	it('keeps the document title in metadata only', () => {
 		const html = buildPrintDocument({ title: 'Mon document', bodyHtml: '<p>x</p>' });
 		expect(html).toContain('<title>Mon document</title>');
-		expect(html).toContain('<h1>Mon document</h1>');
-		expect(html).toContain('class="print-kicker">mdsh');
-	});
-
-	it('omet le header quand showHeader=false', () => {
-		const html = buildPrintDocument({
-			title: 'Sans header',
-			bodyHtml: '<p>body</p>',
-			showHeader: false
-		});
-		expect(html).toContain('<title>Sans header</title>');
+		expect(html).not.toContain('<h1>Mon document</h1>');
 		expect(html).not.toContain('print-header');
 		expect(html).not.toContain('print-kicker');
+	});
+
+	it('preserves the author-written title exactly', () => {
+		const bodyHtml = '<h1>Titre auteur</h1><p>body</p>';
+		const html = buildPrintDocument({ title: 'Nom de fichier', bodyHtml });
+		expect(html.match(/<h1>/g)).toHaveLength(1);
+		expect(html).toContain(bodyHtml);
 	});
 
 	it('insère le body dans <main class="print-body">', () => {
@@ -120,6 +117,13 @@ describe('buildStandaloneHtmlDocument', () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async (url: string) => {
+				if (url.includes('/katex/fonts/')) {
+					return {
+						ok: true,
+						status: 200,
+						arrayBuffer: async () => new Uint8Array([0, 1, 2, 3]).buffer
+					} as Response;
+				}
 				const body = url.includes('katex')
 					? '.katex{font-size:1.1em}@font-face{src:url(fonts/KaTeX_Main.woff2)}'
 					: '.print-body{color:#111}';
@@ -142,27 +146,51 @@ describe('buildStandaloneHtmlDocument', () => {
 		expect(html).toContain('<html lang="en">');
 	});
 
-	it('propage lang au document standalone et au repli <link>', async () => {
+	it('propage lang au document standalone', async () => {
 		stubCssFetch();
 		const inline = await buildStandaloneHtmlDocument('Export', '<p>x</p>', undefined, 'fr');
 		expect(inline).toContain('<html lang="fr">');
-
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as Response)
-		);
-		const fallback = await buildStandaloneHtmlDocument('T', '<p>x</p>', undefined, 'fr');
-		expect(fallback).toContain('<html lang="fr">');
-		expect(fallback).toContain('print/print.css');
 	});
 
-	it('inline katex.min.css et réécrit les fonts en URL absolue quand math présent', async () => {
+	it('inlines KaTeX CSS and font data URLs when math is present', async () => {
 		stubCssFetch();
 		const html = await buildStandaloneHtmlDocument('T', '<span class="katex">x</span>');
 		expect(html).toContain('.katex{font-size:1.1em}');
-		// url(fonts/…) relatif réécrit en url(http…/katex/fonts/…)
-		expect(html).toMatch(/url\(https?:\/\/[^)]*\/katex\/fonts\/KaTeX_Main\.woff2\)/);
+		expect(html).toContain('url(data:font/woff2;base64,AAECAw==)');
 		expect(html).not.toContain('url(fonts/KaTeX_Main.woff2)');
+		expect(html).not.toMatch(/https?:\/\//);
+		expect(html).not.toContain('<link');
+	});
+
+	it('embeds every supported KaTeX font format with a matching MIME type', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string) => {
+				if (url.includes('/katex/fonts/')) {
+					return {
+						ok: true,
+						status: 200,
+						arrayBuffer: async () => new Uint8Array([1]).buffer
+					} as Response;
+				}
+				const body = url.includes('katex')
+					? [
+							'url(fonts/a.woff2)',
+							'url(fonts/b.woff)',
+							'url(fonts/c.ttf)',
+							'url(fonts/d.otf)',
+							'url(fonts/e.bin)'
+						].join(' ')
+					: '.print-body{}';
+				return { ok: true, status: 200, text: async () => body } as Response;
+			})
+		);
+		const html = await buildStandaloneHtmlDocument('T', '<span class="katex">x</span>');
+		expect(html).toContain('data:font/woff2;base64,AQ==');
+		expect(html).toContain('data:font/woff;base64,AQ==');
+		expect(html).toContain('data:font/ttf;base64,AQ==');
+		expect(html).toContain('data:font/otf;base64,AQ==');
+		expect(html).toContain('data:application/octet-stream;base64,AQ==');
 	});
 
 	it("n'inline pas katex quand aucun math n'est détecté", async () => {
@@ -184,28 +212,36 @@ describe('buildStandaloneHtmlDocument', () => {
 		expect(html).not.toContain('<title><b>Unsafe</b></title>');
 	});
 
-	it('retombe sur le document à <link> si la récupération CSS échoue', async () => {
+	it('fails when a required stylesheet cannot be embedded', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as Response)
 		);
-		const html = await buildStandaloneHtmlDocument('T', '<p>x</p>');
-		// Repli = buildPrintDocument sans header → <link> vers print.css
-		expect(html).toContain('print/print.css');
-		expect(html).toMatch(/script-src 'none'/);
+		await expect(buildStandaloneHtmlDocument('T', '<p>x</p>')).rejects.toThrow(
+			'CSS /print/print.css : HTTP 404'
+		);
 	});
 
-	it('propage le source au repli (branche source defined) et inclut katex si math', async () => {
+	it('fails when a required font cannot be embedded', async () => {
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () => ({ ok: false, status: 500, text: async () => '' }) as Response)
+			vi.fn(async (url: string) => {
+				if (url.includes('/katex/fonts/')) {
+					return {
+						ok: false,
+						status: 500,
+						arrayBuffer: async () => new ArrayBuffer(0)
+					} as Response;
+				}
+				const body = url.includes('katex')
+					? '@font-face{src:url(fonts/KaTeX_Main.woff2)}'
+					: '.print-body{}';
+				return { ok: true, status: 200, text: async () => body } as Response;
+			})
 		);
-		// source contient du math → le repli buildPrintDocument doit inclure katex.
-		const html = await buildStandaloneHtmlDocument('T', '<p>rendered</p>', 'Soit $a^2$');
-		expect(html).toContain('print/print.css');
-		expect(html).toContain('katex/katex.min.css');
-		// Repli = showHeader:false (pas de print-header).
-		expect(html).not.toContain('print-header');
+		await expect(buildStandaloneHtmlDocument('T', '<span class="katex">x</span>')).rejects.toThrow(
+			'Font /katex/fonts/KaTeX_Main.woff2: HTTP 500'
+		);
 	});
 });
 

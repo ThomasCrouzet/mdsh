@@ -80,6 +80,7 @@ export const en = {
 
 	// editor
 	'editor.placeholder': 'Write your markdown here - or type / for commands',
+	'editor.ariaLabel': 'Markdown document editor',
 	'editor.previewLabel': 'Preview',
 	'editor.previewLoading': 'Rendering Mermaid…',
 
@@ -263,6 +264,8 @@ export const en = {
 	'read.mermaidError': 'Mermaid error',
 	'read.renderError': 'Render error',
 	'read.rendering': 'Rendering…',
+	'read.remoteImagesBlocked': 'Remote images are blocked to protect your privacy.',
+	'read.loadRemoteImages': 'Load remote images',
 
 	// search
 	'search.caseSensitive': 'Case-sensitive',
@@ -302,7 +305,17 @@ export const en = {
 	'settings.close': 'Close',
 	'settings.data': 'Data',
 	'settings.dataDescription':
-		'Everything is stored locally in this browser. Export a backup regularly so you do not lose anything (browser change, cache clearing...).',
+		'Backups include drafts, workspaces, and templates. Trash, version history, and disk permissions are not portable and are excluded.',
+	'settings.storageHealth': 'Storage health',
+	'settings.storagePersistent': 'Persistent browser storage',
+	'settings.storageBestEffort': 'Best-effort browser storage',
+	'settings.storageUnavailable': 'Storage status unavailable',
+	'settings.storageUsage': '{usage} used of {quota}',
+	'settings.storageUsageUnavailable': 'Quota information unavailable',
+	'settings.lastBackup': 'Last external backup: {date}',
+	'settings.noBackup': 'No successful external backup recorded on this device.',
+	'settings.backupHealthError': 'The last backup attempt failed. Your drafts remain local only.',
+	'settings.backupReminder': 'A fresh external backup is recommended.',
 	'settings.display': 'Display',
 	'settings.editor': 'Editor',
 	'settings.editorWidth': 'Editor width',
@@ -480,7 +493,7 @@ export const en = {
 	'welcome.newFile': 'New file',
 	'welcome.openDemo': 'Open a demo document',
 	'welcome.privacy': 'No server. No telemetry. Your files stay with you.',
-	'welcome.tagline': 'A markdown workspace that never phones home.',
+	'welcome.tagline': 'No backend, cloud sync, or telemetry.',
 	'welcome.taglineLine2': 'WYSIWYG, read, source - all in your browser.',
 	'welcome.systemLabel': 'Local document system',
 

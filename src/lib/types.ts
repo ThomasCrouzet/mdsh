@@ -20,6 +20,8 @@ export interface FileItem {
 	// as long as the file has never been linked to disk.
 	diskLastModified?: number | undefined;
 	diskSize?: number | undefined;
+	/** Content-addressed revision returned by the native disk boundary. */
+	diskRevision?: string | undefined;
 }
 
 export interface TrashedFile {

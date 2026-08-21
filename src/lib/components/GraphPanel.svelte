@@ -10,7 +10,7 @@
 	import { t } from '$lib/i18n';
 	import { filesStore } from '$lib/files.svelte';
 	import { buildGraph, computeLayout, type PositionedNode, type GraphEdge } from '$lib/graph';
-	import { Workflow, X } from 'lucide-svelte';
+	import { Workflow, X } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;

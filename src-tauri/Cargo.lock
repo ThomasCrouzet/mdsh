@@ -1684,10 +1684,13 @@ name = "mdsh"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-window-state",
+ "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

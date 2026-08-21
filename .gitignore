@@ -33,7 +33,10 @@ dev-dist
 # Vitest - rapport de couverture (généré par npm run test:coverage)
 /coverage
 
+# Release supply-chain artifacts
+/sbom-*.cdx.json
+/SHA256SUMS
+
 # Tauri (desktop shell) - Rust build artifacts
 /src-tauri/target
 /src-tauri/gen
-

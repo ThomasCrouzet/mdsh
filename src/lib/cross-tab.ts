@@ -36,7 +36,7 @@ export interface RemovedMessage {
 	id: string;
 }
 
-/** A full backup was restored (all tables rewritten). */
+/** A portable backup was restored (the included tables were rewritten). */
 export interface BackupAppliedMessage {
 	type: 'backup-applied';
 }

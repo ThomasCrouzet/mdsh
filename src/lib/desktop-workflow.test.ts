@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 
-/** Slice one top-level GitHub Actions job block from the workflow file. */
 function jobBlock(yml: string, name: string): string {
 	const start = yml.search(new RegExp(`^  ${name}:\\s*$`, 'm'));
 	if (start < 0) throw new Error(`job ${name} missing from desktop.yml`);
@@ -11,33 +10,31 @@ function jobBlock(yml: string, name: string): string {
 	return next < 0 ? fromName : fromName.slice(0, next + 2);
 }
 
-describe('desktop.yml attach-policy contract', () => {
+describe('desktop release supply-chain contract', () => {
 	const yml = readFileSync(resolve(process.cwd(), '.github/workflows/desktop.yml'), 'utf8');
-	const resolveJob = jobBlock(yml, 'resolve-release-meta');
 	const buildJob = jobBlock(yml, 'build-desktop');
+	const publishJob = jobBlock(yml, 'publish-desktop-beta');
 
-	it('keeps windows-latest in the matrix and resolves notes off that runner', () => {
-		expect(buildJob).toMatch(/platform:\s*windows-latest/);
-		expect(resolveJob).toMatch(/runs-on:\s*ubuntu-22\.04/);
-		expect(resolveJob).not.toMatch(/windows-latest/);
-		expect(resolveJob).not.toMatch(/strategy:/);
-		expect(resolveJob).toContain('scripts/desktop-release-meta.mjs');
-		expect(resolveJob).toContain('run: node scripts/desktop-release-meta.mjs');
-		expect(buildJob).not.toContain('scripts/desktop-release-meta.mjs');
-		expect(buildJob).not.toContain('set -euo pipefail');
-		expect(buildJob).not.toContain('$GITHUB_OUTPUT');
-		expect(buildJob).not.toMatch(/\$\(/);
+	it('keeps untrusted builds read-only on fixed runners', () => {
+		expect(yml).toMatch(/permissions:\n {2}contents: read/);
+		expect(buildJob).toContain('platform: windows-2022');
+		expect(buildJob).toContain('platform: ubuntu-24.04');
+		expect(buildJob).toContain('platform: macos-14');
+		expect(buildJob).not.toContain('contents: write');
+		expect(buildJob).not.toContain('GITHUB_TOKEN');
+		expect(buildJob).toContain('persist-credentials: false');
 	});
 
-	it('wires tauri-action to resolver notes/id and never regenerates notes', () => {
-		expect(buildJob).toMatch(/needs:\s*\[validate-desktop,\s*resolve-release-meta\]/);
-		expect(buildJob).toMatch(
-			/releaseBody:\s*\$\{\{\s*needs\.resolve-release-meta\.outputs\.notes\s*\}\}/
+	it('publishes a distinct beta only after checksums, SBOMs, and attestation', () => {
+		expect(publishJob).toContain('needs: [build-desktop, build-sbom]');
+		expect(publishJob).toContain('contents: write');
+		expect(publishJob).toContain('id-token: write');
+		expect(publishJob).toContain('attestations: write');
+		expect(publishJob).toContain('SHA256SUMS');
+		expect(publishJob).toContain(
+			'actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8'
 		);
-		expect(buildJob).toMatch(
-			/releaseId:\s*\$\{\{\s*needs\.resolve-release-meta\.outputs\.id\s*\}\}/
-		);
-		expect(buildJob).toMatch(/generateReleaseNotes:\s*false/);
-		expect(yml).not.toMatch(/generateReleaseNotes:\s*true/);
+		expect(publishJob).toContain('DESKTOP_TAG: desktop-${{ env.RELEASE_TAG }}');
+		expect(publishJob).toContain('--prerelease');
 	});
 });

@@ -225,6 +225,7 @@
 					...cm.historyKeymap
 				]),
 				cm.EditorView.lineWrapping,
+				cm.EditorView.contentAttributes.of({ 'aria-label': t('editor.ariaLabel') }),
 				cm.EditorView.editable.of(!readonly),
 				cm.EditorState.readOnly.of(readonly),
 				cm.EditorView.updateListener.of((update) => {

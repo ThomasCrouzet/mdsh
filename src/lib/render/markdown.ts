@@ -15,7 +15,7 @@ import { escapeHTML } from '../file-utils';
 import { getTags, getTitle, parseFrontmatter } from '../frontmatter';
 import { preprocessWikiLinks, slugify } from '../wiki-links';
 import { t } from '$lib/i18n';
-import { MARKDOWN_PURIFY, sanitizeHtml } from './sanitize-html';
+import { applyRemoteImagePolicy, MARKDOWN_PURIFY, sanitizeHtml } from './sanitize-html';
 
 type MathToken = Tokens.Generic & {
 	type: 'blockMath' | 'inlineMath';
@@ -39,6 +39,8 @@ export interface RenderOptions {
 	 * Default: true. Set to false for raw exports (zip, copy/paste).
 	 */
 	showFrontmatter?: boolean;
+	/** Allows network-backed images after an explicit action in the reading view. */
+	allowRemoteImages?: boolean;
 }
 
 export interface RenderResult {
@@ -276,10 +278,10 @@ async function renderMermaidDiagram(
  * on the initial bundle. We use `dompurify` directly (vs `isomorphic-dompurify`)
  * because the app is browser-only - no need for the jsdom wrapper (~150 KB raw, useless).
  */
-async function sanitize(html: string): Promise<string> {
+async function sanitize(html: string, allowRemoteImages: boolean): Promise<string> {
 	// Shared hook (sanitize-html): external links get noopener, remote style
 	// url() beacons are stripped. Same hook as the WYSIWYG Mermaid preview.
-	return sanitizeHtml(html, MARKDOWN_PURIFY);
+	return applyRemoteImagePolicy(await sanitizeHtml(html, MARKDOWN_PURIFY), allowRemoteImages);
 }
 
 /**
@@ -406,7 +408,7 @@ async function renderMarkdownCore(
 		if (block) html = block + html;
 	}
 
-	return { html: await sanitize(html), fm };
+	return { html: await sanitize(html, opts.allowRemoteImages === true), fm };
 }
 
 export async function renderMarkdown(md: string, opts: RenderOptions = {}): Promise<string> {

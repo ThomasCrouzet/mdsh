@@ -16,8 +16,6 @@ export interface PrintDocumentOptions {
 	bodyHtml: string;
 	/** Raw markdown - used to decide whether to include the KaTeX CSS. */
 	source?: string;
-	/** Renders the title as the document header (default: true). */
-	showHeader?: boolean;
 	/**
 	 * BCP 47 language tag for `<html lang>`. Defaults to the app default
 	 * locale (English). Callers should pass the live UI locale (`i18n.locale`).
@@ -37,7 +35,7 @@ function assetUrl(path: string): string {
 }
 
 export function buildPrintDocument(opts: PrintDocumentOptions): string {
-	const { title, bodyHtml, source, showHeader = true, lang } = opts;
+	const { title, bodyHtml, source, lang } = opts;
 	const safeTitle = escapeHTML(title);
 	const safeLang = escapeHTML(resolveDocumentLang(lang));
 	const needsKatex = source ? hasMath(source) : /class="math-block"|class="katex/.test(bodyHtml);
@@ -47,25 +45,62 @@ export function buildPrintDocument(opts: PrintDocumentOptions): string {
 
 	const katexLink = needsKatex ? `<link rel="stylesheet" href="${katexCssUrl}">\n` : '';
 
-	const header = showHeader
-		? `<header class="print-header"><p class="print-kicker">mdsh</p><h1>${safeTitle}</h1></header>\n`
-		: '';
-
 	return `<!doctype html>
 <html lang="${safeLang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: https:; script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src data: blob:">
 <title>${safeTitle}</title>
 <link rel="stylesheet" href="${printCssUrl}">
 ${katexLink}</head>
 <body>
 <main class="print-body">
-${header}${bodyHtml}
+${bodyHtml}
 </main>
 </body>
 </html>`;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+	let binary = '';
+	const chunkSize = 0x8000;
+	for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+		binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+	}
+	return btoa(binary);
+}
+
+function fontMimeType(path: string): string {
+	if (path.endsWith('.woff2')) return 'font/woff2';
+	if (path.endsWith('.woff')) return 'font/woff';
+	if (path.endsWith('.ttf')) return 'font/ttf';
+	if (path.endsWith('.otf')) return 'font/otf';
+	return 'application/octet-stream';
+}
+
+/** Replaces every local KaTeX font reference with an embedded data URL. */
+async function inlineKatexFonts(css: string): Promise<string> {
+	const matches = [...css.matchAll(/url\((['"]?)(fonts\/[^)'"\s]+)\1\)/g)];
+	const replacements = new Map<string, string>();
+
+	await Promise.all(
+		matches.map(async (match) => {
+			const path = match[2];
+			if (!path) throw new Error('KaTeX font reference is missing a path');
+			if (replacements.has(path)) return;
+			const response = await fetch(assetUrl(`/katex/${path}`));
+			if (!response.ok) throw new Error(`Font /katex/${path}: HTTP ${response.status}`);
+			const bytes = new Uint8Array(await response.arrayBuffer());
+			replacements.set(path, `data:${fontMimeType(path)};base64,${bytesToBase64(bytes)}`);
+		})
+	);
+
+	return css.replace(/url\((['"]?)(fonts\/[^)'"\s]+)\1\)/g, (_match, quote, path) => {
+		const embedded = replacements.get(path);
+		if (!embedded) throw new Error(`Font /katex/${path}: missing embedded data`);
+		return `url(${quote}${embedded}${quote})`;
+	});
 }
 
 /** Fetches the text of a stylesheet served by the app (for inlining). */
@@ -90,7 +125,7 @@ function renderStandaloneDoc(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: https:; script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; style-src 'self' 'unsafe-inline'; font-src 'self' https: data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:">
 <title>${safeTitle}</title>
 ${styleTags}
 </head>
@@ -109,15 +144,9 @@ ${bodyHtml}
  * meant to be opened from disk (`file://`) or re-served elsewhere. Its CSP
  * enforces `style-src 'self' 'unsafe-inline'`: cross-origin <link> tags would
  * be BLOCKED there (the document's origin is no longer the app's). So we INLINE
- * print.css - and, if needed, katex.min.css - into <style> tags, which actually
- * keeps the "standalone" promise and works offline. The KaTeX fonts
- * (referenced as `url(fonts/…)` in katex.min.css) are rewritten as absolute
- * URLs to the app's origin: they load when the app is reachable and degrade
- * gracefully otherwise (the math layout stays correct).
- *
- * If fetching the CSS fails (offline export, app unreachable), we fall back to
- * the legacy <link>-based document - at least readable as long as the app is
- * served from the same origin.
+ * print.css - and, if needed, katex.min.css - into <style> tags. KaTeX fonts
+ * are embedded as data URLs so the exported file has no network dependency.
+ * The export fails closed if a required asset cannot be embedded.
  */
 export async function buildStandaloneHtmlDocument(
 	title: string,
@@ -126,27 +155,12 @@ export async function buildStandaloneHtmlDocument(
 	lang?: string
 ): Promise<string> {
 	const needsKatex = source ? hasMath(source) : /class="math-block"|class="katex/.test(bodyHtml);
-	try {
-		const styles: string[] = [await fetchCssText('/print/print.css')];
-		if (needsKatex) {
-			let katexCss = await fetchCssText('/katex/katex.min.css');
-			// Rewrites the relative fonts to the app's absolute URL (otherwise broken
-			// as soon as the file leaves the /katex/ folder).
-			const fontsBase = assetUrl('/katex/fonts/');
-			katexCss = katexCss.replace(/url\((['"]?)fonts\//g, `url($1${fontsBase}`);
-			styles.push(katexCss);
-		}
-		return renderStandaloneDoc(title, bodyHtml, styles, lang);
-	} catch {
-		// `source` omitted if undefined (exactOptionalPropertyTypes).
-		return buildPrintDocument({
-			title,
-			bodyHtml,
-			...(source !== undefined ? { source } : {}),
-			...(lang !== undefined ? { lang } : {}),
-			showHeader: false
-		});
+	const styles: string[] = [await fetchCssText('/print/print.css')];
+	if (needsKatex) {
+		const katexCss = await fetchCssText('/katex/katex.min.css');
+		styles.push(await inlineKatexFonts(katexCss));
 	}
+	return renderStandaloneDoc(title, bodyHtml, styles, lang);
 }
 
 /**

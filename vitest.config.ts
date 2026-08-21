@@ -62,7 +62,8 @@ export default defineConfig({
 		alias: {
 			$lib: resolve('./src/lib'),
 			'$app/environment': resolve('./src/lib/test-env.ts'),
-			'$app/paths': resolve('./src/lib/test-paths.ts')
+			'$app/paths': resolve('./src/lib/test-paths.ts'),
+			'virtual:pwa-register': resolve('./src/lib/test-pwa-register.ts')
 		}
 	}
 });

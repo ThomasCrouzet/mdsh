@@ -10,7 +10,7 @@
 		HardDrive,
 		HardDriveDownload,
 		Printer
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import type { EditMode } from '$lib/types';
 	import { isDiskLinkingAvailable } from '$lib/disk-sync';
 	import { formatKbd } from '$lib/platform';

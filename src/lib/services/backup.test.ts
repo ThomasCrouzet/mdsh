@@ -607,6 +607,18 @@ describe('downloadBackup - orchestration DOM', () => {
 		expect(parsed.drafts.map((x) => x.id)).toEqual(['d']);
 	});
 
+	it('fails without producing a file when the durability barrier fails', async () => {
+		const ensureDurable = vi.fn(async () => {
+			throw new Error('IndexedDB indisponible');
+		});
+		await expect(downloadBackup(undefined, ensureDurable)).rejects.toThrow(
+			'IndexedDB indisponible'
+		);
+		expect(ensureDurable).toHaveBeenCalledOnce();
+		expect(createObjectURL).not.toHaveBeenCalled();
+		expect(createdAnchor.click).not.toHaveBeenCalled();
+	});
+
 	it('ne fait rien (no-op) en contexte sans document (SSR)', async () => {
 		await db.drafts.put(draft({ id: 'd', name: 'd.md' }));
 		vi.stubGlobal('document', undefined);

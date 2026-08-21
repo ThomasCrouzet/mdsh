@@ -5,6 +5,7 @@ import type { FileItem, TrashedFile } from './types';
 import { TIMERS } from './config';
 import { isFSASupported, getHandle, getPathLink, pickDirectoryFiles } from './fsa';
 import { isDesktop } from './desktop';
+import type { NativeDiskGrant } from './disk-tauri';
 import {
 	loadTrashRows,
 	moveToTrash,
@@ -717,9 +718,9 @@ class FilesStore {
 		return diskOpenFromDisk(this.diskDeps);
 	}
 
-	/** Desktop: open absolute paths from argv / file association. */
-	async openPathsFromDesktop(paths: string[]): Promise<FileItem[]> {
-		return diskOpenPathsFromDesktop(paths, this.diskDeps);
+	/** Desktop: open native capabilities from argv / file association. */
+	async openPathsFromDesktop(grants: NativeDiskGrant[]): Promise<FileItem[]> {
+		return diskOpenPathsFromDesktop(grants, this.diskDeps);
 	}
 
 	/**

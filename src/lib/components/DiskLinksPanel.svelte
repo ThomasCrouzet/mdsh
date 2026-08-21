@@ -27,7 +27,7 @@
 		CheckCircle2,
 		AlertTriangle,
 		XCircle
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;

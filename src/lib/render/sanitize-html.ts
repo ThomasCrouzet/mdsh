@@ -7,20 +7,117 @@ export interface SanitizeNode {
 	hasAttribute?: (name: string) => boolean;
 	getAttribute?: (name: string) => string | null;
 	setAttribute?: (name: string, value: string) => void;
+	removeAttribute?: (name: string) => void;
 }
 
-/** Strips remote http(s) / protocol-relative `url()` values from a CSS style string. */
+function normalizeCssForInspection(style: string): string | null {
+	if (/\/\*[\s\S]*$/.test(style.replace(/\/\*[\s\S]*?\*\//g, ''))) return null;
+	const withoutComments = style
+		.replace(/\/\*[\s\S]*?\*\//g, '')
+		.replace(/\\(?:\r\n|\r|\n|\f)/g, '');
+	const decoded = withoutComments.replace(
+		/\\([0-9a-f]{1,6})(?:\s)?|\\([^\r\n\f])/gi,
+		(_match, hex, escaped) => {
+			if (hex) {
+				const codePoint = Number.parseInt(hex, 16);
+				return codePoint === 0 || codePoint > 0x10ffff ? '\uFFFD' : String.fromCodePoint(codePoint);
+			}
+			return escaped ?? '';
+		}
+	);
+	return [...decoded]
+		.filter((character) => {
+			const codePoint = character.codePointAt(0) ?? 0;
+			return codePoint > 0x1f && codePoint !== 0x7f;
+		})
+		.join('')
+		.toLowerCase();
+}
+
+function hasOnlyFragmentUrls(style: string): boolean {
+	const normalized = normalizeCssForInspection(style);
+	if (normalized === null) return false;
+	if (/(?:^|[^a-z-])(?:-webkit-)?image-set\s*\(|(?:^|[^a-z-])(?:image|src)\s*\(/.test(normalized)) {
+		return false;
+	}
+	let cursor = 0;
+	while (cursor < normalized.length) {
+		const start = normalized.indexOf('url', cursor);
+		if (start === -1) return true;
+		let open = start + 3;
+		while (/\s/.test(normalized[open] ?? '')) open++;
+		if (normalized[open] !== '(') {
+			cursor = open;
+			continue;
+		}
+		const close = normalized.indexOf(')', open + 1);
+		if (close === -1) return false;
+		let value = normalized.slice(open + 1, close).trim();
+		if (
+			(value.startsWith('"') && value.endsWith('"')) ||
+			(value.startsWith("'") && value.endsWith("'"))
+		) {
+			value = value.slice(1, -1).trim();
+		}
+		if (!/^#[a-z_][a-z0-9_.:-]*$/i.test(value)) return false;
+		cursor = close + 1;
+	}
+	return true;
+}
+
+/** Keeps CSS `url()` values only when every value is a local fragment. */
 export function stripRemoteStyleUrls(style: string): string {
-	return style.replace(/url\(\s*(['"]?)\s*(?:https?:)?\/\/[^)]*\)/gi, '');
+	return hasOnlyFragmentUrls(style) ? style : '';
 }
 
 /** Neutralizes remote `url()` beacons on a node's leftover `style` attribute. */
 export function neutralizeRemoteStyleUrls(node: SanitizeNode): void {
 	if (typeof node.getAttribute !== 'function' || !node.hasAttribute?.('style')) return;
 	const style = node.getAttribute('style') ?? '';
-	if (!/url\(/i.test(style)) return;
 	const cleaned = stripRemoteStyleUrls(style);
-	if (cleaned !== style) node.setAttribute?.('style', cleaned);
+	if (cleaned === '') node.removeAttribute?.('style');
+}
+
+function isNetworkImageSource(value: string): boolean {
+	const source = value.trim();
+	return source !== '' && !/^(?:data:|blob:|#)/i.test(source);
+}
+
+/** Blocks network-capable image sources unless the caller records explicit consent. */
+export function applyRemoteImagePolicy(html: string, allowRemoteImages: boolean): string {
+	if (typeof document === 'undefined') return html;
+	const template = document.createElement('template');
+	template.innerHTML = html;
+
+	for (const image of template.content.querySelectorAll('img')) {
+		image.setAttribute('referrerpolicy', 'no-referrer');
+		image.setAttribute('crossorigin', 'anonymous');
+		const src = image.getAttribute('src');
+		if (!allowRemoteImages && src && isNetworkImageSource(src)) {
+			image.setAttribute('data-mdsh-remote-src', src);
+			image.removeAttribute('src');
+			image.classList.add('mdsh-remote-image-blocked');
+		}
+		const srcset = image.getAttribute('srcset');
+		if (!allowRemoteImages && srcset) {
+			image.setAttribute('data-mdsh-remote-srcset', srcset);
+			image.removeAttribute('srcset');
+			image.classList.add('mdsh-remote-image-blocked');
+		}
+	}
+
+	for (const image of template.content.querySelectorAll('svg image')) {
+		for (const attribute of ['href', 'xlink:href']) {
+			const source = image.getAttribute(attribute);
+			if (!allowRemoteImages && source && isNetworkImageSource(source)) {
+				image.setAttribute(`data-mdsh-remote-${attribute.replace(':', '-')}`, source);
+				image.removeAttribute(attribute);
+				image.classList.add('mdsh-remote-image-blocked');
+			}
+		}
+	}
+
+	return template.innerHTML;
 }
 
 /** Forces `target=_blank` + `rel=noopener noreferrer` on external http(s) links. */

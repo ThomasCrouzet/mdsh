@@ -17,7 +17,7 @@
 	import { listVersions, lineDiffStats } from '$lib/version-history';
 	import { formatSaveAge } from '$lib/stats';
 	import type { VersionRow } from '$lib/db';
-	import { History, X, RotateCcw } from 'lucide-svelte';
+	import { History, X, RotateCcw } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;

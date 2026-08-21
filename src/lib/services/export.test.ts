@@ -6,10 +6,12 @@ import type { FileItem } from '$lib/types';
 // DOMPurify) et du vrai print iframe - ces couches sont couvertes ailleurs
 // (markdown.test.ts, print.test.ts, e2e Playwright). Ici on vérifie
 // l'orchestration : titre choisi, document construit, download déclenché.
-const renderMarkdownDetailed = vi.fn(async (md: string) => ({
-	html: `<rendered>${md}</rendered>`,
-	title: ''
-}));
+const renderMarkdownDetailed = vi.fn(
+	async (md: string, _options?: { showFrontmatter?: boolean }) => ({
+		html: `<rendered>${md}</rendered>`,
+		title: ''
+	})
+);
 const buildStandaloneHtmlDocument = vi.fn(
 	async (title: string, bodyHtml: string, _source?: string) =>
 		`<standalone title="${title}">${bodyHtml}</standalone>`
@@ -21,7 +23,8 @@ const buildPrintDocument = vi.fn(
 const printInIframe = vi.fn(async (_html: string) => {});
 
 vi.mock('../render/markdown', () => ({
-	renderMarkdownDetailed: (md: string) => renderMarkdownDetailed(md)
+	renderMarkdownDetailed: (md: string, options?: { showFrontmatter?: boolean }) =>
+		options === undefined ? renderMarkdownDetailed(md) : renderMarkdownDetailed(md, options)
 }));
 vi.mock('../render/print', () => ({
 	buildStandaloneHtmlDocument: (title: string, bodyHtml: string, source?: string) =>
@@ -492,11 +495,12 @@ describe('exportPDF', () => {
 
 	it('rend le markdown, construit le print doc et ouvre le print iframe', async () => {
 		await exportPDF(makeFile({ name: 'doc.md', content: '# Hello' }));
-		expect(renderMarkdownDetailed).toHaveBeenCalledWith('# Hello');
+		expect(renderMarkdownDetailed).toHaveBeenCalledWith('# Hello', { showFrontmatter: false });
 		expect(buildPrintDocument).toHaveBeenCalledOnce();
 		const opts = buildPrintDocument.mock.calls[0]![0];
 		expect(opts.title).toBe('doc');
 		expect(opts.source).toBe('# Hello');
+		expect(opts.bodyHtml).toBe('<rendered># Hello</rendered>');
 		expect(printInIframe).toHaveBeenCalledOnce();
 		// Le HTML passé à printInIframe = le retour de buildPrintDocument.
 		expect(printInIframe.mock.calls[0]![0]).toContain('<print title="doc">');

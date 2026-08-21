@@ -2,13 +2,15 @@
 <html lang="en" class="dark">
 	<head>
 		<meta charset="utf-8" />
+		<title>mdsh editor - local-first offline Markdown workspace</title>
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 		<meta name="theme-color" content="#0b0c0d" />
 		<meta name="color-scheme" content="dark" />
 		<meta
 			name="description"
-			content="mdsh - a local-first WYSIWYG markdown editor, 100% dark, offline."
+			content="mdsh editor is a local-first offline Markdown workspace with WYSIWYG, source, and reading modes. No account, cloud sync, or telemetry."
 		/>
+		<link rel="canonical" href="https://thomascrouzet.github.io/mdsh/" />
 		<meta name="referrer" content="no-referrer" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,10 +19,10 @@
 
 		<!-- Open Graph (Facebook, LinkedIn, Discord, Slack…) -->
 		<meta property="og:type" content="website" />
-		<meta property="og:title" content="mdsh - a local-first WYSIWYG markdown editor" />
+		<meta property="og:title" content="mdsh editor - local-first offline Markdown workspace" />
 		<meta
 			property="og:description"
-			content="WYSIWYG markdown editor, dark mode, PWA, 100% offline. No server, no telemetry."
+			content="WYSIWYG, source, and reading modes in an installable offline workspace. No account, cloud sync, or telemetry."
 		/>
 		<meta property="og:image" content="%sveltekit.assets%/og-image.png" />
 		<meta property="og:image:width" content="1200" />
@@ -32,10 +34,10 @@
 
 		<!-- Twitter / X -->
 		<meta name="twitter:card" content="summary_large_image" />
-		<meta name="twitter:title" content="mdsh - a local-first WYSIWYG markdown editor" />
+		<meta name="twitter:title" content="mdsh editor - local-first offline Markdown workspace" />
 		<meta
 			name="twitter:description"
-			content="WYSIWYG dark mode, PWA, 100 % offline. Open source."
+			content="A local-first Markdown workspace with WYSIWYG, source, and reading modes."
 		/>
 		<meta name="twitter:image" content="%sveltekit.assets%/og-image.png" />
 		<meta name="twitter:image:alt" content="mdsh - a local-first markdown editor" />
@@ -54,6 +56,20 @@
 		     l'ajoute dans le template (présent sur toutes les sorties HTML, fallback
 		     SPA compris). `%sveltekit.assets%` résout le sous-chemin GitHub Pages. -->
 		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+		<script type="application/ld+json">
+			{
+				"@context": "https://schema.org",
+				"@type": "SoftwareApplication",
+				"name": "mdsh editor",
+				"applicationCategory": "ProductivityApplication",
+				"operatingSystem": "Web, macOS, Linux, Windows",
+				"url": "https://thomascrouzet.github.io/mdsh/",
+				"downloadUrl": "https://github.com/ThomasCrouzet/mdsh/releases",
+				"softwareHelp": "https://github.com/ThomasCrouzet/mdsh/blob/main/docs/USER_GUIDE.md",
+				"license": "https://opensource.org/license/mit",
+				"isAccessibleForFree": true
+			}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body class="bg-bg text-fg antialiased">

@@ -9,7 +9,7 @@
 	// message carries the meaning.
 	import { notify, type ToastLevel } from '$lib/notify.svelte';
 	import { t } from '$lib/i18n';
-	import { TriangleAlert, CircleCheck, Info, X } from 'lucide-svelte';
+	import { TriangleAlert, CircleCheck, Info, X } from '@lucide/svelte';
 
 	const icons = { error: TriangleAlert, success: CircleCheck, info: Info } as const;
 	const iconColor: Record<ToastLevel, string> = {

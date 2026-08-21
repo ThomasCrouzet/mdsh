@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FilePlus, Upload, Compass } from 'lucide-svelte';
+	import { FilePlus, Upload, Compass } from '@lucide/svelte';
 	import { formatKbd } from '$lib/platform';
 	import { t } from '$lib/i18n';
 

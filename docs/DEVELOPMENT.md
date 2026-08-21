@@ -102,7 +102,7 @@ Icons: `npx tauri icon static/pwa-512x512.png`. CI: `.github/workflows/desktop.y
 | `src/lib/wiki-links.ts` | Pre-processes `[[Target]]` / `[[Target\|alias]]` → `<a class="wiki-link" data-mdsh-wiki>` |
 | `src/lib/db.ts` | Dexie v4 schema - `drafts` (`id, updatedAt, order`), `trashed` (`id, trashedAt`), `workspaces` (`id, updatedAt`), `versions` (`id, draftId, createdAt, [draftId+createdAt]`), `templates` (`id, updatedAt`) |
 | `src/lib/report.ts` | Centralized logging (`reportError`/`reportWarning`) → console + `notify` (never a silent `console.*` elsewhere; ESLint `no-console` rule) |
-| `src/lib/services/backup.ts` | Full backup/restore of the JSON state (drafts+workspaces+templates), versioned, + encrypted variant |
+| `src/lib/services/backup.ts` | Versioned JSON backup/restore of drafts, workspaces, and custom templates, plus an encrypted variant. Trash, history, and file handles are excluded |
 | `src/lib/crypto.ts` | WebCrypto AES-GCM + PBKDF2 encryption - used by encrypted backups (at-rest encryption of all drafts: deferred, see ROADMAP.md) |
 | `src/lib/version-history.ts` | Throttled local snapshots + purge (N/30d) + lightweight diff |
 | `src/lib/templates.ts` + `src/lib/templates.svelte.ts` | Document templates (dated builtins + custom), `templatesStore` |
@@ -163,7 +163,7 @@ Deliberate decisions - do not "fix" them without context.
 ## Pitfalls
 
 - Milkdown Crepe must be instantiated in `onMount` (DOM required).
-- `lucide-svelte` 1.0.1 has a breaking icon-API change - version pinned.
+- `@lucide/svelte` is version-pinned because icon component APIs can change between releases.
 - PWA cache: any change to `static/` or the manifest requires a rebuild + clearing the browser cache.
 - `--legacy-peer-deps` is required, otherwise Milkdown resolution breaks.
 - Any code touching `window` / `document` / `localStorage` must be guarded by `if (browser)` or placed in `onMount`.

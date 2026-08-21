@@ -21,7 +21,7 @@
 	--color-fg: #e6dfd1; /* ~14.8:1 AAA */
 	--color-fg-muted: #bbb1a2; /* ~9.3:1 AAA */
 	--color-fg-subtle: #9b9183; /* ~6.3:1 AA confortable */
-	--color-fg-dim: #82786b; /* ~4.5:1 AA */
+	--color-fg-dim: #998e7e; /* >4.8:1 on the lightest dark surface */
 
 	--color-accent: #c79a55;
 	--color-accent-dim: #896735;
@@ -81,7 +81,7 @@
 	--color-fg: #231f1a; /* ~14:1 AAA */
 	--color-fg-muted: #4e473e; /* ~7.8:1 AAA */
 	--color-fg-subtle: #61594d; /* ~5.9:1 AA confortable */
-	--color-fg-dim: #6f6659; /* ~4.8:1 AA */
+	--color-fg-dim: #584f44; /* >5.2:1 on the darkest light surface */
 
 	--color-accent: #6f4e18; /* ~6.5:1 sur #f0ede5 */
 	--color-accent-dim: #9b6c24;

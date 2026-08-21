@@ -6,7 +6,7 @@ is on `main`.
 
 ## One-liner
 
-**mdsh** - a local-first WYSIWYG markdown workspace that never phones home.
+**mdsh editor** - a local-first WYSIWYG Markdown workspace with no backend, cloud sync, or telemetry.
 Offline PWA, no account, no telemetry. https://thomascrouzet.github.io/mdsh/
 
 ## Show HN

@@ -1,41 +1,57 @@
-//! Disk helpers for the mdsh desktop shell.
+//! Native disk boundary for the desktop shell.
 //!
-//! Paths must be absolute, extension-allowed, **and** granted for the session.
-//! Grants come from:
-//! - process argv / file-association opens (`PendingOpenPaths`)
-//! - explicit `disk_grant` after a native open/save dialog (frontend)
-//!
-//! This raises the bar vs unrestricted absolute-path R/W while keeping
-//! argv and dialog-picked paths working. Residual risk: a compromised
-//! webview can still call `disk_grant` then write - full dialog-in-Rust
-//! would close that further (tracked as residual hardening).
+//! The webview never grants paths. Native dialogs, process arguments and OS
+//! file-open events create opaque, session-scoped capabilities. Every read,
+//! stat and write command accepts only a capability token.
 
 use serde::Serialize;
-use std::collections::HashSet;
-use std::fs;
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
+use std::io::{ErrorKind, Read, Write};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
+use tauri_plugin_dialog::DialogExt;
+use uuid::Uuid;
 
-/// Markdown/text extensions allowed for open, argv, read, and document save.
 const ALLOWED_READ_EXTS: &[&str] = &["md", "markdown", "mdx", "txt"];
-/// Extra extensions allowed only for write (export/backup downloads on desktop).
 const ALLOWED_WRITE_EXTRA_EXTS: &[&str] = &["html", "htm", "zip", "json"];
 
 #[derive(Default)]
 pub struct PendingOpenPaths(pub Mutex<Vec<String>>);
 
-/// Session allowlist of absolute paths permitted for disk_read / disk_write.
+#[derive(Clone)]
+struct Capability {
+    path: PathBuf,
+    can_write: bool,
+}
+
 #[derive(Default)]
-pub struct GrantedPaths(pub Mutex<HashSet<String>>);
+pub struct CapabilityStore(Mutex<HashMap<String, Capability>>);
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskStat {
+    pub mtime_ms: f64,
+    pub size: u64,
+    pub revision: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskGrant {
+    pub token: String,
+    pub path: String,
+    pub stat: Option<DiskStat>,
+}
 
 impl PendingOpenPaths {
     pub fn push_many(&self, paths: impl IntoIterator<Item = String>) {
         if let Ok(mut guard) = self.0.lock() {
-            for p in paths {
-                if !p.is_empty() && !guard.iter().any(|x| x == &p) {
-                    guard.push(p);
+            for path in paths {
+                if !path.is_empty() && !guard.iter().any(|known| known == &path) {
+                    guard.push(path);
                 }
             }
         }
@@ -44,70 +60,78 @@ impl PendingOpenPaths {
     pub fn take(&self) -> Vec<String> {
         self.0
             .lock()
-            .map(|mut g| std::mem::take(&mut *g))
+            .map(|mut guard| std::mem::take(&mut *guard))
             .unwrap_or_default()
     }
 }
 
-impl GrantedPaths {
-    pub fn grant_many(&self, paths: impl IntoIterator<Item = String>) -> usize {
-        let mut n = 0;
-        if let Ok(mut guard) = self.0.lock() {
-            for p in paths {
-                if p.is_empty() {
-                    continue;
-                }
-                let path = PathBuf::from(&p);
-                // write-allowed is a superset of read-allowed extensions (+ export types).
-                if path_key(&path).is_ok()
-                    && ensure_write_allowed(&path).is_ok()
-                    && guard.insert(normalize_key(&path))
-                {
-                    n += 1;
-                }
-            }
+impl CapabilityStore {
+    pub fn grant_native_path(&self, path: &Path, can_write: bool) -> Result<DiskGrant, String> {
+        let normalized = path_key(path)?;
+        if can_write {
+            ensure_write_allowed(&normalized)?;
+        } else {
+            ensure_read_allowed(&normalized)?;
         }
-        n
+        reject_symlink(&normalized)?;
+        let token = Uuid::new_v4().to_string();
+        let stat = stat_path(&normalized)?;
+        self.0
+            .lock()
+            .map_err(|_| "capability store unavailable".to_string())?
+            .insert(
+                token.clone(),
+                Capability {
+                    path: normalized.clone(),
+                    can_write,
+                },
+            );
+        Ok(DiskGrant {
+            token,
+            path: normalized.to_string_lossy().into_owned(),
+            stat,
+        })
     }
 
-    fn is_granted(&self, path: &Path) -> bool {
-        let key = normalize_key(path);
-        self.0.lock().map(|g| g.contains(&key)).unwrap_or(false)
+    fn resolve(&self, token: &str, write: bool) -> Result<PathBuf, String> {
+        let capability = self
+            .0
+            .lock()
+            .map_err(|_| "capability store unavailable".to_string())?
+            .get(token)
+            .cloned()
+            .ok_or_else(|| "invalid or expired disk capability".to_string())?;
+        if write && !capability.can_write {
+            return Err("disk capability is read-only".to_string());
+        }
+        reject_symlink(&capability.path)?;
+        Ok(capability.path)
     }
 }
 
-/// Stable key for grant lookups (absolute, no trailing slash noise).
-fn normalize_key(path: &Path) -> String {
-    path_key(path).unwrap_or_else(|_| path.to_string_lossy().into_owned())
-}
-
-fn path_key(path: &Path) -> Result<String, String> {
+fn path_key(path: &Path) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err("path must be absolute".to_string());
     }
-    let s = path.to_string_lossy();
-    if s.contains('\0') {
-        return Err("path contains NUL".to_string());
-    }
-    // Reject `..` segments to limit traversal tricks before canonicalize.
     if path
         .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
+        .any(|component| matches!(component, Component::ParentDir))
     {
         return Err("path must not contain '..'".to_string());
     }
-    // Prefer canonical form when the path (or parent) exists.
-    if let Ok(canon) = path.canonicalize() {
-        return Ok(canon.to_string_lossy().into_owned());
+    reject_symlink(path)?;
+    if let Ok(canonical) = path.canonicalize() {
+        return Ok(canonical);
     }
-    if let Some(parent) = path.parent() {
-        if let Ok(parent_canon) = parent.canonicalize() {
-            if let Some(name) = path.file_name() {
-                return Ok(parent_canon.join(name).to_string_lossy().into_owned());
-            }
-        }
-    }
-    Ok(path.to_string_lossy().into_owned())
+    let parent = path
+        .parent()
+        .ok_or_else(|| "path has no parent".to_string())?
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| "path has no filename".to_string())?;
+    Ok(parent.join(name))
 }
 
 fn extension_of(path: &Path) -> Result<String, String> {
@@ -115,143 +139,336 @@ fn extension_of(path: &Path) -> Result<String, String> {
         return Err("path must be absolute".to_string());
     }
     path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
         .ok_or_else(|| "file has no extension".to_string())
 }
 
 fn ensure_read_allowed(path: &Path) -> Result<(), String> {
-    let ext = extension_of(path)?;
-    if !ALLOWED_READ_EXTS.contains(&ext.as_str()) {
-        return Err(format!("extension not allowed: .{ext}"));
+    let extension = extension_of(path)?;
+    if ALLOWED_READ_EXTS.contains(&extension.as_str()) {
+        Ok(())
+    } else {
+        Err(format!("extension not allowed: .{extension}"))
+    }
+}
+
+fn ensure_write_allowed(path: &Path) -> Result<(), String> {
+    let extension = extension_of(path)?;
+    if ALLOWED_READ_EXTS.contains(&extension.as_str())
+        || ALLOWED_WRITE_EXTRA_EXTS.contains(&extension.as_str())
+    {
+        Ok(())
+    } else {
+        Err(format!("extension not allowed: .{extension}"))
+    }
+}
+
+fn reject_symlink(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err("symbolic-link targets are not accepted".to_string())
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn revision_for(path: &Path) -> Result<String, String> {
+    let mut file = File::open(path).map_err(|error| error.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+fn stat_path(path: &Path) -> Result<Option<DiskStat>, String> {
+    reject_symlink(path)?;
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    if !metadata.is_file() {
+        return Err("disk target is not a regular file".to_string());
+    }
+    let mtime_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0);
+    Ok(Some(DiskStat {
+        mtime_ms,
+        size: metadata.len(),
+        revision: revision_for(path)?,
+    }))
+}
+
+fn ensure_expected_revision(
+    path: &Path,
+    expected_revision: Option<&str>,
+    force: bool,
+) -> Result<(), String> {
+    if force {
+        return Ok(());
+    }
+    let current = stat_path(path)?.map(|stat| stat.revision);
+    match (expected_revision, current.as_deref()) {
+        (Some(expected), Some(actual)) if expected == actual => Ok(()),
+        (None, None) => Ok(()),
+        _ => Err("disk conflict: target changed since it was opened".to_string()),
+    }
+}
+
+fn temporary_path(path: &Path) -> Result<PathBuf, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "disk target has no parent".to_string())?;
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "disk target filename is invalid".to_string())?;
+    Ok(parent.join(format!(".{filename}.{}.tmp", Uuid::new_v4())))
+}
+
+#[cfg(unix)]
+fn replace_file(temp: &Path, target: &Path) -> Result<(), String> {
+    fs::rename(temp, target).map_err(|error| error.to_string())?;
+    if let Some(parent) = target.parent() {
+        File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
 
-fn ensure_write_allowed(path: &Path) -> Result<(), String> {
-    let ext = extension_of(path)?;
-    if ALLOWED_READ_EXTS.contains(&ext.as_str()) || ALLOWED_WRITE_EXTRA_EXTS.contains(&ext.as_str())
+#[cfg(windows)]
+fn replace_file(temp: &Path, target: &Path) -> Result<(), String> {
+    if !target.exists() {
+        return fs::rename(temp, target).map_err(|error| error.to_string());
+    }
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+    let target_wide: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+    let temp_wide: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
+    let result = unsafe {
+        ReplaceFileW(
+            target_wide.as_ptr(),
+            temp_wide.as_ptr(),
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error().to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn atomic_write(
+    path: &Path,
+    contents: &[u8],
+    expected_revision: Option<&str>,
+    force: bool,
+) -> Result<DiskStat, String> {
+    ensure_write_allowed(path)?;
+    reject_symlink(path)?;
+    let temp = temporary_path(path)?;
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .map_err(|error| error.to_string())?;
+        if let Ok(metadata) = fs::metadata(path) {
+            fs::set_permissions(&temp, metadata.permissions())
+                .map_err(|error| error.to_string())?;
+        }
+        file.write_all(contents)
+            .map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
+        // This is the final operation before same-directory replacement.
+        ensure_expected_revision(path, expected_revision, force)?;
+        replace_file(&temp, path)?;
+        stat_path(path)?.ok_or_else(|| "written file disappeared".to_string())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+fn read_capability(
+    capabilities: &CapabilityStore,
+    token: &str,
+) -> Result<(PathBuf, String), String> {
+    let path = capabilities.resolve(token, false)?;
+    ensure_read_allowed(&path)?;
+    let content = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    Ok((path, content))
+}
+
+fn normalize_save_extension(mut path: PathBuf, suggested_name: &str, export: bool) -> PathBuf {
+    if extension_of(&path)
+        .and_then(|_| ensure_write_allowed(&path))
+        .is_ok()
     {
-        return Ok(());
+        return path;
     }
-    Err(format!("extension not allowed: .{ext}"))
+    let fallback = if export {
+        Path::new(suggested_name)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .filter(|extension| {
+                ALLOWED_READ_EXTS.contains(&extension.to_ascii_lowercase().as_str())
+                    || ALLOWED_WRITE_EXTRA_EXTS.contains(&extension.to_ascii_lowercase().as_str())
+            })
+            .unwrap_or("md")
+            .to_string()
+    } else {
+        "md".to_string()
+    };
+    path.set_extension(fallback);
+    path
 }
 
-fn ensure_granted(grants: &GrantedPaths, path: &Path) -> Result<(), String> {
-    path_key(path)?; // validates absolute / no `..` / no NUL
-    if grants.is_granted(path) {
-        return Ok(());
-    }
-    // Also accept if canonicalize-equivalent key is granted.
-    let key = normalize_key(path);
-    if grants.0.lock().map(|g| g.contains(&key)).unwrap_or(false) {
-        return Ok(());
-    }
-    Err("path not granted for this session".to_string())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiskStat {
-    pub mtime_ms: f64,
-    pub size: u64,
-}
-
-/// Registers absolute paths for subsequent disk_read / disk_write / disk_stat.
-/// Called after native open/save dialogs and when re-linking known path records.
-#[tauri::command]
-pub fn disk_grant(
-    grants: tauri::State<'_, GrantedPaths>,
-    paths: Vec<String>,
-) -> Result<usize, String> {
-    Ok(grants.grant_many(paths))
+fn grant_save_selection(
+    capabilities: &CapabilityStore,
+    selected: Option<PathBuf>,
+    suggested_name: &str,
+    export: bool,
+) -> Result<Option<DiskGrant>, String> {
+    let Some(path) = selected else {
+        return Ok(None);
+    };
+    let path = normalize_save_extension(path, suggested_name, export);
+    capabilities.grant_native_path(&path, true).map(Some)
 }
 
 #[tauri::command]
-pub fn disk_read(grants: tauri::State<'_, GrantedPaths>, path: String) -> Result<String, String> {
-    let p = PathBuf::from(&path);
-    ensure_read_allowed(&p)?;
-    ensure_granted(&grants, &p)?;
-    fs::read_to_string(&p).map_err(|e| e.to_string())
+pub fn disk_open_dialog(
+    app: tauri::AppHandle,
+    capabilities: tauri::State<'_, CapabilityStore>,
+    multiple: bool,
+) -> Result<Vec<DiskGrant>, String> {
+    let builder = app
+        .dialog()
+        .file()
+        .add_filter("Markdown and text", ALLOWED_READ_EXTS);
+    let selected = if multiple {
+        builder.blocking_pick_files().unwrap_or_default()
+    } else {
+        builder.blocking_pick_file().into_iter().collect()
+    };
+    selected
+        .into_iter()
+        .map(|file_path| {
+            let path = file_path.into_path().map_err(|error| error.to_string())?;
+            capabilities.grant_native_path(&path, true)
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn disk_save_dialog(
+    app: tauri::AppHandle,
+    capabilities: tauri::State<'_, CapabilityStore>,
+    suggested_name: String,
+    export: bool,
+) -> Result<Option<DiskGrant>, String> {
+    let extensions: &[&str] = if export {
+        &["md", "markdown", "mdx", "txt", "html", "htm", "zip", "json"]
+    } else {
+        ALLOWED_READ_EXTS
+    };
+    let selected = app
+        .dialog()
+        .file()
+        .add_filter("Supported files", extensions)
+        .set_file_name(&suggested_name)
+        .blocking_save_file();
+    let selected = selected
+        .map(|file_path| file_path.into_path().map_err(|error| error.to_string()))
+        .transpose()?;
+    grant_save_selection(&capabilities, selected, &suggested_name, export)
+}
+
+#[tauri::command]
+pub fn disk_read(
+    capabilities: tauri::State<'_, CapabilityStore>,
+    token: String,
+) -> Result<String, String> {
+    read_capability(&capabilities, &token).map(|(_, content)| content)
 }
 
 #[tauri::command]
 pub fn disk_write(
-    grants: tauri::State<'_, GrantedPaths>,
-    path: String,
+    capabilities: tauri::State<'_, CapabilityStore>,
+    token: String,
     content: String,
-) -> Result<(), String> {
-    let p = PathBuf::from(&path);
-    ensure_write_allowed(&p)?;
-    ensure_granted(&grants, &p)?;
-    fs::write(&p, content).map_err(|e| e.to_string())
+    expected_revision: Option<String>,
+    force: bool,
+) -> Result<DiskStat, String> {
+    let path = capabilities.resolve(&token, true)?;
+    atomic_write(
+        &path,
+        content.as_bytes(),
+        expected_revision.as_deref(),
+        force,
+    )
 }
 
-/// Binary write for export artifacts (ZIP) - same extension + grant gate.
 #[tauri::command]
 pub fn disk_write_bytes(
-    grants: tauri::State<'_, GrantedPaths>,
-    path: String,
+    capabilities: tauri::State<'_, CapabilityStore>,
+    token: String,
     contents: Vec<u8>,
-) -> Result<(), String> {
-    let p = PathBuf::from(&path);
-    ensure_write_allowed(&p)?;
-    ensure_granted(&grants, &p)?;
-    fs::write(&p, contents).map_err(|e| e.to_string())
+    expected_revision: Option<String>,
+    force: bool,
+) -> Result<DiskStat, String> {
+    let path = capabilities.resolve(&token, true)?;
+    atomic_write(&path, &contents, expected_revision.as_deref(), force)
 }
 
 #[tauri::command]
 pub fn disk_stat(
-    grants: tauri::State<'_, GrantedPaths>,
-    path: String,
+    capabilities: tauri::State<'_, CapabilityStore>,
+    token: String,
 ) -> Result<Option<DiskStat>, String> {
-    let p = PathBuf::from(&path);
-    // Stat accepts any write-allowed path so export targets can be verified.
-    ensure_write_allowed(&p)?;
-    ensure_granted(&grants, &p)?;
-    let meta = match fs::metadata(&p) {
-        Ok(m) => m,
-        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(err.to_string()),
-    };
-    let mtime_ms = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs_f64() * 1000.0)
-        .unwrap_or(0.0);
-    Ok(Some(DiskStat {
-        mtime_ms,
-        size: meta.len(),
-    }))
+    let path = capabilities.resolve(&token, false)?;
+    stat_path(&path)
 }
 
 #[tauri::command]
 pub fn take_pending_open_paths(
-    state: tauri::State<'_, PendingOpenPaths>,
-    grants: tauri::State<'_, GrantedPaths>,
-) -> Vec<String> {
-    let paths = state.take();
-    // Argv / file-association paths are trusted (native OS open).
-    grants.grant_many(paths.iter().cloned());
-    paths
+    pending: tauri::State<'_, PendingOpenPaths>,
+    capabilities: tauri::State<'_, CapabilityStore>,
+) -> Vec<DiskGrant> {
+    pending
+        .take()
+        .into_iter()
+        .filter_map(|path| capabilities.grant_native_path(Path::new(&path), true).ok())
+        .collect()
 }
 
-/// Collect markdown paths from process argv (skip binary path).
-pub fn collect_argv_paths() -> Vec<String> {
-    std::env::args()
-        .skip(1)
-        .filter(|a| !a.starts_with('-'))
-        .filter_map(|a| {
-            let path = PathBuf::from(a);
-            let allowed = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| ALLOWED_READ_EXTS.contains(&e.to_ascii_lowercase().as_str()))
-                .unwrap_or(false);
-            if !allowed {
-                return None;
-            }
+fn collect_explicit_paths(arguments: impl IntoIterator<Item = String>) -> Vec<String> {
+    arguments
+        .into_iter()
+        .filter(|argument| !argument.starts_with('-'))
+        .filter_map(|argument| {
+            let path = PathBuf::from(argument);
+            ensure_read_allowed(&path).ok()?;
             path.canonicalize()
                 .ok()
                 .map(|canonical| canonical.to_string_lossy().into_owned())
@@ -259,120 +476,170 @@ pub fn collect_argv_paths() -> Vec<String> {
         .collect()
 }
 
+pub fn collect_argv_paths() -> Vec<String> {
+    collect_explicit_paths(std::env::args().skip(1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(extension: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock before Unix epoch")
-            .as_nanos();
         std::env::temp_dir().join(format!(
-            "mdsh-disk-{}-{nonce}.{extension}",
-            std::process::id()
+            "mdsh-disk-{}-{}.{extension}",
+            std::process::id(),
+            Uuid::new_v4()
         ))
     }
 
-    fn grant_for(path: &Path) -> GrantedPaths {
-        let g = GrantedPaths::default();
-        g.grant_many([path.to_string_lossy().into_owned()]);
-        g
-    }
-
     #[test]
-    fn rejects_relative_and_unsupported_paths() {
+    fn rejects_relative_traversal_and_unsupported_extensions() {
         assert!(ensure_read_allowed(Path::new("note.md")).is_err());
         assert!(ensure_read_allowed(&temp_path("pdf")).is_err());
-        assert!(ensure_read_allowed(&temp_path("MD")).is_ok());
-        // Export write may use html/zip/json; read still rejects them.
-        assert!(ensure_read_allowed(&temp_path("html")).is_err());
-        assert!(ensure_write_allowed(&temp_path("html")).is_ok());
-        assert!(ensure_write_allowed(&temp_path("zip")).is_ok());
-        assert!(ensure_write_allowed(&temp_path("json")).is_ok());
-        assert!(ensure_write_allowed(&temp_path("pdf")).is_err());
-    }
-
-    #[test]
-    fn rejects_parent_dir_segments() {
-        let p = std::env::temp_dir().join("a/../b.md");
-        // On some platforms join normalizes; force a raw string with `..`.
         let raw = format!("{}/a/../evil.md", std::env::temp_dir().to_string_lossy());
         assert!(path_key(Path::new(&raw)).is_err());
-        let _ = p;
+        assert!(ensure_write_allowed(&temp_path("zip")).is_ok());
     }
 
     #[test]
-    fn ungranted_path_is_rejected() {
+    fn opaque_tokens_are_session_scoped_and_unforgeable() {
         let path = temp_path("md");
-        let grants = GrantedPaths::default();
-        assert!(ensure_granted(&grants, &path).is_err());
-        grants.grant_many([path.to_string_lossy().into_owned()]);
-        assert!(ensure_granted(&grants, &path).is_ok());
+        fs::write(&path, "one").expect("fixture write");
+        let first_session = CapabilityStore::default();
+        let grant = first_session
+            .grant_native_path(&path, true)
+            .expect("native grant");
+        assert_eq!(
+            read_capability(&first_session, &grant.token).unwrap().1,
+            "one"
+        );
+        assert!(first_session.resolve("forged-token", false).is_err());
+        assert!(CapabilityStore::default()
+            .resolve(&grant.token, false)
+            .is_err());
+        fs::remove_file(path).expect("fixture cleanup");
     }
 
     #[test]
-    fn write_bytes_allows_export_extensions() {
-        let path = temp_path("zip");
-        let path_string = path.to_string_lossy().into_owned();
-        let grants = grant_for(&path);
-        // Unit tests call internal helpers without Tauri State - exercise grant + write via grant_many + fs.
-        ensure_write_allowed(&path).expect("ext");
-        ensure_granted(&grants, &path).expect("granted");
-        fs::write(&path, [0x50, 0x4b, 0x03, 0x04]).expect("zip write should succeed");
-        let data = fs::read(&path).expect("read back");
-        assert_eq!(data, vec![0x50, 0x4b, 0x03, 0x04]);
-        let _ = path_string;
-        fs::remove_file(path).expect("cleanup");
-    }
-
-    #[test]
-    fn reads_writes_and_stats_an_allowed_file() {
+    fn read_only_grant_reads_but_cannot_write() {
         let path = temp_path("md");
-        let path_string = path.to_string_lossy().into_owned();
-        let grants = grant_for(&path);
-
-        ensure_write_allowed(&path).unwrap();
-        ensure_granted(&grants, &path).unwrap();
-        fs::write(&path, "# Test").expect("write should succeed");
-        ensure_read_allowed(&path).unwrap();
-        assert_eq!(fs::read_to_string(&path).expect("read"), "# Test");
-        let meta = fs::metadata(&path).expect("stat");
-        assert_eq!(meta.len(), 6);
-
-        let _ = path_string;
-        fs::remove_file(path).expect("temporary file cleanup should succeed");
+        fs::write(&path, "readable").expect("fixture write");
+        let store = CapabilityStore::default();
+        let grant = store
+            .grant_native_path(&path, false)
+            .expect("read-only native grant");
+        assert_eq!(read_capability(&store, &grant.token).unwrap().1, "readable");
+        assert!(store.resolve(&grant.token, true).is_err());
+        fs::remove_file(path).expect("fixture cleanup");
     }
 
     #[test]
-    fn returns_none_for_a_missing_allowed_file() {
+    fn atomic_write_detects_same_size_content_changes() {
         let path = temp_path("md");
-        let grants = grant_for(&path);
-        ensure_granted(&grants, &path).unwrap();
-        assert!(matches!(fs::metadata(&path), Err(e) if e.kind() == ErrorKind::NotFound));
+        fs::write(&path, "one").expect("fixture write");
+        let expected = stat_path(&path).unwrap().unwrap().revision;
+        let permissions = fs::metadata(&path).unwrap().permissions();
+        fs::write(&path, "two").expect("external write with same size");
+        assert!(atomic_write(&path, b"new", Some(&expected), false).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "two");
+        assert_eq!(fs::metadata(&path).unwrap().permissions(), permissions);
+        fs::remove_file(path).expect("fixture cleanup");
+    }
+
+    #[test]
+    fn atomic_write_replaces_after_revision_check_and_preserves_permissions() {
+        let path = temp_path("md");
+        fs::write(&path, "before").expect("fixture write");
+        let before = stat_path(&path).unwrap().unwrap();
+        let permissions = fs::metadata(&path).unwrap().permissions();
+        let after = atomic_write(&path, b"after", Some(&before.revision), false).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "after");
+        assert_eq!(after.size, 5);
+        assert_eq!(fs::metadata(&path).unwrap().permissions(), permissions);
+        fs::remove_file(path).expect("fixture cleanup");
+    }
+
+    #[test]
+    fn failed_atomic_write_leaves_original_and_no_temp_file() {
+        let path = temp_path("md");
+        fs::write(&path, "original").expect("fixture write");
+        let parent = path.parent().unwrap();
+        let filename = path.file_name().unwrap().to_string_lossy();
+        assert!(atomic_write(&path, b"replacement", Some("sha256:wrong"), false).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+        let prefix = format!(".{filename}.");
+        assert!(!fs::read_dir(parent)
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)));
+        fs::remove_file(path).expect("fixture cleanup");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink_substitution_after_grant() {
+        use std::os::unix::fs::symlink;
+        let selected = temp_path("md");
+        let target = temp_path("md");
+        fs::write(&selected, "selected").unwrap();
+        fs::write(&target, "target").unwrap();
+        let store = CapabilityStore::default();
+        let grant = store.grant_native_path(&selected, true).unwrap();
+        fs::remove_file(&selected).unwrap();
+        symlink(&target, &selected).unwrap();
+        assert!(store.resolve(&grant.token, false).is_err());
+        assert!(CapabilityStore::default()
+            .grant_native_path(&selected, true)
+            .is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "target");
+        fs::remove_file(selected).unwrap();
+        fs::remove_file(target).unwrap();
     }
 
     #[test]
     fn pending_paths_are_deduplicated_and_drained() {
         let pending = PendingOpenPaths::default();
-        pending.push_many([
-            "/tmp/a.md".to_string(),
-            "/tmp/a.md".to_string(),
-            String::new(),
-        ]);
-
+        pending.push_many(["/tmp/a.md".to_string(), "/tmp/a.md".to_string()]);
         assert_eq!(pending.take(), vec!["/tmp/a.md"]);
         assert!(pending.take().is_empty());
     }
 
     #[test]
-    fn grant_many_skips_bad_extensions() {
-        let g = GrantedPaths::default();
-        let n = g.grant_many([
-            temp_path("md").to_string_lossy().into_owned(),
+    fn argv_paths_create_only_canonical_allowed_grants() {
+        let path = temp_path("md");
+        fs::write(&path, "argv").expect("fixture write");
+        let paths = collect_explicit_paths([
+            "--ignored".to_string(),
+            path.to_string_lossy().into_owned(),
             temp_path("pdf").to_string_lossy().into_owned(),
         ]);
-        assert_eq!(n, 1);
+        assert_eq!(paths, vec![path.canonicalize().unwrap().to_string_lossy()]);
+        let store = CapabilityStore::default();
+        let grant = store
+            .grant_native_path(Path::new(&paths[0]), true)
+            .expect("argv native grant");
+        assert_eq!(read_capability(&store, &grant.token).unwrap().1, "argv");
+        fs::remove_file(path).expect("fixture cleanup");
+    }
+
+    #[test]
+    fn cancelled_save_selection_creates_no_capability() {
+        let store = CapabilityStore::default();
+        assert!(grant_save_selection(&store, None, "note.md", false)
+            .unwrap()
+            .is_none());
+        assert!(store.resolve("anything", false).is_err());
+    }
+
+    #[test]
+    fn save_extension_normalization_is_explicit() {
+        assert_eq!(
+            normalize_save_extension(PathBuf::from("/tmp/report"), "report.html", true),
+            PathBuf::from("/tmp/report.html")
+        );
+        assert_eq!(
+            normalize_save_extension(PathBuf::from("/tmp/note"), "note", false),
+            PathBuf::from("/tmp/note.md")
+        );
     }
 }

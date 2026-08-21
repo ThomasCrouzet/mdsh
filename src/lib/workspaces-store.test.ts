@@ -245,4 +245,19 @@ describe('workspaceStore - chemins d echec IDB', () => {
 		// L echec de lecture interrompt restore : a n est PAS rouvert.
 		expect(filesStore.files.some((f) => f.id === a.id)).toBe(false);
 	});
+
+	it('restore keeps every tab and in-memory revision when flush fails', async () => {
+		const a = filesStore.createNew('a.md', '# version mémoire');
+		await filesStore.flushPendingAwait();
+		const ws = await workspaceStore.save('Stable');
+		const b = filesStore.createNew('b.md', '# ne pas fermer');
+		filesStore.updateContent(a.id, '# dernière révision');
+		vi.spyOn(db.drafts, 'put').mockRejectedValue(new Error('IDB unavailable'));
+
+		await workspaceStore.restore(ws!.id);
+
+		expect(filesStore.files.map((file) => file.id)).toEqual([a.id, b.id]);
+		expect(filesStore.files.find((file) => file.id === a.id)?.content).toBe('# dernière révision');
+		expect(filesStore.files.find((file) => file.id === b.id)?.content).toBe('# ne pas fermer');
+	});
 });

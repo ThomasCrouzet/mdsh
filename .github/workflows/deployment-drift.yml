@@ -1,0 +1,26 @@
+name: Deployment drift
+
+on:
+  schedule:
+    - cron: '43 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: read
+
+jobs:
+  pages-head:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify that Pages includes main HEAD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          deployed_sha=$(gh api "repos/$REPOSITORY/deployments?environment=github-pages&per_page=1" --jq '.[0].sha')
+          if [ -z "$deployed_sha" ] || [ "$deployed_sha" != "$EXPECTED_SHA" ]; then
+            echo "GitHub Pages is not deployed from main HEAD: expected $EXPECTED_SHA, found ${deployed_sha:-none}" >&2
+            exit 1
+          fi

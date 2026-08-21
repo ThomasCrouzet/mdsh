@@ -429,23 +429,6 @@ img {
 }
 
 /* ============================================================================
-   Page header (optionnel - nom du document)
-   ============================================================================ */
-.print-header {
-	margin: 0 0 1em;
-	padding: 0 0 0.6em;
-	border-bottom: 1px solid var(--border);
-}
-.print-header .print-kicker {
-	font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
-	color: var(--text-faint);
-	font-size: 8.5pt;
-	text-transform: uppercase;
-	letter-spacing: 0.1em;
-	margin: 0 0 0.3em;
-}
-
-/* ============================================================================
    Règles d'impression
    ============================================================================ */
 @media print {
@@ -485,9 +468,6 @@ img {
 	h6 {
 		break-after: avoid;
 		page-break-after: avoid;
-	}
-	.print-header {
-		margin-bottom: 1em;
 	}
 }
 

@@ -78,6 +78,7 @@ export const fr: Record<MessageKey, string> = {
 
 	// editor
 	'editor.placeholder': 'Écris ton markdown ici - ou tape /  pour les commandes',
+	'editor.ariaLabel': 'Éditeur du document Markdown',
 	'editor.previewLabel': 'Aperçu',
 	'editor.previewLoading': 'Rendu Mermaid…',
 
@@ -263,6 +264,8 @@ export const fr: Record<MessageKey, string> = {
 	'read.mermaidError': 'Erreur Mermaid',
 	'read.renderError': 'Erreur de rendu',
 	'read.rendering': 'Rendu…',
+	'read.remoteImagesBlocked': 'Les images distantes sont bloquées pour protéger ta vie privée.',
+	'read.loadRemoteImages': 'Charger les images distantes',
 
 	// search
 	'search.caseSensitive': 'Sensible à la casse',
@@ -303,7 +306,18 @@ export const fr: Record<MessageKey, string> = {
 	'settings.close': 'Fermer',
 	'settings.data': 'Données',
 	'settings.dataDescription':
-		'Tout est stocké localement dans ce navigateur. Exporte régulièrement une sauvegarde pour ne rien perdre (changement de navigateur, vidage du cache…).',
+		'Les sauvegardes incluent les brouillons, espaces et modèles. La corbeille, l’historique des versions et les permissions disque ne sont pas portables et sont exclus.',
+	'settings.storageHealth': 'État du stockage',
+	'settings.storagePersistent': 'Stockage navigateur persistant',
+	'settings.storageBestEffort': 'Stockage navigateur en mode best-effort',
+	'settings.storageUnavailable': 'État du stockage indisponible',
+	'settings.storageUsage': '{usage} utilisés sur {quota}',
+	'settings.storageUsageUnavailable': 'Informations de quota indisponibles',
+	'settings.lastBackup': 'Dernière sauvegarde externe : {date}',
+	'settings.noBackup': 'Aucune sauvegarde externe réussie enregistrée sur cet appareil.',
+	'settings.backupHealthError':
+		'La dernière tentative de sauvegarde a échoué. Tes brouillons restent uniquement locaux.',
+	'settings.backupReminder': 'Une nouvelle sauvegarde externe est recommandée.',
 	'settings.display': 'Affichage',
 	'settings.editor': 'Éditeur',
 	'settings.editorWidth': "Largeur de l'éditeur",
@@ -482,7 +496,7 @@ export const fr: Record<MessageKey, string> = {
 	'welcome.newFile': 'Nouveau fichier',
 	'welcome.openDemo': 'Ouvrir un document de démo',
 	'welcome.privacy': 'Aucun serveur. Aucune télémétrie. Tes fichiers restent chez toi.',
-	'welcome.tagline': 'Un espace markdown qui ne rentre jamais chez toi.',
+	'welcome.tagline': 'Aucun backend, cloud ou télémétrie.',
 	'welcome.taglineLine2': 'WYSIWYG, lecture, source - tout dans ton navigateur.',
 	'welcome.systemLabel': 'Système documentaire local',
 

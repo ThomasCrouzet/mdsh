@@ -15,7 +15,7 @@ test.describe('Mode focus', () => {
 		// (depuis Tier 5, plusieurs commandes contiennent « mode » et « focus »).
 		await openPalette(page);
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
-		await dialog.getByRole('button', { name: /Activer le mode focus/i }).click();
+		await dialog.getByRole('option', { name: /Activer le mode focus/i }).click();
 		await expect(body).toHaveClass(/focus-mode/);
 
 		// §B1.1 - Désactivation : le header (qui contient le bouton "Palette de
@@ -24,7 +24,7 @@ test.describe('Mode focus', () => {
 		const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 		await page.keyboard.press(`${mod}+Shift+P`);
 		await expect(dialog).toBeVisible();
-		await dialog.getByRole('button', { name: /Désactiver le mode focus/i }).click();
+		await dialog.getByRole('option', { name: /Désactiver le mode focus/i }).click();
 		await expect(body).not.toHaveClass(/focus-mode/);
 	});
 
@@ -38,7 +38,7 @@ test.describe('Mode focus', () => {
 
 		await openPalette(page);
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
-		await dialog.getByRole('button', { name: /Activer le mode focus/i }).click();
+		await dialog.getByRole('option', { name: /Activer le mode focus/i }).click();
 		await expect(focusStatus).toContainText(/activé/i);
 	});
 });

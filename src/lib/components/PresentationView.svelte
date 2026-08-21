@@ -11,7 +11,7 @@
 	import { splitSlides } from '$lib/slides';
 	import { reportError } from '$lib/report';
 	import { mermaidThemeFromDataTheme } from '$lib/theme';
-	import { ChevronLeft, ChevronRight, X } from 'lucide-svelte';
+	import { ChevronLeft, ChevronRight, X } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;

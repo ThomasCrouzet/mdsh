@@ -1,21 +1,18 @@
 mod disk;
 
-use disk::{collect_argv_paths, GrantedPaths, PendingOpenPaths};
+use disk::{collect_argv_paths, CapabilityStore, PendingOpenPaths};
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let pending = PendingOpenPaths::default();
-    let grants = GrantedPaths::default();
     let argv = collect_argv_paths();
-    pending.push_many(argv.iter().cloned());
-    // Argv paths are trusted at process start (native open).
-    grants.grant_many(argv);
+    pending.push_many(argv);
 
     tauri::Builder::default()
         .manage(pending)
-        .manage(grants)
+        .manage(CapabilityStore::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
@@ -23,7 +20,8 @@ pub fn run() {
             disk::disk_write,
             disk::disk_write_bytes,
             disk::disk_stat,
-            disk::disk_grant,
+            disk::disk_open_dialog,
+            disk::disk_save_dialog,
             disk::take_pending_open_paths,
         ])
         .build(tauri::generate_context!())
@@ -42,10 +40,19 @@ pub fn run() {
                 if let Some(state) = app_handle.try_state::<PendingOpenPaths>() {
                     state.push_many(paths.clone());
                 }
-                if let Some(grants) = app_handle.try_state::<GrantedPaths>() {
-                    grants.grant_many(paths.clone());
+                if let Some(capabilities) = app_handle.try_state::<CapabilityStore>() {
+                    let grants: Vec<_> = paths
+                        .iter()
+                        .filter_map(|path| {
+                            capabilities
+                                .grant_native_path(std::path::Path::new(path), true)
+                                .ok()
+                        })
+                        .collect();
+                    if !grants.is_empty() {
+                        let _ = app_handle.emit("mdsh://open-paths", grants);
+                    }
                 }
-                let _ = app_handle.emit("mdsh://open-paths", paths);
             }
             // Suppress unused warning on non-macOS where Opened is not matched.
             #[cfg(not(any(target_os = "macos", target_os = "ios")))]
