@@ -5,6 +5,18 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.4.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.3.1...v1.4.0) (2026-08-21)
+
+
+### Features
+
+* harden offline workflows and desktop file access ([36abdcd](https://github.com/ThomasCrouzet/mdsh/commit/36abdcdbedf15eb1d808357627758a83b0e2e3d5))
+
+
+### Bug Fixes
+
+* **ci:** use supported CodeQL mode for Rust ([ce0aafa](https://github.com/ThomasCrouzet/mdsh/commit/ce0aafa362a54a68c2ca36f198a93e12af30017c))
+
 ## [1.3.1](https://github.com/ThomasCrouzet/mdsh/compare/v1.3.0...v1.3.1) (2026-08-14)
 
 
