@@ -15,7 +15,7 @@ test('PDF A4 : typographie et contenu Markdown multipage préservés', async ({
 	).join('\n');
 	const code = Array.from(
 		{ length: 65 },
-		(_, index) => `const ligne${index + 1} = "Texte de contrôle ${index + 1}";`
+		(_, index) => `const line${index + 1} = "Texte de contrôle ${index + 1}";`
 	).join('\n');
 	const markdown = `# Fidélité du document Markdown
 
@@ -69,7 +69,7 @@ https://example.test/documents/${'reference'.repeat(18)}
 
 \`\`\`javascript
 ${code}
-const derniereLigne = "FIN DU CODE VISIBLE";
+const lastLine = "FIN DU CODE VISIBLE";
 \`\`\`
 
 ## Conclusion
