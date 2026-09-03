@@ -1,3 +1,6 @@
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { applyImageMetadataToHtml, ImageMarkdownRoundTrip } from './image-markdown';
 
@@ -108,4 +111,68 @@ describe('préservation des exemples et métadonnées', () => {
 		);
 		expect(html.match(/data-mdsh-image-ratio/g)).toHaveLength(1);
 	});
+});
+
+describe('syntaxe des images et résistance aux entrées adverses', () => {
+	it.each([
+		'data:image/png;base64,AAAA',
+		'blob:https://example.test/1234',
+		'https://example.test/image_(1).png',
+		'<images/été 2026.png>'
+	])('préserve la destination %s sans la réinterpréter', (source) => {
+		const markdown = `![Figure]( ${source})`;
+		expect(new ImageMarkdownRoundTrip(markdown).editorMarkdown).toBe(markdown);
+		const accepted = `![Figure](${source} "Légende")`;
+		const roundTrip = new ImageMarkdownRoundTrip(accepted);
+		expect(roundTrip.editorMarkdown).toBe(`![1.00](${source} "Légende")`);
+		expect(roundTrip.restore(roundTrip.editorMarkdown)).toBe(accepted);
+	});
+
+	it('conserve les backslashes littéraux, les délimiteurs échappés et les titres vides', () => {
+		const markdown = String.raw`![A\\B\[C\]\\](image.png "C\\D\"E\\")`;
+		const roundTrip = new ImageMarkdownRoundTrip(markdown);
+		expect(roundTrip.alternatives).toEqual(['A\\B[C]\\']);
+		expect(roundTrip.restore(roundTrip.editorMarkdown)).toBe(markdown);
+		for (const title of ['""', "''", '()']) {
+			const empty = new ImageMarkdownRoundTrip(`![Alt](image.png ${title})`);
+			expect(empty.restore(empty.editorMarkdown)).toBe('![Alt](image.png)');
+		}
+	});
+
+	it('accepte aussi une grande image embarquée valide et une longue légende échappée', () => {
+		const source = 'data:image/png;base64,' + 'A'.repeat(300000);
+		const title = String.raw`Une \"citation\" et un chemin C:\\images. `.repeat(1000);
+		const markdown = `![Illustration](${source} "${title}")`;
+		const image = new ImageMarkdownRoundTrip(markdown);
+		expect(image.editorMarkdown).toBe(`![1.00](${source} "${title}")`);
+		expect(image.restore(image.editorMarkdown)).toBe(markdown);
+	});
+
+	it.each(['alt', 'double', 'single', 'parentheses'])(
+		'borne le traitement du motif hostile %s dans un processus isolé',
+		(kind) => {
+			const moduleUrl = pathToFileURL(resolve('src/lib/render/image-markdown.ts')).href;
+			const script = `
+				import assert from 'node:assert/strict';
+				import { ImageMarkdownRoundTrip } from ${JSON.stringify(moduleUrl)};
+				const backslash = String.fromCharCode(92);
+				const kind = ${JSON.stringify(kind)};
+				const source = kind === 'alt' ? '![' + backslash.repeat(200000) + 'x'
+					: '![](! ' + ({double: '"', single: "'", parentheses: '('}[kind])
+						+ (backslash + ({double: '!', single: '&', parentheses: '('}[kind])).repeat(200000);
+				const image = new ImageMarkdownRoundTrip(source);
+				assert.equal(image.editorMarkdown, source);
+				assert.equal(image.restore(source), source);
+				assert.deepEqual(image.alternatives, []);
+			`;
+			const result = spawnSync(
+				process.execPath,
+				['--experimental-strip-types', '--input-type=module', '-e', script],
+				{ encoding: 'utf8', timeout: 2000 }
+			);
+			expect(result.error, result.stderr).toBeUndefined();
+			expect(result.signal, result.stderr).toBeNull();
+			expect(result.status, result.stderr).toBe(0);
+		}
+	);
 });
