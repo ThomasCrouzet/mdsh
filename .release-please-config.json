@@ -5,6 +5,8 @@
 	"bump-patch-for-minor-pre-major": false,
 	"draft": false,
 	"prerelease": false,
+	"pull-request-header": "Mise à jour de la version et du journal des modifications.",
+	"pull-request-footer": "Validation requise: typage, lint, tests et builds.",
 	"packages": {
 		".": {
 			"release-type": "node",
