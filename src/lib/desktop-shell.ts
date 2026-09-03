@@ -237,14 +237,22 @@ async function installCloseGuard(onBeforeClose: () => void | Promise<void>): Pro
 		import('@tauri-apps/api/core')
 	]);
 	let closing: Promise<void> | null = null;
-	const unlisten = await listen('mdsh://close-request', () => {
-		if (closing) return;
+	const reportCloseError = (err: unknown) => {
+		reportError('fermeture desktop', err, { notifyUser: t('desktop.closeFailed') });
+	};
+	const unlisten = await listen<number>('mdsh://close-request', ({ payload: requestId }) => {
+		// Accuser réception même pendant une sauvegarde évite de rejouer une
+		// demande déjà traitée après un échec de persistance suivi d'un reload.
+		const acknowledge = () => invoke<void>('desktop_ack_close_request', { requestId });
+		if (closing) {
+			void Promise.resolve().then(acknowledge).catch(reportCloseError);
+			return;
+		}
 		closing = Promise.resolve()
+			.then(acknowledge)
 			.then(onBeforeClose)
 			.then(() => invoke<void>('desktop_complete_close'))
-			.catch((err: unknown) => {
-				reportError('fermeture desktop', err, { notifyUser: t('desktop.closeFailed') });
-			})
+			.catch(reportCloseError)
 			.finally(() => {
 				closing = null;
 			});

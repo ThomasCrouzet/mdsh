@@ -237,9 +237,10 @@ describe('initDesktopShell', () => {
 		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), onBeforeClose, labels });
 		const closeListener = mocks.listen.mock.calls.find(
 			([name]) => name === 'mdsh://close-request'
-		)?.[1] as () => void;
-		closeListener();
+		)?.[1] as (event: { payload: number }) => void;
+		closeListener({ payload: 1 });
 		await vi.waitFor(() => expect(onBeforeClose).toHaveBeenCalledOnce());
+		expect(mocks.invoke).toHaveBeenCalledWith('desktop_ack_close_request', { requestId: 1 });
 		expect(mocks.invoke).not.toHaveBeenCalledWith('desktop_complete_close');
 		finishSave();
 		await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('desktop_complete_close'));
@@ -253,8 +254,8 @@ describe('initDesktopShell', () => {
 		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), onBeforeClose, labels });
 		const closeListener = mocks.listen.mock.calls.find(
 			([name]) => name === 'mdsh://close-request'
-		)?.[1] as () => void;
-		closeListener();
+		)?.[1] as (event: { payload: number }) => void;
+		closeListener({ payload: 1 });
 		await vi.waitFor(() =>
 			expect(mocks.reportError).toHaveBeenCalledWith(
 				'fermeture desktop',
@@ -262,6 +263,105 @@ describe('initDesktopShell', () => {
 				expect.objectContaining({ notifyUser: expect.any(String) })
 			)
 		);
+		expect(mocks.invoke).not.toHaveBeenCalledWith('desktop_complete_close');
+	});
+
+	it('rejoue une fermeture perdue pendant le reload après abonnement et armement', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		let listener: ((event: { payload: number }) => void) | undefined;
+		let pending: number | undefined;
+		mocks.listen.mockImplementation(async (name: string, callback: typeof listener) => {
+			if (name !== 'mdsh://close-request') return () => {};
+			listener = callback;
+			return () => {
+				listener = undefined;
+			};
+		});
+		mocks.invoke.mockImplementation(async (name: string, args?: { requestId: number }) => {
+			if (name === 'desktop_arm_close_guard' && pending !== undefined)
+				listener?.({ payload: pending });
+			if (name === 'desktop_ack_close_request' && args?.requestId === pending) pending = undefined;
+			return pendingDelivery();
+		});
+		const onBeforeClose = vi.fn(async () => {});
+		const handlers = { onMenuAction: vi.fn(), onOpenPaths: vi.fn(), onBeforeClose, labels };
+		const dispose = await initDesktopShell(handlers);
+		dispose();
+		let finishMenu: () => void = () => {};
+		let menuStarted = false;
+		mocks.menuItemNew.mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					menuStarted = true;
+					finishMenu = resolve;
+				})
+		);
+		const reloading = initDesktopShell(handlers);
+		await vi.waitFor(() => expect(menuStarted).toBe(true));
+		expect(listener).toBeUndefined();
+		pending = 41;
+		expect(onBeforeClose).not.toHaveBeenCalled();
+		finishMenu();
+		await reloading;
+		await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('desktop_complete_close'));
+		expect(onBeforeClose).toHaveBeenCalledOnce();
+		expect(pending).toBeUndefined();
+		await mocks.invoke('desktop_arm_close_guard');
+		expect(onBeforeClose).toHaveBeenCalledOnce();
+	});
+
+	it('accuse chaque demande dupliquée mais ne lance qu’une sauvegarde', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		let finishSave: () => void = () => {};
+		const onBeforeClose = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					finishSave = resolve;
+				})
+		);
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), onBeforeClose, labels });
+		const listener = mocks.listen.mock.calls.find(
+			([name]) => name === 'mdsh://close-request'
+		)?.[1] as (event: { payload: number }) => void;
+		listener({ payload: 1 });
+		listener({ payload: 2 });
+		await vi.waitFor(() => expect(onBeforeClose).toHaveBeenCalledOnce());
+		expect(mocks.invoke).toHaveBeenCalledWith('desktop_ack_close_request', { requestId: 1 });
+		expect(mocks.invoke).toHaveBeenCalledWith('desktop_ack_close_request', { requestId: 2 });
+		expect(mocks.invoke).not.toHaveBeenCalledWith('desktop_complete_close');
+		finishSave();
+		await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('desktop_complete_close'));
+		expect(
+			mocks.invoke.mock.calls.filter(([name]) => name === 'desktop_complete_close')
+		).toHaveLength(1);
+	});
+
+	it('ne rejoue pas une fermeture reçue dont la sauvegarde a échoué après reload', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		let pending: number | undefined = 9;
+		let listener: ((event: { payload: number }) => void) | undefined;
+		mocks.listen.mockImplementation(async (name: string, callback: typeof listener) => {
+			if (name === 'mdsh://close-request') listener = callback;
+			return () => {};
+		});
+		mocks.invoke.mockImplementation(async (name: string, args?: { requestId: number }) => {
+			if (name === 'desktop_arm_close_guard' && pending !== undefined)
+				listener?.({ payload: pending });
+			if (name === 'desktop_ack_close_request' && args?.requestId === pending) pending = undefined;
+			return pendingDelivery();
+		});
+		const onBeforeClose = vi.fn(async () => {
+			throw new Error('quota');
+		});
+		const handlers = { onMenuAction: vi.fn(), onOpenPaths: vi.fn(), onBeforeClose, labels };
+		const dispose = await initDesktopShell(handlers);
+		await vi.waitFor(() => expect(mocks.reportError).toHaveBeenCalled());
+		expect(onBeforeClose).toHaveBeenCalledOnce();
+		expect(pending).toBeUndefined();
+		expect(mocks.invoke).not.toHaveBeenCalledWith('desktop_complete_close');
+		dispose();
+		await initDesktopShell(handlers);
+		expect(onBeforeClose).toHaveBeenCalledOnce();
 		expect(mocks.invoke).not.toHaveBeenCalledWith('desktop_complete_close');
 	});
 

@@ -66,6 +66,7 @@ pub fn run() {
             disk::ack_pending_open_paths,
             shell::desktop_open_external,
             shell::desktop_arm_close_guard,
+            shell::desktop_ack_close_request,
             shell::desktop_complete_close,
             shell::desktop_smoke_request_close,
         ])

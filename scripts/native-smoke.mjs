@@ -194,13 +194,15 @@ try {
 		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) }
 	});
 	secondary = second;
-	await Promise.race([
+	const [exitCode, exitSignal] = await Promise.race([
 		once(second, 'exit'),
 		delay(10_000).then(() => {
 			throw new Error('Second instance did not exit');
 		})
 	]);
 	secondary = undefined;
+	assert.equal(exitCode, 0, 'Second instance must exit successfully');
+	assert.equal(exitSignal, null, 'Second instance must not be terminated by a signal');
 	await delay(500);
 	assert.equal(
 		(await drafts()).filter((/** @type {{ content: string }} */ d) => d.content.includes(title))
