@@ -100,6 +100,13 @@ a {
 	text-underline-offset: 2px;
 	text-decoration-thickness: 0.06em;
 }
+/* Ne pas ajouter de tiret aux URL et références tabulaires lors du retour à la ligne. */
+a,
+th,
+td {
+	hyphens: none;
+	overflow-wrap: anywhere;
+}
 
 /* --- Listes -------------------------------------------------------------- */
 ul,

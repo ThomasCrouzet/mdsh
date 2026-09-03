@@ -131,7 +131,22 @@ FIN DU DOCUMENT VISIBLE.
 		await writeFile(testInfo.outputPath('print.html'), captured);
 		const metrics = await printable.evaluate(() => ({
 			prose: getComputedStyle(document.body).fontFamily,
+			proseHyphens: getComputedStyle(document.querySelector('p')!).hyphens,
 			code: getComputedStyle(document.querySelector('pre code')!).fontFamily,
+			technicalReferences: [
+				'a[href^="https://example.test/"]',
+				'table:last-of-type tbody td:first-child'
+			].map((selector) => {
+				const element = document.querySelector(selector)!;
+				const range = document.createRange();
+				range.selectNodeContents(element);
+				const style = getComputedStyle(element);
+				return {
+					hyphens: style.hyphens,
+					overflowWrap: style.overflowWrap,
+					lines: range.getClientRects().length
+				};
+			}),
 			imageCenter: (() => {
 				const box = document.querySelector('img')!.getBoundingClientRect();
 				return box.left + box.width / 2;
@@ -158,6 +173,12 @@ FIN DU DOCUMENT VISIBLE.
 		);
 		expect(metrics.prose).toBe(families.prose);
 		expect(metrics.code).toBe(families.code);
+		expect(metrics.proseHyphens).toBe('auto');
+		for (const reference of metrics.technicalReferences) {
+			expect(reference.hyphens).toBe('none');
+			expect(reference.overflowWrap).toBe('anywhere');
+			expect(reference.lines).toBeGreaterThan(1);
+		}
 		expect(Math.abs(metrics.imageCenter - metrics.width / 2)).toBeLessThan(1);
 		expect(metrics.overflow).toEqual([]);
 		await expect(printable.locator('h1')).toHaveText('Fidélité du document Markdown');
