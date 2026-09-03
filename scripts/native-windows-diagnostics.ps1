@@ -131,6 +131,10 @@ Read-Diagnostic 'browserOverrides' {
 }
 
 Read-Diagnostic 'screenshot' {
+    # Le bureau complet n'est capturé que sur le runner éphémère de la CI.
+    if ($env:GITHUB_ACTIONS -ne 'true') {
+        return [ordered]@{ skipped = 'Collecte du bureau réservée à la CI.' }
+    }
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
