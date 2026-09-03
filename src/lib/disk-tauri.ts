@@ -1,3 +1,11 @@
+import {
+	ImportSession,
+	ImportReadError,
+	validateMarkdownContent,
+	type ImportOptions,
+	type ImportReport
+} from './import-limits';
+import { IMPORT_LIMITS } from './config';
 /**
  * Opaque-capability disk I/O for the Tauri desktop shell.
  *
@@ -20,11 +28,17 @@ export interface NativeDiskGrant {
 	stat: DiskFileMeta | null;
 }
 
+export interface NativeDiskRead {
+	content: string;
+	stat: DiskFileMeta;
+}
+
 export interface TauriDiskIo {
 	openGrants(multiple: boolean): Promise<NativeDiskGrant[]>;
+	openDirectoryGrants(): Promise<NativeDiskGrant[]>;
 	saveGrant(suggestedName: string): Promise<NativeDiskGrant | null>;
 	saveExportGrant(suggestedName: string): Promise<NativeDiskGrant | null>;
-	readText(token: string): Promise<string>;
+	readFile(token: string): Promise<NativeDiskRead>;
 	writeText(
 		token: string,
 		content: string,
@@ -41,6 +55,7 @@ export interface TauriDiskIo {
 }
 
 export interface OpenedDiskFile {
+	token?: string;
 	name: string;
 	content: string;
 	path: string;
@@ -53,6 +68,7 @@ export interface OpenedDiskFile {
 export interface OpenedDiskFiles {
 	files: OpenedDiskFile[];
 	failed: number;
+	report?: ImportReport;
 }
 
 let io: TauriDiskIo | null = null;
@@ -106,6 +122,16 @@ export async function createTauriDiskIo(): Promise<TauriDiskIo> {
 			>('disk_open_dialog', { multiple });
 			return grants.map(toGrant);
 		},
+		async openDirectoryGrants() {
+			const grants = await invoke<
+				Array<{
+					token: string;
+					path: string;
+					stat: { mtimeMs: number; size: number; revision: string } | null;
+				}>
+			>('disk_open_directory');
+			return grants.map(toGrant);
+		},
 		async saveGrant(suggestedName) {
 			const grant = await invoke<{
 				token: string;
@@ -122,8 +148,12 @@ export async function createTauriDiskIo(): Promise<TauriDiskIo> {
 			} | null>('disk_save_dialog', { suggestedName, export: true });
 			return grant ? toGrant(grant) : null;
 		},
-		readText(token) {
-			return invoke<string>('disk_read', { token });
+		async readFile(token) {
+			const result = await invoke<{
+				content: string;
+				stat: { mtimeMs: number; size: number; revision: string };
+			}>('disk_read', { token });
+			return { content: result.content, stat: toMeta(result.stat) };
 		},
 		async writeText(token, content, expectedRevision, force) {
 			const stat = await invoke<{ mtimeMs: number; size: number; revision: string }>('disk_write', {
@@ -162,11 +192,20 @@ async function getIo(): Promise<TauriDiskIo> {
 	return ioPromise;
 }
 
-export async function tauriPickAndOpen(): Promise<OpenedDiskFiles> {
+export async function tauriPickAndOpen(options: ImportOptions = {}): Promise<OpenedDiskFiles> {
 	const currentIo = await getIo();
 	const grants = await currentIo.openGrants(true);
 	registerGrants(grants);
-	return openGrants(grants, currentIo);
+	return openGrants(grants, currentIo, options);
+}
+
+export async function tauriPickDirectoryAndOpen(
+	options: ImportOptions = {}
+): Promise<OpenedDiskFiles> {
+	const currentIo = await getIo();
+	const grants = await currentIo.openDirectoryGrants();
+	registerGrants(grants);
+	return openGrants(grants, currentIo, options);
 }
 
 export async function tauriPickSaveTarget(suggestedName: string): Promise<PathLinkRecord | null> {
@@ -233,28 +272,43 @@ export async function tauriCheckPath(path: string): Promise<'ok' | 'broken' | 'p
 	}
 }
 
-export async function tauriOpenNativeGrants(grants: NativeDiskGrant[]): Promise<OpenedDiskFiles> {
+export async function tauriOpenNativeGrants(
+	grants: NativeDiskGrant[],
+	options: ImportOptions = {}
+): Promise<OpenedDiskFiles> {
 	const currentIo = await getIo();
 	const markdownGrants = grants.filter((grant) => isMarkdownDiskPath(grant.path));
 	registerGrants(markdownGrants);
-	return openGrants(markdownGrants, currentIo);
+	return openGrants(markdownGrants, currentIo, options);
 }
 
 async function openGrants(
 	grants: NativeDiskGrant[],
-	currentIo: TauriDiskIo
+	currentIo: TauriDiskIo,
+	options: ImportOptions
 ): Promise<OpenedDiskFiles> {
 	const files: OpenedDiskFile[] = [];
-	let failed = 0;
+	const session = new ImportSession(options);
+	session.publish();
 	for (const grant of grants) {
-		if (!isMarkdownDiskPath(grant.path)) continue;
+		if (!(await session.pause())) break;
 		try {
-			const content = await currentIo.readText(grant.token);
-			const stat = (await currentIo.stat(grant.token)) ?? grant.stat;
-			if (!stat) throw new Error('Selected file disappeared before it could be opened.');
+			const before = grant.stat ?? (await currentIo.stat(grant.token));
+			if (!before) throw new ImportReadError('read');
+			session.reserve(before.size);
+			const result = await currentIo.readFile(grant.token);
+			if (session.cancelled) break;
+			const { content, stat } = result;
+			if (stat.size > IMPORT_LIMITS.maxFileBytes) throw new ImportReadError('file-size');
+			const growth = Math.max(0, stat.size - before.size);
+			if (session.report.bytes + growth > IMPORT_LIMITS.maxBatchBytes)
+				throw new ImportReadError('batch-size');
+			session.report.bytes += growth;
+			validateMarkdownContent(content);
 			grant.stat = stat;
 			files.push({
-				name: pathBasename(grant.path) || 'untitled.md',
+				token: grant.token,
+				name: pathBasename(grant.path),
 				content,
 				path: grant.path,
 				lastModified: stat.lastModified,
@@ -262,9 +316,14 @@ async function openGrants(
 				revision: stat.revision,
 				link: pathLinkRecord(grant.path)
 			});
-		} catch {
-			failed += 1;
+			session.accept();
+		} catch (error) {
+			if (session.cancelled) break;
+			session.fail(
+				pathBasename(grant.path),
+				error instanceof ImportReadError ? error.reason : 'read'
+			);
 		}
 	}
-	return { files, failed };
+	return { files, failed: session.report.failed, report: session.publish() };
 }

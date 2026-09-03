@@ -19,6 +19,41 @@ import { t } from '$lib/i18n';
 import { notify } from './notify.svelte';
 import { reportError } from './report';
 import type { FileItem } from './types';
+import { promptStore } from './prompt.svelte';
+import type { MediaExportOptions } from './services/export';
+
+async function withMediaConsent<T>(
+	operation: (options?: MediaExportOptions) => Promise<T>
+): Promise<T | null> {
+	try {
+		return await operation();
+	} catch (error) {
+		const { MediaPreparationError } = await import('./render/image-media');
+		if (!(error instanceof MediaPreparationError) || !error.needsNetworkConsent) throw error;
+		const allowed = await promptStore.confirm({
+			title: t('export.remoteImagesTitle'),
+			message: t('export.remoteImagesPrompt', {
+				n: error.issues.filter((issue) => issue.reason === 'blocked').length
+			}),
+			confirmLabel: t('export.remoteImagesConfirm')
+		});
+		if (!allowed) return null;
+		return operation({ allowNetworkImages: true });
+	}
+}
+
+async function reportMediaFailure(error: unknown, fallback: string): Promise<void> {
+	const { MediaPreparationError } = await import('./render/image-media');
+	if (error instanceof MediaPreparationError) {
+		const sources = error.issues
+			.map((issue) => issue.source)
+			.slice(0, 3)
+			.join(', ');
+		notify.error(t('export.mediaFailed', { n: error.issues.length, sources }));
+		return;
+	}
+	reportError('export media', error, { notifyUser: fallback });
+}
 
 /** Callbacks injected by FilesStore. */
 export interface ExportDeps {
@@ -34,10 +69,13 @@ export interface ExportDeps {
 export async function exportMarkdown(id: string, deps: ExportDeps): Promise<void> {
 	const file = deps.getFiles().find((f) => f.id === id);
 	if (!file || !browser) return;
+	const snapshot = { ...file };
 	try {
-		const ok = await exportMarkdownService(file);
+		const ok = await exportMarkdownService(snapshot);
 		if (!ok) return;
-		file.dirty = false;
+		const current = deps.getFiles().find((candidate) => candidate.id === id);
+		if (!current || current.content !== snapshot.content || current.name !== snapshot.name) return;
+		current.dirty = false;
 		deps.scheduleSave(id);
 	} catch (err) {
 		reportError('export Markdown', err, { notifyUser: t('export.mdFailed') });
@@ -50,7 +88,7 @@ export async function exportMarkdown(id: string, deps: ExportDeps): Promise<void
  */
 export async function exportAllZip(deps: ExportDeps): Promise<void> {
 	if (!browser) return;
-	const snapshot = [...deps.getFiles()];
+	const snapshot = deps.getFiles().map((file) => ({ ...file }));
 	if (snapshot.length === 0) return;
 	const dismiss = spinnerStore.show(t('export.creatingZip'));
 	try {
@@ -68,7 +106,7 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 	const current = deps.getFiles();
 	for (const file of snapshot) {
 		const f = current.find((x) => x.id === file.id);
-		if (!f) continue;
+		if (!f || f.content !== file.content || f.name !== file.name) continue;
 		f.dirty = false;
 		deps.scheduleSave(f.id);
 	}
@@ -83,11 +121,12 @@ export async function exportHTML(id: string, deps: ExportDeps): Promise<void> {
 	if (!file || !browser) return;
 	const dismiss = spinnerStore.show(t('export.preparingHtml'));
 	try {
-		const ok = await exportHTMLService(file);
+		const snapshot = { ...file };
+		const ok = await withMediaConsent((options) => exportHTMLService(snapshot, options));
 		if (!ok) return; // desktop dialog cancelled
 		notify.success(t('export.htmlExported'));
 	} catch (err) {
-		reportError('export HTML', err, { notifyUser: t('export.htmlFailed') });
+		await reportMediaFailure(err, t('export.htmlFailed'));
 	} finally {
 		dismiss();
 	}
@@ -102,10 +141,14 @@ export async function exportPDF(id: string, deps: ExportDeps): Promise<void> {
 	if (!file || !browser) return;
 	const dismiss = spinnerStore.show(t('export.preparingPdf'));
 	try {
-		await exportPDFService(file);
-		notify.success(t('export.pdfExported'));
+		const snapshot = { ...file };
+		const opened = await withMediaConsent(async (options) => {
+			await exportPDFService(snapshot, options);
+			return true;
+		});
+		if (opened) notify.success(t('export.printDialogOpened'));
 	} catch (err) {
-		reportError('export PDF', err, { notifyUser: t('export.pdfFailed') });
+		await reportMediaFailure(err, t('export.pdfFailed'));
 	} finally {
 		dismiss();
 	}

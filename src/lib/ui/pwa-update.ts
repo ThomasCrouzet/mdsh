@@ -15,6 +15,25 @@ import { isDesktop } from '$lib/desktop';
 import { t } from '$lib/i18n';
 import { notify } from '$lib/notify.svelte';
 
+async function ensureDraftsDurable(): Promise<void> {
+	const { filesStore } = await import('$lib/files.svelte');
+	await filesStore.flushPendingAwait();
+}
+
+export async function applyPwaUpdate(
+	updateSW: (reloadPage?: boolean) => Promise<void>,
+	ensureDurable: () => Promise<void> = ensureDraftsDurable
+): Promise<boolean> {
+	try {
+		await ensureDurable();
+		await updateSW(true);
+		return true;
+	} catch {
+		notify.error(t('storage.saveFailed'));
+		return false;
+	}
+}
+
 export function registerPwaUpdates(): void {
 	if (!browser) return;
 	// Desktop shell (Tauri): no service worker - assets are bundled locally
@@ -25,10 +44,13 @@ export function registerPwaUpdates(): void {
 			const { registerSW } = await import('virtual:pwa-register');
 			const updateSW = registerSW({
 				immediate: true,
+				onNeedReload() {
+					void applyPwaUpdate(async () => window.location.reload());
+				},
 				onNeedRefresh() {
 					notify.actionable(t('pwa.updateAvailable'), {
 						label: t('pwa.reload'),
-						run: () => void updateSW(true)
+						run: () => void applyPwaUpdate(updateSW)
 					});
 				},
 				onOfflineReady() {

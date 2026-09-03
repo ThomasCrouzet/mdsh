@@ -49,7 +49,8 @@ test.describe('Golden path - persistance cycle de vie', () => {
 
 		// Ouvrir la sidebar explicitement (peut être fermée selon la largeur viewport)
 		const toggle = page.getByRole('button', { name: 'Afficher/masquer le panneau' });
-		await toggle.click();
+		if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 
 		// Un item de fichier doit apparaître dans l'aside
 		const sidebarItem = page

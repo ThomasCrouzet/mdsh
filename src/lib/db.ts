@@ -7,6 +7,8 @@ export interface DraftRow {
 	createdAt: number;
 	updatedAt: number;
 	order: number;
+	/** Whether the document is currently shown as an open tab. Missing means open for v4 data. */
+	open?: boolean;
 }
 
 /**

@@ -5,6 +5,8 @@ import type { MessageKey } from './en';
 
 export const fr: Record<MessageKey, string> = {
 	// backup
+	'backup.tooLarge':
+		'La sauvegarde dépasse les limites : 64 Mio au total, 3 000 documents et 16 Mio par document.',
 	'backup.encryptedInvalidJson': 'Fichier chiffré illisible : ce n’est pas du JSON valide.',
 	'backup.futureVersion':
 		'Sauvegarde créée par une version plus récente de mdsh (schéma v{version}). Mets l’application à jour.',
@@ -15,7 +17,135 @@ export const fr: Record<MessageKey, string> = {
 	'backup.passphraseRequired': 'Sauvegarde chiffrée : passphrase requise.',
 
 	// common
+	'import.depth': 'Profondeur maximale des dossiers atteinte',
+	'import.read': 'Impossible de lire le fichier',
+	'import.binary': 'Fichier binaire ignoré',
+	'import.encoding': 'Encodage du texte invalide ou non pris en charge',
+	'import.fileCount': 'Nombre maximal de fichiers atteint',
+	'import.batchSize': 'Taille totale maximale de l’import dépassée',
+	'import.fileSize': 'Taille maximale du fichier dépassée',
+	'import.dismiss': 'Fermer le bilan d’import',
+	'import.cancel': 'Annuler l’import',
+	'import.details': 'Détails par fichier',
+	'import.summary':
+		'{processed} traité(s), {imported} importé(s), {skipped} ignoré(s), {failed} en échec.',
+	'import.complete': 'Import terminé',
+	'import.cancelled': 'Import annulé. Les documents déjà importés sont conservés.',
+	'import.running': 'Import en cours',
+	'import.title': 'Bilan d’import',
+	'page.renderDocument': 'Afficher le document',
+	'page.largeDocumentMessage':
+		'Ce document s’ouvre en mode Source pour conserver la réactivité de l’application. L’édition visuelle ou la lecture peut prendre plus de temps. Continuer ?',
+	'page.largeDocumentTitle': 'Afficher ce document volumineux ?',
+	'palette.unavailable':
+		'Cette commande est indisponible dans le contexte actuel. Attends la fin de l’opération en cours ou utilise un autre format d’export.',
+	'editor.linkPlaceholder': 'Coller un lien...',
+	'editor.strikethrough': 'Barré',
+	'editor.link': 'Lien',
+	'editor.italic': 'Italique',
+	'editor.bold': 'Gras',
+	'editor.math': 'Mathématiques',
+	'editor.table': 'Tableau',
+	'editor.codeBlock': 'Code',
+	'editor.image': 'Image',
+	'editor.advanced': 'Avancé',
+	'editor.taskList': 'Liste de tâches',
+	'editor.orderedList': 'Liste numérotée',
+	'editor.bulletList': 'Liste à puces',
+	'editor.lists': 'Listes',
+	'editor.divider': 'Séparateur',
+	'editor.quote': 'Citation',
+	'editor.heading': 'Titre {n}',
+	'editor.text': 'Texte',
+	'editor.loadErrorTitle':
+		'Impossible de charger l’éditeur visuel. Ton document reste disponible en mode Source.',
+	'settings.disableShortcutFor': 'Désactiver le raccourci pour {command}',
+	'settings.shortcutFor': 'Raccourci pour {command}',
+	'settings.shortcutDisable': 'Désactiver',
+	'settings.shortcutDisabled': 'Désactivé',
+	'settings.shortcutReset': 'Rétablir tous les raccourcis par défaut',
+	'settings.shortcutSaved': 'Raccourcis enregistrés localement.',
+	'settings.shortcutStorage':
+		'Le raccourci n’a pas pu être enregistré. Tes réglages précédents sont conservés.',
+	'settings.shortcutDuplicate':
+		'Une autre commande utilise ce raccourci. Désactive-le d’abord ou choisis-en un autre.',
+	'settings.shortcutReserved':
+		'Cette combinaison est réservée par le navigateur, le système ou l’éditeur de texte. Choisis-en une autre.',
+	'settings.shortcutInvalid':
+		'Utilise Ctrl ou Cmd avec une lettre, un chiffre ou une ponctuation, sans Alt.',
+	'settings.shortcutInstructions':
+		'Place le focus dans un champ, puis appuie sur Ctrl (Cmd sur Mac), éventuellement Maj, et une lettre ou ponctuation. Les combinaisons du navigateur et d’édition sont réservées. Les changements restent locaux.',
+	'settings.shortcutsDesktop':
+		'Application desktop : les menus natifs proposent aussi ces actions. Les champs, la composition et les dialogues ouverts sont prioritaires sur les raccourcis de l’application.',
+	'settings.shortcutsWeb':
+		'Navigateur web : certaines combinaisons sont réservées par le navigateur ou la disposition du clavier. Le bouton Commandes donne accès à chaque action. Les champs, la composition et les dialogues ouverts sont prioritaires.',
+	'settings.shortcuts': 'Raccourcis clavier',
+	'welcome.persistence':
+		'Les brouillons sont enregistrés dans ce navigateur. Exporte une sauvegarde pour les protéger contre une perte du stockage.',
+	'sidebar.purgeMessage':
+		'Cette action supprime aussi son historique des versions. Elle est irréversible.',
+	'sidebar.purgeConfirm': 'Supprimer définitivement ce document ?',
+	'sidebar.purge': 'Supprimer définitivement {name}',
+	'toast.deleted': 'Mis à la corbeille',
+	'toolbar.modeRead': 'Lire',
+	'toolbar.modeSource': 'Source',
+	'toolbar.modeEdit': 'Éditer',
+	'graph.textView': 'Documents et liens',
+	'graph.linksTo': 'pointe vers',
+	'read.imagesEmbedded': '{n} image(s) incorporée(s) dans le document.',
+	'read.imageContentChanged':
+		'Le document a changé pendant le chargement des images. Réessaie pour conserver tes dernières modifications.',
+	'read.importImageFolder': 'Sélectionner le dossier d’images',
+	'read.importImageFiles': 'Sélectionner les images',
+	'desktop.linkFailed':
+		'Ce lien n’a pas pu être ouvert. Seuls les liens HTTP et HTTPS s’ouvrent dans ton navigateur.',
+	'desktop.closeFailed':
+		'La fenêtre reste ouverte car les dernières modifications n’ont pas pu être enregistrées. Réessaie ou exporte une copie.',
+	'editor.imageCaption': 'Légende de l’image',
+	'editor.imageLinkPlaceholder': 'Lien de l’image (bloqué sans consentement)',
+	'editor.imageUpload': 'Importer une image',
+	'export.remoteImagesTitle': 'Incorporer les images externes ?',
 	'common.skipToContent': 'Aller au contenu',
+	'toolbar.commands': 'Commandes',
+	'search.timeout':
+		'La recherche a dépassé le délai autorisé. Simplifie l’expression régulière puis réessaie.',
+	'settings.confirmPassphrase': 'Confirmer la phrase secrète',
+	'settings.passphraseMismatch':
+		"Les phrases secrètes ne correspondent pas. Aucune sauvegarde n'a été créée.",
+	'page.exitFocusMode': 'Quitter le mode focus',
+	'palette.commandIndex': 'Commandes',
+	'palette.availableCount': '{n} disponibles',
+	'palette.requiresDocument': 'Ouvre un document pour utiliser cette commande.',
+	'palette.settingsKeywords': 'parametres reglages preferences options settings',
+	'palette.exportMarkdownKeywords': 'enregistrer sauvegarder telecharger markdown',
+	'palette.exportPdfKeywords': 'imprimer impression imprimante pdf print',
+	'palette.saveToDisk': 'Enregistrer sur le disque',
+	'palette.saveToDiskKeywords': 'sauvegarder enregistrer disque fichier backup',
+	'palette.renameFile': 'Renommer le document',
+	'palette.renameFileKeywords': 'renommer nom titre document rename',
+	'palette.renameFilePrompt': 'Nom du document',
+	'palette.closeFile': "Fermer l'onglet du document",
+	'palette.deleteFile': 'Déplacer le document dans la corbeille',
+	'palette.reopenFile': 'Rouvrir : {name}',
+	'sidebar.closedFiles': 'Documents conservés',
+	'sidebar.fileActions': 'Actions du document',
+	'sidebar.moveUp': 'Déplacer le document vers le haut',
+	'sidebar.moveDown': 'Déplacer le document vers le bas',
+	'sidebar.deleteConfirm': 'Déplacer ce document dans la corbeille ?',
+	'sidebar.deleteMessage': 'Tu pourras le restaurer depuis la corbeille.',
+	'sidebar.trash': 'Corbeille',
+	'sidebar.restore': 'Restaurer {name}',
+	'statusBar.saveFailed': 'Non enregistré localement',
+	'statusBar.retrySave': "Réessayer l'enregistrement",
+	'export.remoteImagesPrompt':
+		'{n} image(s) externe(s) seront téléchargées. Leurs hébergeurs recevront une requête.',
+	'export.remoteImagesConfirm': 'Autoriser et exporter',
+	'export.mediaMissing':
+		'Certaines images sont indisponibles. Relie-les ou retire-les avant de les exporter.',
+	'export.mediaFailed':
+		'{n} image(s) n’ont pas pu être préparées : {sources}. L’export a été annulé.',
+	'export.printDialogOpened':
+		"Dialogue d'impression ouvert. Choisis Enregistrer en PDF pour créer le fichier.",
 
 	// crypto
 	'crypto.emptyPassphrase': 'Passphrase vide.',
@@ -54,7 +184,7 @@ export const fr: Record<MessageKey, string> = {
 	'diskLinks.close': 'Fermer',
 	'diskLinks.count': '{n} lien(s)',
 	'diskLinks.empty':
-		'Aucun fichier lié au disque. Ouvre un fichier via "Sauver sur disque" (⌘⇧S) pour créer un lien.',
+		'Aucun fichier lié au disque. Ouvre un fichier via "Sauver sur disque" ({shortcut}) pour créer un lien.',
 	'diskLinks.legendBroken': 'cassé',
 	'diskLinks.legendOk': 'ok',
 	'diskLinks.legendPermission': 'permission',
@@ -417,9 +547,9 @@ export const fr: Record<MessageKey, string> = {
 	'storage.genericFailed': 'Une opération de stockage local a échoué.',
 	'storage.loadFailed': 'Échec de lecture du stockage local - réessaie.',
 	'storage.pressureWarning':
-		'Stockage local presque plein ({pct} %). Pense à exporter puis fermer des fichiers pour éviter toute perte.',
+		'Stockage local presque plein ({pct} %). Exporte une sauvegarde puis supprime définitivement les documents inutiles.',
 	'storage.quotaFull':
-		'Stockage plein : enregistrement impossible. Exporte tes fichiers puis ferme-en quelques-uns pour libérer de l’espace.',
+		'Stockage plein : enregistrement impossible. Exporte une sauvegarde puis supprime définitivement les documents inutiles de la corbeille. Fermer les onglets ne libère pas d’espace.',
 	'storage.saveFailed':
 		'Échec de l’enregistrement local - tes dernières modifications ne sont peut-être pas sauvegardées.',
 

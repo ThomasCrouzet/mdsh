@@ -1,0 +1,7 @@
+{
+	"identifier": "io.github.thomascrouzet.mdsh.smoke",
+	"productName": "mdsh test",
+	"app": {
+		"withGlobalTauri": true
+	}
+}

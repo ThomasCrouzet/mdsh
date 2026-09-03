@@ -24,8 +24,8 @@ beforeEach(() => {
 	installClipboard(clip);
 	// ClipboardItem fictif : stocke les données pour inspection.
 	(globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = class {
-		data: Record<string, Blob>;
-		constructor(d: Record<string, Blob>) {
+		data: Record<string, Blob | Promise<Blob>>;
+		constructor(d: Record<string, Blob | Promise<Blob>>) {
 			this.data = d;
 		}
 	};
@@ -61,8 +61,10 @@ describe('copyRichHtml', () => {
 	it('écrit text/html + text/plain via ClipboardItem', async () => {
 		await copyRichHtml('# Hi');
 		expect(clip.write).toHaveBeenCalledTimes(1);
-		const items = clip.write.mock.calls[0]?.[0] as Array<{ data: Record<string, Blob> }>;
-		expect(items[0]?.data['text/html']).toBeInstanceOf(Blob);
+		const items = clip.write.mock.calls[0]?.[0] as Array<{
+			data: Record<string, Blob | Promise<Blob>>;
+		}>;
+		expect(await items[0]?.data['text/html']).toBeInstanceOf(Blob);
 		expect(items[0]?.data['text/plain']).toBeInstanceOf(Blob);
 	});
 

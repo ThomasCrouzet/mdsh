@@ -19,8 +19,18 @@ const FOCUSABLE_SELECTOR = [
 	'[tabindex]:not([tabindex="-1"])'
 ].join(',');
 
+function isTabbable(el: HTMLElement): boolean {
+	if (el.tabIndex < 0 || el.closest('[inert]')) return false;
+	if (el.getAttribute('aria-hidden') === 'true') return false;
+	const style = getComputedStyle(el);
+	return (
+		style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0
+	);
+}
+
 export interface FocusTrapParams {
 	active?: boolean;
+	restoreOnDeactivate?: boolean;
 }
 
 export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
@@ -28,13 +38,11 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 	let previouslyFocused: HTMLElement | null = null;
 
 	function focusables(): HTMLElement[] {
-		return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-			(el) => !el.hasAttribute('aria-hidden') && el.offsetParent !== null
-		);
+		return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(isTabbable);
 	}
 
 	function onKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Tab') return;
+		if (e.key !== 'Tab' || node.closest('[inert]')) return;
 		const els = focusables();
 		if (els.length === 0) {
 			e.preventDefault();
@@ -71,7 +79,12 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 			// Restores focus to the triggering element. Try/catch because the
 			// element may have disappeared from the DOM in the meantime.
 			try {
-				previouslyFocused?.focus?.();
+				const target = previouslyFocused;
+				const restore = () => {
+					if (target?.isConnected && isTabbable(target)) target.focus();
+				};
+				if (target?.closest('[inert]')) queueMicrotask(restore);
+				else restore();
 			} catch {
 				/* ignore */
 			}
@@ -92,7 +105,7 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 			// element may have disappeared (e.g. mobile menu button hidden via
 			// `md:hidden`). Restoring would jump focus onto an invisible element.
 			// The restore only applies on destroy (modal close).
-			else detach(false);
+			else detach(next?.restoreOnDeactivate ?? false);
 		},
 		destroy() {
 			if (active) detach(true);

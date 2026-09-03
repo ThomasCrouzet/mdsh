@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { filesStore } from '$lib/files.svelte';
 	import { t } from '$lib/i18n';
+	import { onMount } from 'svelte';
 	import { RotateCcw } from '@lucide/svelte';
 
 	function stripExt(name: string) {
@@ -13,13 +14,19 @@
 	// hidden files remain restorable via a 2nd quick close
 	// (the first toasts purge at 5 s, then the next ones rise up).
 	const MAX_VISIBLE = 3;
-	const visible = $derived(filesStore.trash.slice(0, MAX_VISIBLE));
-	const overflow = $derived(Math.max(0, filesStore.trash.length - MAX_VISIBLE));
+	let now = $state(Date.now());
+	onMount(() => {
+		const timer = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(timer);
+	});
+	const recent = $derived(filesStore.trash.filter((entry) => entry.trashedAt > now - 5000));
+	const visible = $derived(recent.slice(0, MAX_VISIBLE));
+	const overflow = $derived(Math.max(0, recent.length - MAX_VISIBLE));
 </script>
 
-{#if filesStore.trash.length > 0}
+{#if recent.length > 0}
 	<div
-		class="pointer-events-none fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-col gap-2"
+		class="pointer-events-none fixed bottom-4 left-1/2 z-40 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-2"
 	>
 		{#each visible as entry (entry.file.id)}
 			<div
@@ -27,7 +34,7 @@
 				       bg-bg-1 px-3 py-2 text-sm text-fg shadow-lg animate-fade-in"
 				role="status"
 			>
-				<span class="text-fg-muted">{t('toast.closed')}</span>
+				<span class="text-fg-muted">{t('toast.deleted')}</span>
 				<span class="font-medium">{stripExt(entry.file.name)}</span>
 				<button
 					class="ml-2 flex items-center gap-1.5 rounded px-2 py-1 text-accent transition hover:bg-bg-2"

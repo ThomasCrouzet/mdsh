@@ -16,6 +16,8 @@ import { getTags, getTitle, parseFrontmatter } from '../frontmatter';
 import { preprocessWikiLinks, slugify } from '../wiki-links';
 import { t } from '$lib/i18n';
 import { applyRemoteImagePolicy, MARKDOWN_PURIFY, sanitizeHtml } from './sanitize-html';
+import { prepareHtmlMedia } from './image-media';
+import { applyImageMetadataToHtml } from './image-markdown';
 
 type MathToken = Tokens.Generic & {
 	type: 'blockMath' | 'inlineMath';
@@ -57,7 +59,7 @@ function renderMath(tex: string, displayMode: boolean): string {
 			displayMode,
 			throwOnError: false,
 			strict: 'ignore',
-			output: 'html',
+			output: 'htmlAndMathml',
 			trust: false
 		});
 	} catch {
@@ -281,7 +283,13 @@ async function renderMermaidDiagram(
 async function sanitize(html: string, allowRemoteImages: boolean): Promise<string> {
 	// Shared hook (sanitize-html): external links get noopener, remote style
 	// url() beacons are stripped. Same hook as the WYSIWYG Mermaid preview.
-	return applyRemoteImagePolicy(await sanitizeHtml(html, MARKDOWN_PURIFY), allowRemoteImages);
+	// Live blob URLs are embedded before DOMPurify sees them. This recovers
+	// documents created by older builds while the original blob is still alive.
+	const prepared = await prepareHtmlMedia(html, { allowNetwork: false });
+	return applyRemoteImagePolicy(
+		await sanitizeHtml(prepared.html, MARKDOWN_PURIFY),
+		allowRemoteImages
+	);
 }
 
 /**
@@ -384,7 +392,7 @@ async function renderMarkdownCore(
 	const marked = buildMarked(mermaidCodes, opts.headingPermalinks === true);
 
 	const htmlRaw = marked.parse(preprocessed, { async: false });
-	let html = typeof htmlRaw === 'string' ? htmlRaw : '';
+	let html = applyImageMetadataToHtml(preprocessed, typeof htmlRaw === 'string' ? htmlRaw : '');
 
 	if (mermaidCodes.length > 0) {
 		const theme = opts.mermaidTheme ?? 'default';

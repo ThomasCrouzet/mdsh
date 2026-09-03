@@ -9,12 +9,13 @@ import { isMarkdownFile } from '$lib/file-utils';
 import { t } from '$lib/i18n';
 import { notify } from '$lib/notify.svelte';
 import { reportWarning } from '$lib/report';
+import { embedImageFile, ImageFileError, MAX_IMAGE_BYTES } from '$lib/render/image-media';
 
 // §B5.1 - Guard limit for dropped images: beyond it, we skip the file
 // (with a console warn). A 2 MB image in base64 makes ~2.7 MB of
 // markdown - already big but editable. Beyond that, editing perf degrades
 // heavily (every keystroke re-reads this blob via Dexie).
-export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+export { MAX_IMAGE_BYTES };
 
 export function fileToDataUri(file: File): Promise<string | null> {
 	return new Promise((resolve) => {
@@ -51,6 +52,9 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 	if (!store.active) {
 		store.createNew('Images.md');
 	}
+	if (typeof window !== 'undefined') {
+		window.dispatchEvent(new Event('mdsh:flush-editor'));
+	}
 	const active = store.active;
 	if (!active) return;
 
@@ -66,8 +70,19 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 			);
 			continue;
 		}
-		const dataUri = await fileToDataUri(img);
-		if (!dataUri) {
+		let embedded;
+		try {
+			embedded = await embedImageFile(img);
+		} catch (error) {
+			if (error instanceof ImageFileError && error.code === 'too-large') {
+				tooLarge.push(img.name);
+			} else {
+				unreadable++;
+			}
+			reportWarning(`image "${img.name}" skipped`, error);
+			continue;
+		}
+		if (!embedded.dataUri) {
 			unreadable++;
 			continue;
 		}
@@ -79,7 +94,7 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 				.replace(/[\r\n[\]()!]/g, '')
 				.trim()
 				.slice(0, 80) || 'image';
-		blocks.push(`![${alt}](${dataUri})`);
+		blocks.push(`![${alt || embedded.alt || 'image'}](${embedded.dataUri})`);
 	}
 
 	// §#6 - User feedback on skipped images (before the possible early

@@ -13,7 +13,11 @@
 	import { browser } from '$app/environment';
 	import { t, i18n, LOCALES, LOCALE_LABELS } from '$lib/i18n';
 	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { EDITOR } from '$lib/config';
+	import { coreCommands } from '$lib/ui/commands';
+	import { keyboardStore, type ShortcutError } from '$lib/ui/keyboard.svelte';
+	import { isDesktop } from '$lib/desktop';
+	import { EDITOR, IMPORT_LIMITS } from '$lib/config';
+	import { readUtf8File } from '$lib/import-limits';
 	import { notify } from '$lib/notify.svelte';
 	import { promptStore } from '$lib/prompt.svelte';
 	import { filesStore } from '$lib/files.svelte';
@@ -47,6 +51,38 @@
 
 	let closeButton: HTMLButtonElement | null = $state(null);
 	let importInput: HTMLInputElement | null = $state(null);
+	let shortcutFeedback = $state('');
+	function showShortcutResult(error: ShortcutError | null): void {
+		shortcutFeedback = t(
+			error === 'invalid'
+				? 'settings.shortcutInvalid'
+				: error === 'reserved'
+					? 'settings.shortcutReserved'
+					: error === 'duplicate'
+						? 'settings.shortcutDuplicate'
+						: error === 'storage'
+							? 'settings.shortcutStorage'
+							: 'settings.shortcutSaved'
+		);
+	}
+	function captureShortcut(event: KeyboardEvent, id: string): void {
+		if (event.key === 'Tab' || event.key === 'Escape' || event.isComposing) return;
+		if (['Control', 'Meta', 'Shift', 'Alt'].includes(event.key)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (
+			!(event.ctrlKey || event.metaKey) ||
+			(event.ctrlKey && event.metaKey) ||
+			event.altKey ||
+			event.repeat
+		) {
+			showShortcutResult('invalid');
+			return;
+		}
+		showShortcutResult(
+			keyboardStore.set(id, { key: event.key.toLowerCase(), shift: event.shiftKey })
+		);
+	}
 	let storageHealth: StorageHealth | null = $state(null);
 
 	async function refreshStorageHealth(): Promise<void> {
@@ -110,11 +146,22 @@
 		const passphrase = await promptStore.prompt({
 			title: t('settings.encryptBackupTitle'),
 			message: t('settings.encryptBackupMessage'),
-			placeholder: t('settings.passphrase')
+			placeholder: t('settings.passphrase'),
+			inputType: 'password'
 		});
 		if (passphrase === null) return;
 		if (!passphrase) {
 			notify.error(t('settings.passphraseEmpty'));
+			return;
+		}
+		const confirmation = await promptStore.prompt({
+			title: t('settings.confirmPassphrase'),
+			placeholder: t('settings.passphrase'),
+			inputType: 'password'
+		});
+		if (confirmation === null) return;
+		if (confirmation !== passphrase) {
+			notify.error(t('settings.passphraseMismatch'));
 			return;
 		}
 		try {
@@ -139,13 +186,17 @@
 		const file = input.files?.[0];
 		input.value = ''; // allows re-importing the same file afterward
 		if (!file) return;
+		if (file.size > IMPORT_LIMITS.maxBatchBytes) {
+			notify.error(t('backup.tooLarge'));
+			return;
+		}
 
 		// Reading the file can also fail (file became unreadable
 		// between selection and reading): we route it to notify instead of
 		// letting a silent rejection slip through.
 		let text: string;
 		try {
-			text = await file.text();
+			text = await readUtf8File(file, IMPORT_LIMITS.maxBatchBytes);
 		} catch (err) {
 			reportError('backup read', err, {
 				notifyUser: t('settings.backupReadFailed')
@@ -159,21 +210,25 @@
 			const pass = await promptStore.prompt({
 				title: t('settings.encryptedBackupTitle'),
 				message: t('settings.encryptedBackupPrompt'),
-				placeholder: t('settings.passphrase')
+				placeholder: t('settings.passphrase'),
+				inputType: 'password'
 			});
 			if (pass === null) return;
 			passphrase = pass;
 		}
 
 		// The file picker precedes the mode choice: we ask afterward.
-		// Confirm = Replace (overwrites everything) · Cancel = Merge (keeps the existing data).
-		const replace = await promptStore.confirm({
+		// Le remplacement, la fusion et l’annulation sont trois décisions distinctes.
+		const restoreChoice = await promptStore.choose({
 			title: t('settings.restoreBackupTitle'),
 			message: t('settings.restoreBackupMessage'),
 			confirmLabel: t('settings.replace'),
-			cancelLabel: t('settings.merge'),
+			alternateLabel: t('settings.merge'),
+			cancelLabel: t('prompt.cancel'),
 			danger: true
 		});
+		if (restoreChoice === null) return;
+		const replace = restoreChoice === 'primary';
 
 		const dismiss = spinnerStore.show(t('settings.restoringBackup'));
 		try {
@@ -220,6 +275,8 @@
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="settings-title"
+		inert={promptStore.open}
+		aria-hidden={promptStore.open ? 'true' : undefined}
 		tabindex="-1"
 		use:focusTrap
 	>
@@ -319,6 +376,41 @@
 						</div>
 					</div>
 				</section>
+
+				<details class="mb-5 rounded border border-border p-3 text-sm">
+					<summary class="cursor-pointer">{t('settings.shortcuts')}</summary>
+					<p class="my-2 text-xs text-fg-muted">
+						{t(isDesktop() ? 'settings.shortcutsDesktop' : 'settings.shortcutsWeb')}
+					</p>
+					<p class="my-2 text-xs text-fg-muted">{t('settings.shortcutInstructions')}</p>
+					<p class="my-2 text-xs text-accent" role="status">{shortcutFeedback}</p>
+					<button
+						class="mb-2 rounded border border-border px-2 py-1 text-xs"
+						onclick={() => showShortcutResult(keyboardStore.reset())}
+						>{t('settings.shortcutReset')}</button
+					>
+					<dl class="space-y-2 text-xs">
+						{#each coreCommands as command (command.id)}
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<dt>{t(command.label)}</dt>
+								<dd class="flex items-center gap-1">
+									<input
+										class="w-28 rounded border border-border bg-bg px-2 py-1"
+										readonly
+										value={keyboardStore.label(command.id) ?? t('settings.shortcutDisabled')}
+										aria-label={t('settings.shortcutFor', { command: t(command.label) })}
+										onkeydown={(event) => captureShortcut(event, command.id)}
+									/><button
+										class="p-1 underline"
+										onclick={() => showShortcutResult(keyboardStore.set(command.id, null))}
+										aria-label={t('settings.disableShortcutFor', { command: t(command.label) })}
+										>{t('settings.shortcutDisable')}</button
+									>
+								</dd>
+							</div>
+						{/each}
+					</dl>
+				</details>
 
 				<!-- Display: toggles -->
 				<section class="mb-5">

@@ -4,10 +4,10 @@ mdsh editor is a local-first static PWA with an optional Tauri Desktop Beta shel
 
 ## Supported versions
 
-| Version | Support |
-| --- | --- |
-| Latest `1.x` release and `main` | Supported |
-| Older tags | Best effort |
+| Version                         | Support     |
+| ------------------------------- | ----------- |
+| Latest `1.x` release and `main` | Supported   |
+| Older tags                      | Best effort |
 
 ## Report a vulnerability privately
 
@@ -25,9 +25,9 @@ In scope:
 - silent IndexedDB loss, stale backups, or a false durability status;
 - weaknesses in encrypted backup handling.
 
-The renderer uses DOMPurify as a final sanitizer. CSS `url()` values from user content are accepted only for validated local SVG fragments. Remote image sources are removed by default and can be loaded only after an explicit per-document action. Loading them contacts third-party hosts and reveals the client IP, but the request uses a no-referrer policy. The project does not proxy images.
+Le rendu utilise DOMPurify comme dernier assainissement. Les valeurs CSS `url()` du contenu utilisateur acceptent uniquement les fragments SVG locaux validés. Les filtres SVG `feImage` sont supprimés pour fermer cette voie de requête réseau. Les images distantes sont bloquées par défaut et ne sont récupérées qu'après une action explicite sur le document. Cette récupération HTTPS révèle l'adresse IP au serveur distant, sans cookie ni référent et sans suivre les redirections. Les octets validés sont ensuite incorporés au document. Le projet ne fournit pas de proxy d'images.
 
-The production CSP blocks scripts, objects, forms, framing, and external connections. Inline styles remain necessary for the editor, KaTeX, and Mermaid. Mermaid runs in strict security mode. Standalone HTML exports contain no scripts or remote font dependencies.
+La CSP de production bloque les scripts non autorisés, les objets, les formulaires et l'encadrement externe. Elle autorise les connexions HTTPS nécessaires à la récupération consentie des images; le contrôle du consentement reste appliqué par la couche de préparation des médias. Les styles intégrés restent nécessaires à l'éditeur, KaTeX et Mermaid. Mermaid utilise le mode de sécurité strict. Les exports HTML autonomes ne contiennent ni script ni dépendance à une police distante.
 
 ## Desktop threat model
 

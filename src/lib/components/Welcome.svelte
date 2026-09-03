@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FilePlus, Upload, Compass } from '@lucide/svelte';
-	import { formatKbd } from '$lib/platform';
+	import { keyboardStore } from '$lib/ui/keyboard.svelte';
 	import { t } from '$lib/i18n';
 
 	interface Props {
@@ -29,6 +29,9 @@
 				<p class="mt-3 max-w-md font-mono text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
 					{t('welcome.privacy')}
 				</p>
+				<p class="mt-3 max-w-md text-xs text-fg-muted">
+					{t('welcome.persistence')}
+				</p>
 			</div>
 
 			<div class="welcome-actions">
@@ -36,12 +39,12 @@
 				<button data-testid="welcome-new" class="welcome-action" onclick={onNew}>
 					<span class="welcome-action-icon"><FilePlus size={16} /></span>
 					<span class="flex-1">{t('welcome.newFile')}</span>
-					<kbd>{formatKbd('⌘N')}</kbd>
+					<kbd>{keyboardStore.label('new') ?? ''}</kbd>
 				</button>
 				<button data-testid="welcome-import" class="welcome-action" onclick={onImport}>
 					<span class="welcome-action-icon"><Upload size={16} /></span>
 					<span class="flex-1">{t('welcome.importMd')}</span>
-					<kbd>{formatKbd('⌘O')}</kbd>
+					<kbd>{keyboardStore.label('import') ?? ''}</kbd>
 				</button>
 				<button
 					data-testid="welcome-demo"
@@ -58,20 +61,32 @@
 		<!-- §B4.2 - text-xs (12 px) rather than text-[10px]: 10 px fails the
 		     default legibility criteria. fg-muted reaches 5:1 on a dark background. -->
 		<div class="welcome-shortcuts font-mono text-xs text-fg-muted">
-			<div><kbd>{formatKbd('⌘S')}</kbd><span>{t('welcome.legendExport')}</span></div>
 			<div>
-				<kbd>{formatKbd('⌘E')} / {formatKbd('⌘R')} / {formatKbd('⌘/')}</kbd><span
-					>{t('welcome.legendModes')}</span
+				<kbd>{keyboardStore.label('export-md') ?? ''}</kbd><span>{t('welcome.legendExport')}</span>
+			</div>
+			<div>
+				<kbd
+					>{keyboardStore.label('mode-wysiwyg') ?? ''} / {keyboardStore.label('mode-read') ?? ''} / {keyboardStore.label(
+						'mode-source'
+					) ?? ''}</kbd
+				><span>{t('welcome.legendModes')}</span>
+			</div>
+			<div>
+				<kbd>{keyboardStore.label('sidebar') ?? ''}</kbd><span>{t('welcome.legendPanel')}</span>
+			</div>
+			<div>
+				<kbd>{keyboardStore.label('close-file') ?? ''}</kbd><span
+					>{t('welcome.legendCloseTab')}</span
 				>
 			</div>
-			<div><kbd>{formatKbd('⌘B')}</kbd><span>{t('welcome.legendPanel')}</span></div>
-			<div><kbd>{formatKbd('⌘W')}</kbd><span>{t('welcome.legendCloseTab')}</span></div>
 		</div>
 	</section>
 </div>
 
 <style>
 	.welcome-shell {
+		overflow-y: auto;
+		align-items: safe center;
 		background:
 			linear-gradient(
 				90deg,
@@ -142,7 +157,6 @@
 		padding: 0.6rem 0.75rem;
 		text-align: left;
 		color: var(--color-fg);
-		clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
 	}
 	.welcome-action:last-child {
 		border-bottom: 1px solid var(--color-border);
@@ -208,6 +222,8 @@
 	}
 	@media (max-width: 520px) {
 		.welcome-shell {
+			overflow-y: auto;
+			align-items: safe center;
 			align-items: flex-start;
 			padding-inline: 1.5rem;
 			padding-top: 2.25rem;

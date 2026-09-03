@@ -81,6 +81,17 @@ export function createModals(opts: ModalsOptions) {
 	let graphOpen = $state(false);
 	let presentationOpen = $state(false);
 
+	function closeAll(): void {
+		paletteOpen = false;
+		searchOpen = false;
+		diskLinksOpen = false;
+		workspacesOpen = false;
+		settingsOpen = false;
+		historyOpen = false;
+		graphOpen = false;
+		presentationOpen = false;
+	}
+
 	// §A1.1 / A1.2 - Memoized loaders: one loading function per modal.
 	// The browser caches the ESM module by URL → instant 2nd open. The memo
 	// (internal to `makeLazyLoader`) is reset on an import failure to allow
@@ -150,34 +161,42 @@ export function createModals(opts: ModalsOptions) {
 
 	// Open actions
 	function openPalette() {
+		closeAll();
 		paletteOpen = true;
 	}
 
 	function openSearch() {
+		closeAll();
 		searchOpen = true;
 	}
 
 	function openDiskLinks() {
+		closeAll();
 		diskLinksOpen = true;
 	}
 
 	function openWorkspaces() {
+		closeAll();
 		workspacesOpen = true;
 	}
 
 	function openSettings() {
+		closeAll();
 		settingsOpen = true;
 	}
 
 	function openHistory() {
+		closeAll();
 		historyOpen = true;
 	}
 
 	function openGraph() {
+		closeAll();
 		graphOpen = true;
 	}
 
 	function openPresentation() {
+		closeAll();
 		presentationOpen = true;
 	}
 
@@ -196,54 +215,74 @@ export function createModals(opts: ModalsOptions) {
 	}
 
 	return {
+		get anyOpen() {
+			return (
+				paletteOpen ||
+				searchOpen ||
+				diskLinksOpen ||
+				workspacesOpen ||
+				settingsOpen ||
+				historyOpen ||
+				graphOpen ||
+				presentationOpen
+			);
+		},
 		// Open states (read/write via getters)
 		get paletteOpen() {
 			return paletteOpen;
 		},
 		set paletteOpen(v: boolean) {
-			paletteOpen = v;
+			if (v) openPalette();
+			else paletteOpen = false;
 		},
 		get searchOpen() {
 			return searchOpen;
 		},
 		set searchOpen(v: boolean) {
-			searchOpen = v;
+			if (v) openSearch();
+			else searchOpen = false;
 		},
 		get diskLinksOpen() {
 			return diskLinksOpen;
 		},
 		set diskLinksOpen(v: boolean) {
-			diskLinksOpen = v;
+			if (v) openDiskLinks();
+			else diskLinksOpen = false;
 		},
 		get workspacesOpen() {
 			return workspacesOpen;
 		},
 		set workspacesOpen(v: boolean) {
-			workspacesOpen = v;
+			if (v) openWorkspaces();
+			else workspacesOpen = false;
 		},
 		get settingsOpen() {
 			return settingsOpen;
 		},
 		set settingsOpen(v: boolean) {
-			settingsOpen = v;
+			if (v) openSettings();
+			else settingsOpen = false;
 		},
 		get historyOpen() {
 			return historyOpen;
 		},
 		set historyOpen(v: boolean) {
-			historyOpen = v;
+			if (v) openHistory();
+			else historyOpen = false;
 		},
 		get graphOpen() {
 			return graphOpen;
 		},
 		set graphOpen(v: boolean) {
-			graphOpen = v;
+			if (v) openGraph();
+			else graphOpen = false;
 		},
 		get presentationOpen() {
 			return presentationOpen;
 		},
 		set presentationOpen(v: boolean) {
-			presentationOpen = v;
+			if (v) openPresentation();
+			else presentationOpen = false;
 		},
 		// Loaders
 		loadCommandPalette,

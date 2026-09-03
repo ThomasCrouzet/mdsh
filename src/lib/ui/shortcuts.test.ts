@@ -95,10 +95,10 @@ describe('buildKeydownHandler', () => {
 		expect(cb.setMode).toHaveBeenCalledWith('source'); // depuis wysiwyg
 	});
 
-	it('⌘/ bascule source -> wysiwyg', () => {
+	it('⌘/ sélectionne la source comme le bouton et la palette', () => {
 		const c = makeCallbacks({ getMode: vi.fn(() => 'source' as const) });
 		buildKeydownHandler(c)(fire('/').event);
-		expect(c.setMode).toHaveBeenCalledWith('wysiwyg');
+		expect(c.setMode).toHaveBeenCalledWith('source');
 	});
 
 	it("⌘P n'est intercepté que si un fichier est actif", () => {
@@ -129,5 +129,59 @@ describe('buildKeydownHandler', () => {
 			fire('w', { target: { tagName: 'INPUT' } as Partial<HTMLElement> }).event
 		);
 		expect(c.onClose).not.toHaveBeenCalled();
+	});
+});
+
+describe('priorité clavier Windows et composition', () => {
+	it.each([
+		{ isComposing: true },
+		{ defaultPrevented: true },
+		{ repeat: true },
+		{ altKey: true },
+		{ metaKey: true }
+	])('ignore une nouvelle note dans le contexte %o', (context) => {
+		const cb = makeCallbacks();
+		const { event } = fire('n');
+		Object.assign(event, { metaKey: false, ctrlKey: true }, context);
+		buildKeydownHandler(cb)(event);
+		expect(cb.onNew).not.toHaveBeenCalled();
+	});
+
+	it('accepte Ctrl sous Windows lorsque le contexte est libre', () => {
+		const cb = makeCallbacks();
+		const { event } = fire('p', { shift: true });
+		Object.assign(event, { metaKey: false, ctrlKey: true });
+		buildKeydownHandler(cb)(event);
+		expect(cb.onOpenPalette).toHaveBeenCalledOnce();
+	});
+
+	it('aucune commande de document ne passe derrière un dialogue', () => {
+		const dialog = document.createElement('div');
+		dialog.setAttribute('role', 'dialog');
+		dialog.setAttribute('aria-modal', 'true');
+		document.body.append(dialog);
+		try {
+			const cb = makeCallbacks();
+			const handler = buildKeydownHandler(cb);
+			for (const key of ['n', 's', 'r', 'w']) handler(fire(key).event);
+			expect(cb.onNew).not.toHaveBeenCalled();
+			expect(cb.onExport).not.toHaveBeenCalled();
+			expect(cb.setMode).not.toHaveBeenCalled();
+			expect(cb.onClose).not.toHaveBeenCalled();
+		} finally {
+			dialog.remove();
+		}
+	});
+
+	it('laisse le gras à l’éditeur tout en autorisant sa palette', () => {
+		const editor = document.createElement('div');
+		editor.className = 'ProseMirror';
+		Object.defineProperty(editor, 'isContentEditable', { value: true });
+		const cb = makeCallbacks();
+		const handler = buildKeydownHandler(cb);
+		handler(fire('b', { target: editor }).event);
+		handler(fire('p', { shift: true, target: editor }).event);
+		expect(cb.onToggleSidebar).not.toHaveBeenCalled();
+		expect(cb.onOpenPalette).toHaveBeenCalledOnce();
 	});
 });

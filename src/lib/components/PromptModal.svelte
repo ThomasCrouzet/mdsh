@@ -26,13 +26,15 @@
 
 	interface Props {
 		open: boolean;
-		mode: 'prompt' | 'confirm';
+		mode: 'prompt' | 'confirm' | 'choice';
 		title: string;
 		message?: string | undefined;
 		defaultValue?: string | undefined;
 		placeholder?: string | undefined;
 		confirmLabel?: string | undefined;
 		cancelLabel?: string | undefined;
+		alternateLabel?: string | undefined;
+		inputType?: 'text' | 'password' | undefined;
 		danger?: boolean | undefined;
 		onResolve: (value: string | boolean | null) => void;
 	}
@@ -46,6 +48,8 @@
 		placeholder,
 		confirmLabel,
 		cancelLabel,
+		alternateLabel,
+		inputType = 'text',
 		danger = false,
 		onResolve
 	}: Props = $props();
@@ -53,14 +57,18 @@
 	let value = $state('');
 	let inputEl: HTMLInputElement | null = $state(null);
 	let confirmEl: HTMLButtonElement | null = $state(null);
+	let cancelEl: HTMLButtonElement | null = $state(null);
 
 	$effect(() => {
+		void title;
 		if (open) {
 			value = defaultValue;
 			tick().then(() => {
 				if (mode === 'prompt') {
 					inputEl?.focus();
 					inputEl?.select();
+				} else if (danger) {
+					cancelEl?.focus();
 				} else {
 					confirmEl?.focus();
 				}
@@ -70,14 +78,20 @@
 
 	function handleConfirm() {
 		if (mode === 'prompt') onResolve(value);
+		else if (mode === 'choice') onResolve('primary');
 		else onResolve(true);
 	}
 
+	function handleAlternate() {
+		onResolve('alternate');
+	}
+
 	function handleCancel() {
-		onResolve(mode === 'prompt' ? null : false);
+		onResolve(mode === 'confirm' ? false : null);
 	}
 
 	function handleKey(e: KeyboardEvent) {
+		if (e.isComposing || e.defaultPrevented) return;
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			handleCancel();
@@ -90,8 +104,8 @@
 
 {#if open}
 	<div
-		class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pb-4 backdrop-blur-sm
-		       pt-[max(env(safe-area-inset-top),18vh)]"
+		class="fixed inset-0 z-[90] flex items-start justify-center bg-black/60 px-4 pb-4 backdrop-blur-sm
+			       pt-[max(env(safe-area-inset-top),18vh)]"
 		style:padding-left="max(env(safe-area-inset-left), 1rem)"
 		style:padding-right="max(env(safe-area-inset-right), 1rem)"
 		onclick={(e) => {
@@ -106,7 +120,7 @@
 		use:focusTrap
 	>
 		<div
-			class="mdsh-dialog-panel flex w-full max-w-md flex-col gap-4 rounded-lg border border-border bg-bg-1 p-4
+			class="mdsh-dialog-panel max-h-[75dvh] overflow-y-auto flex w-full max-w-md flex-col gap-4 rounded-lg border border-border bg-bg-1 p-4
 			       shadow-2xl animate-fade-in"
 		>
 			<header class="flex items-start justify-between gap-3">
@@ -129,7 +143,7 @@
 				<input
 					bind:this={inputEl}
 					bind:value
-					type="text"
+					type={inputType}
 					{placeholder}
 					class="w-full rounded border border-border bg-bg px-3 py-2 text-sm text-fg outline-none
 					       transition-colors focus:border-accent"
@@ -140,8 +154,18 @@
 				/>
 			{/if}
 
-			<div class="flex justify-end gap-2">
+			<div class="flex flex-wrap justify-end gap-2">
+				{#if mode === 'choice' && alternateLabel}
+					<button
+						type="button"
+						class="rounded border border-border bg-transparent px-3 py-1.5 text-sm text-fg-muted transition hover:bg-bg-2 hover:text-fg"
+						onclick={handleAlternate}
+					>
+						{alternateLabel}
+					</button>
+				{/if}
 				<button
+					bind:this={cancelEl}
 					type="button"
 					class="rounded border border-border bg-transparent px-3 py-1.5 text-sm text-fg-muted
 					       transition hover:bg-bg-2 hover:text-fg"

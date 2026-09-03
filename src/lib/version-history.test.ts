@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { db } from './db';
 import {
 	VERSION_LIMITS,
@@ -6,7 +6,9 @@ import {
 	lineDiffStats,
 	listVersions,
 	pruneVersions,
-	recordVersion
+	recordVersion,
+	createCheckpoint,
+	createCheckpoints
 } from './version-history';
 
 beforeEach(async () => {
@@ -17,6 +19,41 @@ afterEach(async () => {
 });
 
 const T0 = 1_000_000_000_000;
+
+describe('checkpoints explicites', () => {
+	it('archive un état immédiat même pendant le throttle et accepte un document vide', async () => {
+		await recordVersion({ id: 'd', name: 'd.md', content: 'initial' }, T0);
+		await createCheckpoint({ id: 'd', name: 'd.md', content: 'avant remplacement' }, T0 + 1);
+		await createCheckpoint({ id: 'd', name: 'd.md', content: '' }, T0 + 2);
+		expect((await listVersions('d')).map((version) => version.content)).toEqual([
+			'',
+			'avant remplacement',
+			'initial'
+		]);
+	});
+
+	it('annule tous les checkpoints du lot si une écriture échoue', async () => {
+		const realPut = db.versions.put.bind(db.versions);
+		const spy = vi.spyOn(db.versions, 'put').mockImplementation((row) => {
+			if (row.draftId === 'b') throw new Error('quota');
+			return realPut(row);
+		});
+		try {
+			await expect(
+				createCheckpoints(
+					[
+						{ id: 'a', name: 'a.md', content: 'a' },
+						{ id: 'b', name: 'b.md', content: 'b' }
+					],
+					T0
+				)
+			).rejects.toThrow('quota');
+			expect(await db.versions.count()).toBe(0);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+});
 
 describe('recordVersion', () => {
 	it('écrit un premier snapshot', async () => {

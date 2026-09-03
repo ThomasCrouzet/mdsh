@@ -4,9 +4,10 @@
 //! file-open events create opaque, session-scoped capabilities. Every read,
 //! stat and write command accepts only a capability token.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -17,6 +18,10 @@ use uuid::Uuid;
 
 const ALLOWED_READ_EXTS: &[&str] = &["md", "markdown", "mdx", "txt"];
 const ALLOWED_WRITE_EXTRA_EXTS: &[&str] = &["html", "htm", "zip", "json"];
+const MAX_DIRECTORY_FILES: usize = 300;
+const MAX_DIRECTORY_DEPTH: usize = 8;
+const MAX_DIRECTORY_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct PendingOpenPaths(pub Mutex<Vec<String>>);
@@ -46,6 +51,41 @@ pub struct DiskGrant {
     pub stat: Option<DiskStat>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskRead {
+    pub content: String,
+    pub stat: DiskStat,
+}
+
+#[derive(Serialize)]
+pub struct RejectedOpenPath {
+    pub path: String,
+    pub reason: String,
+}
+
+#[derive(Serialize)]
+pub struct PendingOpenDelivery {
+    pub grants: Vec<PendingOpenGrant>,
+    pub rejected: Vec<RejectedOpenPath>,
+    pub remaining: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingOpenGrant {
+    #[serde(flatten)]
+    pub grant: DiskGrant,
+    pub queued_path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessedOpenPath {
+    pub token: String,
+    pub queued_path: String,
+}
+
 impl PendingOpenPaths {
     pub fn push_many(&self, paths: impl IntoIterator<Item = String>) {
         if let Ok(mut guard) = self.0.lock() {
@@ -57,11 +97,14 @@ impl PendingOpenPaths {
         }
     }
 
-    pub fn take(&self) -> Vec<String> {
-        self.0
-            .lock()
-            .map(|mut guard| std::mem::take(&mut *guard))
-            .unwrap_or_default()
+    pub fn snapshot(&self) -> Vec<String> {
+        self.0.lock().map(|guard| guard.clone()).unwrap_or_default()
+    }
+
+    pub fn acknowledge(&self, paths: &[String]) {
+        if let Ok(mut guard) = self.0.lock() {
+            guard.retain(|path| !paths.contains(path));
+        }
     }
 }
 
@@ -74,6 +117,13 @@ impl CapabilityStore {
             ensure_read_allowed(&normalized)?;
         }
         reject_symlink(&normalized)?;
+        if ensure_read_allowed(&normalized).is_ok()
+            && fs::metadata(&normalized)
+                .map(|metadata| metadata.len() > MAX_FILE_BYTES)
+                .unwrap_or(false)
+        {
+            return Err("disk file exceeds the 16 MiB limit".to_string());
+        }
         let token = Uuid::new_v4().to_string();
         let stat = stat_path(&normalized)?;
         self.0
@@ -189,6 +239,29 @@ fn revision_for(path: &Path) -> Result<String, String> {
     Ok(format!("sha256:{:x}", hasher.finalize()))
 }
 
+fn revision_for_bytes(contents: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(contents);
+    format!("sha256:{:x}", hasher.finalize())
+}
+
+fn disk_stat_from_metadata(metadata: &fs::Metadata, revision: String) -> Result<DiskStat, String> {
+    if !metadata.is_file() {
+        return Err("disk target is not a regular file".to_string());
+    }
+    let mtime_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0);
+    Ok(DiskStat {
+        mtime_ms,
+        size: metadata.len(),
+        revision,
+    })
+}
+
 fn stat_path(path: &Path) -> Result<Option<DiskStat>, String> {
     reject_symlink(path)?;
     let metadata = match fs::metadata(path) {
@@ -199,17 +272,10 @@ fn stat_path(path: &Path) -> Result<Option<DiskStat>, String> {
     if !metadata.is_file() {
         return Err("disk target is not a regular file".to_string());
     }
-    let mtime_ms = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_secs_f64() * 1000.0)
-        .unwrap_or(0.0);
-    Ok(Some(DiskStat {
-        mtime_ms,
-        size: metadata.len(),
-        revision: revision_for(path)?,
-    }))
+    Ok(Some(disk_stat_from_metadata(
+        &metadata,
+        revision_for(path)?,
+    )?))
 }
 
 fn ensure_expected_revision(
@@ -301,7 +367,8 @@ fn atomic_write(
         // This is the final operation before same-directory replacement.
         ensure_expected_revision(path, expected_revision, force)?;
         replace_file(&temp, path)?;
-        stat_path(path)?.ok_or_else(|| "written file disappeared".to_string())
+        let metadata = file.metadata().map_err(|error| error.to_string())?;
+        disk_stat_from_metadata(&metadata, revision_for_bytes(contents))
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temp);
@@ -312,11 +379,36 @@ fn atomic_write(
 fn read_capability(
     capabilities: &CapabilityStore,
     token: &str,
-) -> Result<(PathBuf, String), String> {
+) -> Result<(PathBuf, DiskRead), String> {
     let path = capabilities.resolve(token, false)?;
     ensure_read_allowed(&path)?;
-    let content = fs::read_to_string(&path).map_err(|error| error.to_string())?;
-    Ok((path, content))
+    let file = File::open(&path).map_err(|error| error.to_string())?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("disk target is not a regular file".to_string());
+    }
+    if metadata.len() > MAX_FILE_BYTES {
+        return Err("disk file exceeds the 16 MiB limit".to_string());
+    }
+    let mut contents = Vec::with_capacity(metadata.len().try_into().unwrap_or(0));
+    file.take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut contents)
+        .map_err(|error| error.to_string())?;
+    if contents.len() as u64 > MAX_FILE_BYTES {
+        return Err("disk file exceeds the 16 MiB limit".to_string());
+    }
+    let size = contents.len() as u64;
+    let revision = revision_for_bytes(&contents);
+    let content = String::from_utf8(contents).map_err(|_| "disk file is not UTF-8".to_string())?;
+    if content
+        .chars()
+        .any(|character| (character as u32) < 32 && !matches!(character, '\t' | '\n' | '\r'))
+    {
+        return Err("disk file contains binary control characters".to_string());
+    }
+    let mut stat = disk_stat_from_metadata(&metadata, revision)?;
+    stat.size = size;
+    Ok((path, DiskRead { content, stat }))
 }
 
 fn normalize_save_extension(mut path: PathBuf, suggested_name: &str, export: bool) -> PathBuf {
@@ -356,8 +448,81 @@ fn grant_save_selection(
     capabilities.grant_native_path(&path, true).map(Some)
 }
 
+fn collect_directory_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let root = root.canonicalize().map_err(|error| error.to_string())?;
+    if !root.is_dir() {
+        return Err("selected path is not a directory".to_string());
+    }
+    let mut files = Vec::new();
+    let mut total_bytes = 0_u64;
+    let mut pending = vec![(root, 0_usize)];
+    while let Some((directory, depth)) = pending.pop() {
+        for entry in fs::read_dir(&directory).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                if depth >= MAX_DIRECTORY_DEPTH {
+                    return Err(format!(
+                        "directory exceeds the depth limit of {MAX_DIRECTORY_DEPTH}"
+                    ));
+                }
+                pending.push((path, depth + 1));
+                continue;
+            }
+            if !metadata.is_file() || ensure_read_allowed(&path).is_err() {
+                continue;
+            }
+            if files.len() >= MAX_DIRECTORY_FILES {
+                return Err(format!(
+                    "directory contains more than {MAX_DIRECTORY_FILES} supported files"
+                ));
+            }
+            if metadata.len() > MAX_FILE_BYTES {
+                return Err("directory contains a file larger than 16 MiB".to_string());
+            }
+            total_bytes = total_bytes
+                .checked_add(metadata.len())
+                .ok_or_else(|| "directory size overflow".to_string())?;
+            if total_bytes > MAX_DIRECTORY_BYTES {
+                return Err("directory exceeds the 64 MiB import limit".to_string());
+            }
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn validate_import_paths(paths: &[PathBuf]) -> Result<(), String> {
+    if paths.len() > MAX_DIRECTORY_FILES {
+        return Err("selection exceeds the 300 file limit".to_string());
+    }
+    let mut total = 0_u64;
+    for path in paths {
+        ensure_read_allowed(path)?;
+        reject_symlink(path)?;
+        let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+        if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
+            return Err(
+                "selection contains an invalid file or a file larger than 16 MiB".to_string(),
+            );
+        }
+        total = total
+            .checked_add(metadata.len())
+            .ok_or("selection size overflow")?;
+        if total > MAX_DIRECTORY_BYTES {
+            return Err("selection exceeds the 64 MiB import limit".to_string());
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
-pub fn disk_open_dialog(
+pub async fn disk_open_dialog(
     app: tauri::AppHandle,
     capabilities: tauri::State<'_, CapabilityStore>,
     multiple: bool,
@@ -371,17 +536,19 @@ pub fn disk_open_dialog(
     } else {
         builder.blocking_pick_file().into_iter().collect()
     };
-    selected
+    let paths = selected
         .into_iter()
-        .map(|file_path| {
-            let path = file_path.into_path().map_err(|error| error.to_string())?;
-            capabilities.grant_native_path(&path, true)
-        })
+        .map(|file_path| file_path.into_path().map_err(|error| error.to_string()))
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_import_paths(&paths)?;
+    paths
+        .iter()
+        .map(|path| capabilities.grant_native_path(path, true))
         .collect()
 }
 
 #[tauri::command]
-pub fn disk_save_dialog(
+pub async fn disk_save_dialog(
     app: tauri::AppHandle,
     capabilities: tauri::State<'_, CapabilityStore>,
     suggested_name: String,
@@ -405,15 +572,30 @@ pub fn disk_save_dialog(
 }
 
 #[tauri::command]
-pub fn disk_read(
+pub async fn disk_open_directory(
+    app: tauri::AppHandle,
     capabilities: tauri::State<'_, CapabilityStore>,
-    token: String,
-) -> Result<String, String> {
-    read_capability(&capabilities, &token).map(|(_, content)| content)
+) -> Result<Vec<DiskGrant>, String> {
+    let Some(selected) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(Vec::new());
+    };
+    let root = selected.into_path().map_err(|error| error.to_string())?;
+    collect_directory_paths(&root)?
+        .into_iter()
+        .map(|path| capabilities.grant_native_path(&path, true))
+        .collect()
 }
 
 #[tauri::command]
-pub fn disk_write(
+pub async fn disk_read(
+    capabilities: tauri::State<'_, CapabilityStore>,
+    token: String,
+) -> Result<DiskRead, String> {
+    read_capability(&capabilities, &token).map(|(_, result)| result)
+}
+
+#[tauri::command]
+pub async fn disk_write(
     capabilities: tauri::State<'_, CapabilityStore>,
     token: String,
     content: String,
@@ -430,7 +612,7 @@ pub fn disk_write(
 }
 
 #[tauri::command]
-pub fn disk_write_bytes(
+pub async fn disk_write_bytes(
     capabilities: tauri::State<'_, CapabilityStore>,
     token: String,
     contents: Vec<u8>,
@@ -442,7 +624,7 @@ pub fn disk_write_bytes(
 }
 
 #[tauri::command]
-pub fn disk_stat(
+pub async fn disk_stat(
     capabilities: tauri::State<'_, CapabilityStore>,
     token: String,
 ) -> Result<Option<DiskStat>, String> {
@@ -451,18 +633,131 @@ pub fn disk_stat(
 }
 
 #[tauri::command]
-pub fn take_pending_open_paths(
+pub async fn take_pending_open_paths(
     pending: tauri::State<'_, PendingOpenPaths>,
     capabilities: tauri::State<'_, CapabilityStore>,
-) -> Vec<DiskGrant> {
-    pending
-        .take()
-        .into_iter()
-        .filter_map(|path| capabilities.grant_native_path(Path::new(&path), true).ok())
-        .collect()
+    exclude_paths: Option<Vec<String>>,
+) -> Result<PendingOpenDelivery, String> {
+    Ok(pending_delivery(
+        &pending,
+        &capabilities,
+        MAX_DIRECTORY_FILES,
+        MAX_DIRECTORY_BYTES,
+        &exclude_paths.unwrap_or_default(),
+    ))
 }
 
-fn collect_explicit_paths(arguments: impl IntoIterator<Item = String>) -> Vec<String> {
+fn pending_delivery(
+    pending: &PendingOpenPaths,
+    capabilities: &CapabilityStore,
+    max_files: usize,
+    max_bytes: u64,
+    exclude_paths: &[String],
+) -> PendingOpenDelivery {
+    let excluded: HashSet<&str> = exclude_paths.iter().map(String::as_str).collect();
+    let paths: Vec<String> = pending
+        .snapshot()
+        .into_iter()
+        .filter(|path| !excluded.contains(path.as_str()))
+        .collect();
+    let mut delivery = PendingOpenDelivery {
+        grants: Vec::new(),
+        rejected: Vec::new(),
+        remaining: paths.len(),
+    };
+    let mut total_bytes = 0;
+    // Aucun élément ne quitte la file avant son acquittement explicite.
+    // Les erreurs individuelles ne bloquent pas les autres chemins du lot.
+    for source in paths.into_iter().take(max_files) {
+        let path = Path::new(&source);
+        let validated = validate_import_paths(&[path.to_path_buf()])
+            .and_then(|()| fs::metadata(path).map_err(|error| error.to_string()));
+        let result = match validated {
+            Ok(metadata) => {
+                if metadata.len() > max_bytes.saturating_sub(total_bytes) {
+                    continue;
+                }
+                capabilities.grant_native_path(path, true)
+            }
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(grant) => {
+                let Some(stat) = &grant.stat else {
+                    delivery.rejected.push(RejectedOpenPath {
+                        path: source,
+                        reason: "disk target disappeared before delivery".to_string(),
+                    });
+                    delivery.remaining -= 1;
+                    continue;
+                };
+                // Le fichier peut avoir grandi entre validation et capability.
+                if stat.size > max_bytes.saturating_sub(total_bytes) {
+                    continue;
+                }
+                total_bytes += stat.size;
+                delivery.grants.push(PendingOpenGrant {
+                    grant,
+                    queued_path: source,
+                });
+            }
+            Err(reason) => delivery.rejected.push(RejectedOpenPath {
+                path: source,
+                reason,
+            }),
+        }
+        delivery.remaining -= 1;
+    }
+    delivery
+}
+
+#[tauri::command]
+pub fn ack_pending_open_paths(
+    pending: tauri::State<'_, PendingOpenPaths>,
+    capabilities: tauri::State<'_, CapabilityStore>,
+    processed: Option<Vec<ProcessedOpenPath>>,
+    rejected_paths: Option<Vec<String>>,
+) -> Result<(), String> {
+    acknowledge_delivery(
+        &pending,
+        &capabilities,
+        &processed.unwrap_or_default(),
+        &rejected_paths.unwrap_or_default(),
+    )
+}
+
+fn acknowledge_delivery(
+    pending: &PendingOpenPaths,
+    capabilities: &CapabilityStore,
+    processed: &[ProcessedOpenPath],
+    rejected_paths: &[String],
+) -> Result<(), String> {
+    let snapshot = pending.snapshot();
+    let mut paths = processed
+        .iter()
+        .map(|entry| {
+            if !snapshot.contains(&entry.queued_path) {
+                return Err("processed path is not pending".to_string());
+            }
+            let granted = capabilities.resolve(&entry.token, false)?;
+            let queued = path_key(Path::new(&entry.queued_path))?;
+            if queued != granted {
+                return Err("processed path does not match its capability".to_string());
+            }
+            Ok(entry.queued_path.clone())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for path in rejected_paths {
+        if !snapshot.contains(path) {
+            return Err("rejected path is not pending".to_string());
+        }
+        paths.push(path.clone());
+    }
+    pending.acknowledge(&paths);
+    Ok(())
+}
+
+pub fn collect_explicit_paths(arguments: impl IntoIterator<Item = String>) -> Vec<String> {
     arguments
         .into_iter()
         .filter(|argument| !argument.starts_with('-'))
@@ -477,7 +772,30 @@ fn collect_explicit_paths(arguments: impl IntoIterator<Item = String>) -> Vec<St
 }
 
 pub fn collect_argv_paths() -> Vec<String> {
-    collect_explicit_paths(std::env::args().skip(1))
+    collect_paths_from_directory(
+        std::env::args().skip(1),
+        std::env::current_dir().ok().as_deref(),
+    )
+}
+
+pub fn collect_paths_from_directory(
+    arguments: impl IntoIterator<Item = String>,
+    directory: Option<&Path>,
+) -> Vec<String> {
+    collect_explicit_paths(
+        arguments
+            .into_iter()
+            .filter(|arg| !arg.starts_with('-'))
+            .map(|arg| {
+                let path = PathBuf::from(&arg);
+                if path.is_absolute() {
+                    return arg;
+                }
+                directory
+                    .map(|base| base.join(path).to_string_lossy().into_owned())
+                    .unwrap_or(arg)
+            }),
+    )
 }
 
 #[cfg(test)]
@@ -510,7 +828,10 @@ mod tests {
             .grant_native_path(&path, true)
             .expect("native grant");
         assert_eq!(
-            read_capability(&first_session, &grant.token).unwrap().1,
+            read_capability(&first_session, &grant.token)
+                .unwrap()
+                .1
+                .content,
             "one"
         );
         assert!(first_session.resolve("forged-token", false).is_err());
@@ -528,7 +849,10 @@ mod tests {
         let grant = store
             .grant_native_path(&path, false)
             .expect("read-only native grant");
-        assert_eq!(read_capability(&store, &grant.token).unwrap().1, "readable");
+        assert_eq!(
+            read_capability(&store, &grant.token).unwrap().1.content,
+            "readable"
+        );
         assert!(store.resolve(&grant.token, true).is_err());
         fs::remove_file(path).expect("fixture cleanup");
     }
@@ -600,8 +924,141 @@ mod tests {
     fn pending_paths_are_deduplicated_and_drained() {
         let pending = PendingOpenPaths::default();
         pending.push_many(["/tmp/a.md".to_string(), "/tmp/a.md".to_string()]);
-        assert_eq!(pending.take(), vec!["/tmp/a.md"]);
-        assert!(pending.take().is_empty());
+        assert_eq!(pending.snapshot(), vec!["/tmp/a.md"]);
+        assert_eq!(pending.snapshot(), vec!["/tmp/a.md"]);
+        pending.push_many(["/tmp/b.md".to_string()]);
+        pending.acknowledge(&["/tmp/a.md".to_string()]);
+        assert_eq!(pending.snapshot(), vec!["/tmp/b.md"]);
+    }
+
+    #[test]
+    fn pending_delivery_is_bounded_and_does_not_remove_entries() {
+        let first = temp_path("md");
+        let second = temp_path("md");
+        let third = temp_path("md");
+        fs::write(&first, "123").unwrap();
+        fs::write(&second, "456").unwrap();
+        fs::write(&third, "789").unwrap();
+        let paths = [&first, &second, &third].map(|path| path.to_string_lossy().into_owned());
+        let pending = PendingOpenPaths::default();
+        pending.push_many(paths.clone());
+        let delivery = pending_delivery(&pending, &CapabilityStore::default(), 2, 4, &[]);
+        assert_eq!(delivery.grants.len(), 1);
+        assert!(delivery.rejected.is_empty());
+        assert_eq!(delivery.remaining, 2);
+        assert_eq!(pending.snapshot(), paths);
+        for path in [first, second, third] {
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn pending_delivery_reports_invalid_paths_without_blocking_valid_ones() {
+        let missing = temp_path("md");
+        let valid = temp_path("md");
+        fs::write(&valid, "content").unwrap();
+        let paths = [
+            missing.to_string_lossy().into_owned(),
+            valid.to_string_lossy().into_owned(),
+        ];
+        let pending = PendingOpenPaths::default();
+        pending.push_many(paths.clone());
+        let delivery = pending_delivery(
+            &pending,
+            &CapabilityStore::default(),
+            MAX_DIRECTORY_FILES,
+            MAX_DIRECTORY_BYTES,
+            &[],
+        );
+        assert_eq!(delivery.grants.len(), 1);
+        assert_eq!(delivery.rejected.len(), 1);
+        assert_eq!(delivery.rejected[0].path, paths[0]);
+        assert_eq!(delivery.remaining, 0);
+        assert_eq!(pending.snapshot(), paths);
+        fs::remove_file(valid).unwrap();
+    }
+
+    #[test]
+    fn pending_delivery_exclusions_let_later_batches_progress() {
+        let first = temp_path("md");
+        let second = temp_path("md");
+        fs::write(&first, "first").unwrap();
+        fs::write(&second, "second").unwrap();
+        let first_name = first.to_string_lossy().into_owned();
+        let second_name = second.to_string_lossy().into_owned();
+        let pending = PendingOpenPaths::default();
+        pending.push_many([first_name.clone(), second_name.clone()]);
+        let delivery = pending_delivery(
+            &pending,
+            &CapabilityStore::default(),
+            1,
+            MAX_DIRECTORY_BYTES,
+            std::slice::from_ref(&first_name),
+        );
+        assert_eq!(delivery.grants.len(), 1);
+        assert_eq!(
+            delivery.grants[0].grant.path,
+            second.canonicalize().unwrap().to_string_lossy()
+        );
+        assert_eq!(delivery.remaining, 0);
+        for path in [first, second] {
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn pending_ack_links_capability_to_the_exact_queued_path() {
+        let path = temp_path("md");
+        fs::write(&path, "content").unwrap();
+        let queued = format!(
+            "{}/./{}",
+            path.parent().unwrap().to_string_lossy(),
+            path.file_name().unwrap().to_string_lossy()
+        );
+        let pending = PendingOpenPaths::default();
+        pending.push_many([queued.clone()]);
+        let capabilities = CapabilityStore::default();
+        let grant = capabilities
+            .grant_native_path(Path::new(&queued), true)
+            .unwrap();
+        acknowledge_delivery(
+            &pending,
+            &capabilities,
+            &[ProcessedOpenPath {
+                token: grant.token,
+                queued_path: queued,
+            }],
+            &[],
+        )
+        .unwrap();
+        assert!(pending.snapshot().is_empty());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn pending_ack_refuses_a_token_for_another_path() {
+        let first = temp_path("md");
+        let second = temp_path("md");
+        fs::write(&first, "first").unwrap();
+        fs::write(&second, "second").unwrap();
+        let first_name = first.to_string_lossy().into_owned();
+        let pending = PendingOpenPaths::default();
+        pending.push_many([first_name.clone()]);
+        let capabilities = CapabilityStore::default();
+        let grant = capabilities.grant_native_path(&second, true).unwrap();
+        assert!(acknowledge_delivery(
+            &pending,
+            &capabilities,
+            &[ProcessedOpenPath {
+                token: grant.token,
+                queued_path: first_name,
+            }],
+            &[],
+        )
+        .is_err());
+        assert_eq!(pending.snapshot().len(), 1);
+        fs::remove_file(first).unwrap();
+        fs::remove_file(second).unwrap();
     }
 
     #[test]
@@ -618,7 +1075,10 @@ mod tests {
         let grant = store
             .grant_native_path(Path::new(&paths[0]), true)
             .expect("argv native grant");
-        assert_eq!(read_capability(&store, &grant.token).unwrap().1, "argv");
+        assert_eq!(
+            read_capability(&store, &grant.token).unwrap().1.content,
+            "argv"
+        );
         fs::remove_file(path).expect("fixture cleanup");
     }
 
@@ -641,5 +1101,105 @@ mod tests {
             normalize_save_extension(PathBuf::from("/tmp/note"), "note", false),
             PathBuf::from("/tmp/note.md")
         );
+    }
+
+    #[test]
+    fn directory_import_is_sorted_bounded_and_skips_symlinks() {
+        let root = std::env::temp_dir().join(format!(
+            "mdsh-directory-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("b.md"), "b").unwrap();
+        fs::write(root.join("nested/a.txt"), "a").unwrap();
+        fs::write(root.join("ignored.pdf"), "x").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("b.md"), root.join("linked.md")).unwrap();
+        let files = collect_directory_paths(&root).unwrap();
+        let canonical_root = root.canonicalize().unwrap();
+        assert_eq!(
+            files,
+            vec![
+                canonical_root.join("b.md"),
+                canonical_root.join("nested/a.txt")
+            ]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn versioned_read_hashes_the_returned_content() {
+        let path = temp_path("md");
+        fs::write(&path, "versioned content").unwrap();
+        let store = CapabilityStore::default();
+        let grant = store.grant_native_path(&path, true).unwrap();
+        let read = read_capability(&store, &grant.token).unwrap().1;
+        assert_eq!(read.content, "versioned content");
+        assert_eq!(read.stat.size, 17);
+        assert_eq!(
+            read.stat.revision,
+            revision_for_bytes(read.content.as_bytes())
+        );
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn import_limits_reject_before_reading_and_binary_is_not_markdown() {
+        let path = temp_path("md");
+        let file = File::create(&path).unwrap();
+        file.set_len(MAX_FILE_BYTES + 1).unwrap();
+        let capabilities = CapabilityStore::default();
+        assert!(capabilities.grant_native_path(&path, true).is_err());
+        assert!(validate_import_paths(std::slice::from_ref(&path)).is_err());
+        for bytes in [&b"text\0binary"[..], &[0xff_u8][..], &b"text\x01binary"[..]] {
+            fs::write(&path, bytes).unwrap();
+            let grant = capabilities.grant_native_path(&path, true).unwrap();
+            assert!(read_capability(&capabilities, &grant.token).is_err());
+        }
+        fs::write(&path, "text\tline\nnext\r\n").unwrap();
+        let grant = capabilities.grant_native_path(&path, true).unwrap();
+        assert!(read_capability(&capabilities, &grant.token).is_ok());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn selection_limits_are_checked_as_a_batch() {
+        let path = temp_path("md");
+        let file = File::create(&path).unwrap();
+        file.set_len(MAX_FILE_BYTES).unwrap();
+        assert!(validate_import_paths(&vec![path.clone(); 4]).is_ok());
+        assert!(validate_import_paths(&vec![path.clone(); 5]).is_err());
+        assert!(validate_import_paths(&vec![path.clone(); MAX_DIRECTORY_FILES + 1]).is_err());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn directory_depth_never_silently_truncates_an_import() {
+        let root = std::env::temp_dir().join(format!("mdsh-depth-{}", Uuid::new_v4()));
+        let mut nested = root.clone();
+        for _ in 0..=MAX_DIRECTORY_DEPTH {
+            nested = nested.join("nested");
+        }
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("note.md"), "content").unwrap();
+        assert!(collect_directory_paths(&root)
+            .unwrap_err()
+            .contains("depth"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn relative_native_arguments_resolve_against_the_launch_directory() {
+        let path = temp_path("md");
+        fs::write(&path, "content").unwrap();
+        let result = collect_paths_from_directory(
+            [path.file_name().unwrap().to_string_lossy().into_owned()],
+            path.parent(),
+        );
+        assert_eq!(
+            result,
+            vec![path.canonicalize().unwrap().to_string_lossy().into_owned()]
+        );
+        fs::remove_file(path).unwrap();
     }
 }

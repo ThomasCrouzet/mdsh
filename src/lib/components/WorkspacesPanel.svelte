@@ -93,6 +93,8 @@
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="workspaces-title"
+		inert={promptStore.open}
+		aria-hidden={promptStore.open ? 'true' : undefined}
 		tabindex="-1"
 		use:focusTrap
 	>

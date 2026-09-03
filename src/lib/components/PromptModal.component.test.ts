@@ -202,3 +202,35 @@ describe('PromptModal - mode confirm : interactions', () => {
 		expect(screen.getByRole('button', { name: /confirmer/i })).toBeInTheDocument();
 	});
 });
+
+describe('restauration et phrase secrète', () => {
+	it('Escape annule un choix sans sélectionner la fusion', async () => {
+		const onResolve = vi.fn();
+		render(PromptModal, {
+			props: {
+				open: true,
+				mode: 'choice',
+				title: 'Restaurer',
+				alternateLabel: 'Fusionner',
+				confirmLabel: 'Remplacer',
+				onResolve
+			}
+		});
+		await userEvent.keyboard('{Escape}');
+		expect(onResolve).toHaveBeenCalledWith(null);
+	});
+	it('masque la phrase secrète', () => {
+		renderPrompt({ title: 'Phrase secrète', inputType: 'password' });
+		expect(screen.getByLabelText('Phrase secrète', { selector: 'input' })).toHaveAttribute(
+			'type',
+			'password'
+		);
+	});
+});
+
+it('efface la première phrase lors du passage à sa confirmation', async () => {
+	const { rerender } = renderPrompt({ title: 'Phrase secrète', inputType: 'password' });
+	await userEvent.type(screen.getByLabelText('Phrase secrète', { selector: 'input' }), 'secret');
+	await rerender({ title: 'Confirmer la phrase' });
+	expect(screen.getByLabelText('Confirmer la phrase', { selector: 'input' })).toHaveValue('');
+});

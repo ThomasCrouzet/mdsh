@@ -10,6 +10,77 @@ import { TIMERS } from '../config';
 import { hasMath } from './markdown';
 import { t } from '$lib/i18n';
 import { DEFAULT_LOCALE } from '$lib/i18n/locale';
+import { isDesktop } from '../desktop';
+
+export class PrintImageError extends Error {
+	constructor(public readonly sources: readonly string[]) {
+		super(`Cannot print ${sources.length} undecoded image(s)`);
+		this.name = 'PrintImageError';
+	}
+}
+
+function abortError(): DOMException {
+	return new DOMException('Printing preparation cancelled', 'AbortError');
+}
+
+export async function boundedWait<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	signal?: AbortSignal
+): Promise<T> {
+	if (signal?.aborted) throw abortError();
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(
+			() => finish(() => reject(new Error('Asset loading timed out'))),
+			timeoutMs
+		);
+		const onAbort = () => finish(() => reject(abortError()));
+		const finish = (settle: () => void) => {
+			clearTimeout(timer);
+			signal?.removeEventListener('abort', onAbort);
+			settle();
+		};
+		signal?.addEventListener('abort', onAbort, { once: true });
+		promise.then(
+			(value) => finish(() => resolve(value)),
+			(error) => finish(() => reject(error))
+		);
+	});
+}
+
+export async function waitForPrintImages(
+	doc: Document | ShadowRoot,
+	opts: { timeoutMs?: number; signal?: AbortSignal | undefined } = {}
+): Promise<void> {
+	if (opts.signal?.aborted) throw abortError();
+	const failed: string[] = [];
+	await Promise.all(
+		Array.from(doc.querySelectorAll<HTMLImageElement>('img')).map(async (image) => {
+			const source = image.getAttribute('src') ?? image.getAttribute('data-mdsh-remote-src') ?? '';
+			try {
+				if (!source) throw new Error('Image source is missing');
+				if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) return;
+				const decoded =
+					typeof image.decode === 'function'
+						? image.decode()
+						: new Promise<void>((resolve, reject) => {
+								image.addEventListener('load', () => resolve(), { once: true });
+								image.addEventListener('error', () => reject(new Error('Image loading failed')), {
+									once: true
+								});
+							});
+				await boundedWait(decoded, opts.timeoutMs ?? 10_000, opts.signal);
+				if (image.naturalWidth === 0 || image.naturalHeight === 0) {
+					throw new Error('Image decoded without pixels');
+				}
+			} catch (error) {
+				if (opts.signal?.aborted) throw error;
+				failed.push(source || image.alt);
+			}
+		})
+	);
+	if (failed.length > 0) throw new PrintImageError(failed);
+}
 
 export interface PrintDocumentOptions {
 	title: string;
@@ -170,8 +241,16 @@ export async function buildStandaloneHtmlDocument(
  * The iframe is removed automatically after `afterprint` or after a 60 s grace
  * period (some browsers do not fire the event).
  */
-export async function printInIframe(html: string): Promise<void> {
+export async function printInIframe(
+	html: string,
+	opts: { signal?: AbortSignal } = {}
+): Promise<void> {
 	if (!browser) throw new Error('printInIframe requires a browser environment');
+	if (opts.signal?.aborted) throw abortError();
+	if (isDesktop()) {
+		const { printOnDesktop } = await import('./print-desktop');
+		return printOnDesktop(html, opts);
+	}
 
 	const iframe = document.createElement('iframe');
 	iframe.setAttribute('aria-hidden', 'true');
@@ -219,17 +298,23 @@ export async function printInIframe(html: string): Promise<void> {
 		const idoc = iframe.contentDocument;
 		if (idoc && 'fonts' in idoc) {
 			try {
-				await (idoc as Document & { fonts: FontFaceSet }).fonts.ready;
+				await boundedWait(
+					(idoc as Document & { fonts: FontFaceSet }).fonts.ready,
+					10_000,
+					opts.signal
+				);
 			} catch {
-				/* ignore */
+				if (opts.signal?.aborted) throw abortError();
 			}
 		}
+		if (idoc) await waitForPrintImages(idoc, { signal: opts.signal });
 
 		// Allow one extra frame for the layout to stabilize.
 		await new Promise((r) => requestAnimationFrame(() => r(undefined)));
 
 		const win = iframe.contentWindow;
 		if (!win) throw new Error('iframe contentWindow indisponible');
+		if (opts.signal?.aborted) throw abortError();
 
 		// Cleanup after printing - afterprint or grace period.
 		let removed = false;

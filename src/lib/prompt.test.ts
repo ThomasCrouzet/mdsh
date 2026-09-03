@@ -56,3 +56,14 @@ describe('promptStore.resolve', () => {
 		expect(promptStore.open).toBe(false);
 	});
 });
+
+describe('choix explicite de restauration', () => {
+	it.each(['primary', 'alternate', null] as const)(
+		'préserve le résultat %s sans transformer une annulation',
+		async (choice) => {
+			const pending = promptStore.choose({ title: 'Restaurer', alternateLabel: 'Fusionner' });
+			promptStore.resolve(choice);
+			expect(await pending).toBe(choice);
+		}
+	);
+});

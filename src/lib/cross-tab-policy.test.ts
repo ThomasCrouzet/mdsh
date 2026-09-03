@@ -102,10 +102,10 @@ describe('decideCrossTab', () => {
 		});
 	});
 
-	it('invalidates writers on backup-applied while dirty', () => {
+	it('preserves writers on backup-applied while dirty', () => {
 		expect(decideCrossTab({ type: 'backup-applied' }, ctx({ pending: ['a'] }))).toEqual({
 			kind: 'conflict-global',
-			invalidateAll: true
+			invalidateAll: false
 		});
 	});
 });
@@ -128,10 +128,10 @@ describe('applyCrossTabDecision / handleCrossTabPolicy', () => {
 		expect(vi.mocked(host.notifyConflict).mock.calls[0]![0]).toContain('note.md');
 	});
 
-	it('invalidates then notifies on dirty backup-applied', () => {
+	it('notifies without discarding dirty writers on backup-applied', () => {
 		const dirty = mockHost({ loaded: ['a'], pending: ['a'], names: { a: 'note.md' } });
 		handleCrossTabPolicy({ type: 'backup-applied' }, dirty);
-		expect(vi.mocked(dirty.invalidateAll)).toHaveBeenCalledOnce();
+		expect(vi.mocked(dirty.invalidateAll)).not.toHaveBeenCalled();
 		expect(vi.mocked(dirty.notifyConflict)).toHaveBeenCalledOnce();
 		expect(vi.mocked(dirty.reloadQuiet)).not.toHaveBeenCalled();
 	});

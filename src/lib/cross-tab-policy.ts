@@ -50,8 +50,9 @@ export function decideCrossTab(msg: CrossTabMessage, ctx: CrossTabPolicyContext)
 		if (ctx.hasAnyPending()) return { kind: 'conflict-global', invalidateAll: false };
 		return { kind: 'reload' };
 	}
-	// backup-applied
-	if (ctx.hasAnyPending()) return { kind: 'conflict-global', invalidateAll: true };
+	// backup-applied: keep local writers armed. Their optimistic persistence
+	// check archives the restored branch before any local overwrite.
+	if (ctx.hasAnyPending()) return { kind: 'conflict-global', invalidateAll: false };
 	return { kind: 'reload-and-siblings' };
 }
 
@@ -80,7 +81,6 @@ export function applyCrossTabDecision(decision: CrossTabDecision, host: CrossTab
 			host.notifyConflict(host.t('files.deletedInOtherTab', { name: host.fileName(decision.id) }));
 			return;
 		case 'conflict-global':
-			if (decision.invalidateAll) host.invalidateAll();
 			host.notifyConflict(host.t('files.otherTabChanges'));
 	}
 }

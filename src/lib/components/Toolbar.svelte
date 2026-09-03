@@ -13,11 +13,12 @@
 	} from '@lucide/svelte';
 	import type { EditMode } from '$lib/types';
 	import { isDiskLinkingAvailable } from '$lib/disk-sync';
-	import { formatKbd } from '$lib/platform';
+	import { keyboardStore } from '$lib/ui/keyboard.svelte';
 	import { t } from '$lib/i18n';
 
 	interface Props {
 		mode: EditMode;
+		sidebarOpen: boolean;
 		onToggleSidebar: () => void;
 		onSetMode: (mode: EditMode) => void;
 		onExport: () => void;
@@ -28,6 +29,7 @@
 
 	let {
 		mode,
+		sidebarOpen,
 		onToggleSidebar,
 		onSetMode,
 		onExport,
@@ -131,13 +133,16 @@
 </script>
 
 <header
-	class="mdsh-toolbar flex h-12 flex-shrink-0 items-center gap-1 border-b border-border bg-bg px-2 md:px-3"
+	id="app-toolbar"
+	class="mdsh-toolbar flex min-h-12 flex-shrink-0 items-center gap-1 border-b border-border bg-bg px-2 md:px-3"
 	aria-label={t('toolbar.toolbarLabel')}
 >
 	<button
 		class="mdsh-icon-button flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted md:hidden"
 		onclick={onToggleSidebar}
 		aria-label={t('toolbar.menu')}
+		aria-expanded={sidebarOpen}
+		aria-controls="files-panel"
 	>
 		<Menu size={18} />
 	</button>
@@ -146,14 +151,16 @@
 		class="mdsh-icon-button hidden items-center justify-center rounded p-2 text-fg-muted md:flex"
 		onclick={onToggleSidebar}
 		aria-label={t('toolbar.togglePanel')}
-		aria-keyshortcuts="Control+B Meta+B"
-		title={`${t('toolbar.panel')} (${formatKbd('⌘B')})`}
+		aria-keyshortcuts={keyboardStore.aria('sidebar')}
+		aria-expanded={sidebarOpen}
+		aria-controls="files-panel"
+		title={`${t('toolbar.panel')} (${keyboardStore.label('sidebar') ?? ''})`}
 	>
 		<Menu size={16} />
 	</button>
 
 	<!-- File name -->
-	<div class="hidden min-w-0 flex-1 items-center gap-1 min-[520px]:flex">
+	<div class="flex min-w-0 max-w-28 flex-1 items-center gap-1 sm:max-w-none">
 		{#if filesStore.active}
 			<!-- §B1.7 - Visible focus border to signal that the input is editable.
 			     §B3.5 - Accent success flash 800 ms after blur if rename was effective. -->
@@ -194,7 +201,7 @@
 				</span>
 			{/if}
 		{:else}
-			<span class="px-2 text-sm text-fg-dim">{t('toolbar.noFileOpen')}</span>
+			<span class="hidden px-2 text-sm text-fg-dim sm:inline">{t('toolbar.noFileOpen')}</span>
 		{/if}
 	</div>
 
@@ -213,45 +220,45 @@
 			class:bg-bg-3={mode === 'wysiwyg'}
 			class:text-fg={mode === 'wysiwyg'}
 			onclick={() => onSetMode('wysiwyg')}
-			title={`${t('toolbar.wysiwygEdit')} (${formatKbd('⌘E')})`}
+			title={`${t('toolbar.wysiwygEdit')} (${keyboardStore.label('mode-wysiwyg') ?? ''})`}
 			aria-label={t('toolbar.wysiwygMode')}
-			aria-keyshortcuts="Control+E Meta+E"
+			aria-keyshortcuts={keyboardStore.aria('mode-wysiwyg')}
 			role="radio"
 			aria-checked={mode === 'wysiwyg'}
 			tabindex={mode === 'wysiwyg' ? 0 : -1}
 			data-mode="wysiwyg"
 		>
-			<Pencil size={14} />
+			<Pencil size={14} /><span class="ml-1 hidden lg:inline">{t('toolbar.modeEdit')}</span>
 		</button>
 		<button
 			class="flex items-center justify-center rounded px-2 py-1 transition"
 			class:bg-bg-3={mode === 'source'}
 			class:text-fg={mode === 'source'}
 			onclick={() => onSetMode('source')}
-			title={`${t('toolbar.sourceMarkdown')} (${formatKbd('⌘/')})`}
+			title={`${t('toolbar.sourceMarkdown')} (${keyboardStore.label('mode-source') ?? ''})`}
 			aria-label={t('toolbar.sourceMode')}
-			aria-keyshortcuts="Control+/ Meta+/"
+			aria-keyshortcuts={keyboardStore.aria('mode-source')}
 			role="radio"
 			aria-checked={mode === 'source'}
 			tabindex={mode === 'source' ? 0 : -1}
 			data-mode="source"
 		>
-			<Code2 size={14} />
+			<Code2 size={14} /><span class="ml-1 hidden lg:inline">{t('toolbar.modeSource')}</span>
 		</button>
 		<button
 			class="flex items-center justify-center rounded px-2 py-1 transition"
 			class:bg-bg-3={mode === 'read'}
 			class:text-fg={mode === 'read'}
 			onclick={() => onSetMode('read')}
-			title={`${t('toolbar.reading')} (${formatKbd('⌘R')})`}
+			title={`${t('toolbar.reading')} (${keyboardStore.label('mode-read') ?? ''})`}
 			aria-label={t('toolbar.readingMode')}
-			aria-keyshortcuts="Control+R Meta+R"
+			aria-keyshortcuts={keyboardStore.aria('mode-read')}
 			role="radio"
 			aria-checked={mode === 'read'}
 			tabindex={mode === 'read' ? 0 : -1}
 			data-mode="read"
 		>
-			<Eye size={14} />
+			<Eye size={14} /><span class="ml-1 hidden lg:inline">{t('toolbar.modeRead')}</span>
 		</button>
 	</div>
 
@@ -259,13 +266,13 @@
 
 	{#if diskLinkingAvailable}
 		<button
-			class="mdsh-icon-button ml-1 flex items-center justify-center rounded p-2 text-fg-muted
+			class="mdsh-icon-button ml-1 hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
 			       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 			onclick={onSaveToDisk}
 			disabled={!filesStore.active}
-			title={`${t('toolbar.saveToDisk')} (${formatKbd('⌘⇧S')})`}
+			title={`${t('toolbar.saveToDisk')} (${keyboardStore.label('save-disk') ?? ''})`}
 			aria-label={t('toolbar.saveToDisk')}
-			aria-keyshortcuts="Control+Shift+S Meta+Shift+S"
+			aria-keyshortcuts={keyboardStore.aria('save-disk')}
 		>
 			<HardDriveDownload size={16} />
 		</button>
@@ -275,36 +282,37 @@
 	     is for the sighted eye). ARIA format: "Control+B Meta+B" - Meta
 	     covers macOS, Control the rest. -->
 	<button
-		class="mdsh-icon-button flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted
+		class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 		onclick={onExport}
 		disabled={!filesStore.active}
-		title={`${t('toolbar.export')} (${formatKbd('⌘S')})`}
+		title={`${t('toolbar.export')} (${keyboardStore.label('export-md') ?? ''})`}
 		aria-label={t('toolbar.export')}
-		aria-keyshortcuts="Control+S Meta+S"
+		aria-keyshortcuts={keyboardStore.aria('export-md')}
 	>
 		<Download size={16} />
 	</button>
 
 	<button
-		class="mdsh-icon-button flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted
+		class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 		onclick={onExportPDF}
 		disabled={!filesStore.active}
-		title={`${t('toolbar.exportPdf')} (${formatKbd('⌘P')})`}
+		title={`${t('toolbar.exportPdf')} (${keyboardStore.label('export-pdf') ?? ''})`}
 		aria-label={t('toolbar.exportPdf')}
-		aria-keyshortcuts="Control+P Meta+P"
+		aria-keyshortcuts={keyboardStore.aria('export-pdf')}
 	>
 		<Printer size={16} />
 	</button>
 
 	<button
-		class="mdsh-icon-button flex items-center justify-center rounded p-2.5 sm:p-2 text-fg-muted"
+		class="mdsh-icon-button flex min-h-10 items-center justify-center gap-1.5 rounded px-2 text-fg-muted"
 		onclick={onOpenPalette}
-		title={`${t('toolbar.commandPalette')} (${formatKbd('⌘⇧P')})`}
+		title={`${t('toolbar.commandPalette')} (${keyboardStore.label('palette') ?? ''})`}
 		aria-label={t('toolbar.commandPalette')}
-		aria-keyshortcuts="Control+Shift+P Meta+Shift+P"
+		aria-keyshortcuts={keyboardStore.aria('palette')}
 	>
 		<Command size={16} />
+		<span class="text-xs font-medium">{t('toolbar.commands')}</span>
 	</button>
 </header>

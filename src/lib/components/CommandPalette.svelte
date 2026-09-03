@@ -18,8 +18,12 @@
 		runPaletteSaveWorkspace
 	} from '$lib/palette-ops';
 	import { isDirectoryPickerSupported } from '$lib/fsa';
+	import { isDesktop } from '$lib/desktop';
+	import { isDiskLinkingAvailable } from '$lib/disk-sync';
 	import type { EditMode } from '$lib/types';
 	import { EDITOR } from '$lib/config';
+	import { coreCommands, normalizeCommandSearch } from '$lib/ui/commands';
+	import { keyboardStore } from '$lib/ui/keyboard.svelte';
 	import { focusTrap } from '$lib/a11y/focusTrap';
 	import { formatKbd } from '$lib/platform';
 	import {
@@ -58,6 +62,8 @@
 		label: string;
 		hint?: string;
 		kbd?: string;
+		keywords?: string;
+		enabled?: () => boolean;
 		icon: typeof FilePlus;
 		run: () => void;
 	}
@@ -71,6 +77,7 @@
 		onExportHtml: () => void;
 		onExportPdf: () => void;
 		onExportAll: () => void;
+		onSaveToDisk: () => void;
 		onToggleSidebar: () => void;
 		onSetMode: (m: EditMode) => void;
 		onOpenSearch: () => void;
@@ -100,6 +107,7 @@
 		onExportHtml,
 		onExportPdf,
 		onExportAll,
+		onSaveToDisk,
 		onToggleSidebar,
 		onSetMode,
 		onOpenSearch,
@@ -126,6 +134,41 @@
 
 	function stripExt(name: string) {
 		return name.replace(/\.(md|markdown|mdx|txt)$/i, '');
+	}
+
+	function runCommand(command: Command | undefined): void {
+		if (!command || !isAvailable(command)) return;
+		onClose();
+		command.run();
+	}
+
+	function isAvailable(command: Command): boolean {
+		const needsDocument = [
+			'export-md',
+			'export-pdf',
+			'export-html',
+			'copy-md',
+			'copy-html',
+			'mode-wysiwyg',
+			'mode-source',
+			'mode-read',
+			'search-in-file',
+			'history',
+			'presentation',
+			'template-save',
+			'rename-file',
+			'close-file',
+			'delete-file',
+			'save-disk'
+		].includes(command.id);
+		if (command.id === 'export-all' && filesStore.files.length === 0) return false;
+		if (command.id.startsWith('export-') && spinnerStore.visible) return false;
+		if (command.id.startsWith('copy-') && !isClipboardSupported()) return false;
+		const core = coreCommands.find((entry) => entry.id === command.id);
+		return (
+			(!(needsDocument || core?.document) || filesStore.active !== null) &&
+			command.enabled?.() !== false
+		);
 	}
 
 	// §2.3 - "Vault" import: opens a directory and creates a tab per .md file.
@@ -159,6 +202,41 @@
 	}
 
 	const baseCommands: Command[] = $derived([
+		...filesStore.closedFiles.map((file) => ({
+			id: `reopen-${file.id}`,
+			label: t('palette.reopenFile', { name: file.name }),
+			icon: FileText,
+			run: () => {
+				filesStore.reopen(file.id);
+			}
+		})),
+		{
+			id: 'close-file',
+			label: t('palette.closeFile'),
+			icon: X,
+			kbd: formatKbd('⌘W'),
+			run: () => {
+				if (filesStore.activeId) filesStore.close(filesStore.activeId);
+			}
+		},
+		{
+			id: 'delete-file',
+			label: t('palette.deleteFile'),
+			icon: X,
+			run: () => {
+				const id = filesStore.activeId;
+				if (id)
+					void promptStore
+						.confirm({
+							title: t('sidebar.deleteConfirm'),
+							message: t('sidebar.deleteMessage'),
+							danger: true
+						})
+						.then((yes) => {
+							if (yes) filesStore.delete(id);
+						});
+			}
+		},
 		{ id: 'new', label: t('palette.newFile'), kbd: formatKbd('⌘N'), icon: FilePlus, run: onNew },
 		{
 			id: 'import',
@@ -167,7 +245,7 @@
 			icon: Upload,
 			run: onImport
 		},
-		...(isDirectoryPickerSupported()
+		...(isDesktop() || isDirectoryPickerSupported()
 			? [
 					{
 						id: 'import-dir',
@@ -181,16 +259,49 @@
 		{
 			id: 'export-md',
 			label: t('palette.exportMarkdown'),
+			keywords: t('palette.exportMarkdownKeywords'),
 			kbd: formatKbd('⌘S'),
 			icon: Download,
+			enabled: () => filesStore.active !== null,
 			run: onExportMd
 		},
+		...(isDiskLinkingAvailable()
+			? [
+					{
+						id: 'save-disk',
+						label: t('palette.saveToDisk'),
+						keywords: t('palette.saveToDiskKeywords'),
+						kbd: formatKbd('⌘⇧S'),
+						icon: Download,
+						enabled: () => filesStore.active !== null,
+						run: onSaveToDisk
+					}
+				]
+			: []),
 		{
 			id: 'export-pdf',
 			label: t('palette.exportPdf'),
+			keywords: t('palette.exportPdfKeywords'),
 			kbd: formatKbd('⌘P'),
 			icon: Printer,
+			enabled: () => filesStore.active !== null,
 			run: onExportPdf
+		},
+		{
+			id: 'rename-file',
+			label: t('palette.renameFile'),
+			keywords: t('palette.renameFileKeywords'),
+			icon: Pencil,
+			enabled: () => filesStore.active !== null,
+			run: () => {
+				const active = filesStore.active;
+				if (!active) return;
+				void promptStore
+					.prompt({ title: t('palette.renameFilePrompt'), defaultValue: stripExt(active.name) })
+					.then((name) => {
+						if (name !== null) filesStore.rename(active.id, name);
+					});
+			}
 		},
 		{ id: 'export-html', label: t('palette.exportHtml'), icon: FileOutput, run: onExportHtml },
 		{ id: 'export-all', label: t('palette.exportAll'), icon: Files, run: onExportAll },
@@ -311,6 +422,7 @@
 		{
 			id: 'settings',
 			label: t('palette.settings'),
+			keywords: t('palette.settingsKeywords'),
 			hint: t('palette.settingsHint'),
 			icon: Settings,
 			run: onOpenSettings
@@ -454,10 +566,19 @@
 	);
 
 	const filtered: Command[] = $derived.by(() => {
-		const all = [...baseCommands, ...templateCommands, ...workspaceCommands, ...fileCommands];
-		const q = query.trim().toLowerCase();
+		const all = [...baseCommands, ...templateCommands, ...workspaceCommands, ...fileCommands].map(
+			(command) => {
+				const core = coreCommands.find((entry) => entry.id === command.id);
+				if (!core) return command;
+				const { kbd: _defaultKbd, ...rest } = command;
+				void _defaultKbd;
+				const kbd = keyboardStore.label(command.id);
+				return kbd ? { ...rest, kbd } : rest;
+			}
+		);
+		const q = normalizeCommandSearch(query.trim());
 		if (!q) return all;
-		return all.filter((c) => c.label.toLowerCase().includes(q));
+		return all.filter((c) => normalizeCommandSearch(`${c.label} ${c.keywords ?? ''}`).includes(q));
 	});
 
 	$effect(() => {
@@ -478,7 +599,16 @@
 		selected = 0;
 	});
 
+	$effect(() => {
+		const option = filtered[selected];
+		if (!option) return;
+		tick().then(() => {
+			document.getElementById(`cmd-palette-opt-${option.id}`)?.scrollIntoView({ block: 'nearest' });
+		});
+	});
+
 	function handleKey(e: KeyboardEvent) {
+		if (e.isComposing || e.defaultPrevented) return;
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			onClose();
@@ -491,10 +621,7 @@
 		} else if (e.key === 'Enter') {
 			e.preventDefault();
 			const cmd = filtered[selected];
-			if (cmd) {
-				onClose();
-				cmd.run();
-			}
+			runCommand(cmd);
 		}
 	}
 </script>
@@ -557,8 +684,8 @@
 			<div
 				class="palette-meta flex items-center justify-between border-b border-border px-3 py-1.5"
 			>
-				<span>COMMAND INDEX</span>
-				<span>{filtered.length.toString().padStart(2, '0')} AVAILABLE</span>
+				<span>{t('palette.commandIndex')}</span>
+				<span>{t('palette.availableCount', { n: filtered.filter(isAvailable).length })}</span>
 			</div>
 
 			<ul
@@ -577,6 +704,12 @@
 							role="option"
 							id={`cmd-palette-opt-${cmd.id}`}
 							aria-selected={i === selected}
+							aria-disabled={!isAvailable(cmd) ? 'true' : undefined}
+							title={!isAvailable(cmd)
+								? filesStore.active
+									? t('palette.unavailable')
+									: t('palette.requiresDocument')
+								: cmd.hint}
 							aria-label={cmd.kbd
 								? t('palette.commandWithShortcut', { label: cmd.label, kbd: cmd.kbd })
 								: cmd.label}
@@ -584,15 +717,14 @@
 							class:bg-bg-2={i === selected}
 							class:text-fg={i === selected}
 							class:text-fg-muted={i !== selected}
+							class:opacity-50={!isAvailable(cmd)}
 							onclick={() => {
-								onClose();
-								cmd.run();
+								runCommand(cmd);
 							}}
 							onkeydown={(event) => {
 								if (event.key === 'Enter' || event.key === ' ') {
 									event.preventDefault();
-									onClose();
-									cmd.run();
+									runCommand(cmd);
 								}
 							}}
 							onmousedown={(event) => event.preventDefault()}

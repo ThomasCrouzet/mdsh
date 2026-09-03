@@ -16,10 +16,26 @@ export const EDITOR = {
 export const TIMERS = {
 	saveDebounceMs: 400,
 	trashUndoMs: 5000,
+	trashRetentionMs: 30 * 24 * 60 * 60 * 1000,
 	printIframeLoadMs: 3000,
 	printIframeCleanupMs: 60_000
 } as const;
 
 export const READING = {
 	wpm: 220
+} as const;
+
+export const IMPORT_LIMITS = {
+	maxFileBytes: 16 * 1024 * 1024,
+	maxBatchBytes: 64 * 1024 * 1024,
+	maxFiles: 300,
+	maxDepth: 8,
+	largeDocumentChars: 256 * 1024
+} as const;
+
+export const BACKUP_LIMITS = {
+	maxDocuments: 3000,
+	maxWorkspaces: 300,
+	maxWorkspaceReferences: 300,
+	maxTotalWorkspaceReferences: 3000
 } as const;

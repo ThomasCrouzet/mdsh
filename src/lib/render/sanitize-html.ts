@@ -78,6 +78,30 @@ export function neutralizeRemoteStyleUrls(node: SanitizeNode): void {
 	if (cleaned === '') node.removeAttribute?.('style');
 }
 
+/** SVG paint servers and use-elements may also fetch URLs outside img/src. */
+export function neutralizeRemoteSvgReferences(node: SanitizeNode): void {
+	if (typeof node.getAttribute !== 'function') return;
+	for (const attribute of [
+		'fill',
+		'stroke',
+		'filter',
+		'clip-path',
+		'mask',
+		'marker-start',
+		'marker-mid',
+		'marker-end'
+	]) {
+		const value = node.getAttribute(attribute);
+		if (value && /url\s*\(/i.test(value) && stripRemoteStyleUrls(value) === '')
+			node.removeAttribute?.(attribute);
+	}
+	if (node.tagName?.toLowerCase() !== 'use') return;
+	for (const attribute of ['href', 'xlink:href']) {
+		const value = node.getAttribute(attribute);
+		if (value && !/^#[a-z_][a-z0-9_.:-]*$/i.test(value.trim())) node.removeAttribute?.(attribute);
+	}
+}
+
 function isNetworkImageSource(value: string): boolean {
 	const source = value.trim();
 	return source !== '' && !/^(?:data:|blob:|#)/i.test(source);
@@ -143,6 +167,7 @@ export function registerMdshDomPurifyHooks(purify: {
 	purify.addHook('afterSanitizeAttributes', (node) => {
 		hardenExternalLink(node);
 		neutralizeRemoteStyleUrls(node);
+		neutralizeRemoteSvgReferences(node);
 	});
 	hookRegistered = true;
 }
@@ -159,14 +184,33 @@ export interface SanitizeHtmlConfig {
 export const MERMAID_PREVIEW_PURIFY: SanitizeHtmlConfig = {
 	USE_PROFILES: { html: true, svg: true, svgFilters: true },
 	ADD_TAGS: ['foreignObject'],
-	ADD_ATTR: ['target']
+	ADD_ATTR: ['target'],
+	FORBID_TAGS: ['feImage', 'animate', 'set', 'animateMotion', 'animateTransform', 'mpath']
 };
 
 /** DOMPurify config for marked → HTML (reading / export). */
 export const MARKDOWN_PURIFY: SanitizeHtmlConfig = {
 	USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
-	ADD_ATTR: ['target', 'data-mdsh-wiki'],
-	FORBID_TAGS: ['style', 'form'],
+	ADD_ATTR: [
+		'target',
+		'data-mdsh-wiki',
+		'data-mdsh-remote-src',
+		'data-mdsh-remote-srcset',
+		'data-mdsh-remote-href',
+		'data-mdsh-remote-xlink-href',
+		'data-mdsh-image-ratio',
+		'data-mdsh-media-src'
+	],
+	FORBID_TAGS: [
+		'style',
+		'form',
+		'feImage',
+		'animate',
+		'set',
+		'animateMotion',
+		'animateTransform',
+		'mpath'
+	],
 	FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur']
 };
 
@@ -177,6 +221,6 @@ export async function sanitizeHtml(html: string, config: SanitizeHtmlConfig): Pr
 }
 
 /** Sanitizer used by the WYSIWYG Mermaid preview (same remote url() hook as read). */
-export function sanitizeMermaidPreviewHtml(html: string): Promise<string> {
-	return sanitizeHtml(html, MERMAID_PREVIEW_PURIFY);
+export async function sanitizeMermaidPreviewHtml(html: string): Promise<string> {
+	return applyRemoteImagePolicy(await sanitizeHtml(html, MERMAID_PREVIEW_PURIFY), false);
 }

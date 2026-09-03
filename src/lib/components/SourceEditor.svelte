@@ -94,7 +94,27 @@
 					history: cmds.history,
 					historyKeymap: cmds.historyKeymap,
 					syntaxHighlighting: language.syntaxHighlighting,
-					defaultHighlightStyle: language.defaultHighlightStyle,
+					defaultHighlightStyle: language.HighlightStyle.define(
+						language.defaultHighlightStyle.specs.map((spec) => {
+							const colors: Record<string, string> = {
+								'#404740': 'var(--syntax-comment)',
+								'#708': 'var(--syntax-keyword)',
+								'#219': 'var(--syntax-literal)',
+								'#164': 'var(--syntax-string)',
+								'#a11': 'var(--syntax-name)',
+								'#e40': 'var(--syntax-number)',
+								'#940': 'var(--syntax-comment)',
+								'#f00': 'var(--color-danger)'
+							};
+							return {
+								...spec,
+								color:
+									typeof spec.color === 'string'
+										? (colors[spec.color] ?? 'var(--syntax-title)')
+										: 'var(--color-fg)'
+							};
+						})
+					),
 					search: searchMod.search,
 					openSearchPanel: searchMod.openSearchPanel,
 					searchKeymap: searchMod.searchKeymap,

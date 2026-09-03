@@ -73,7 +73,7 @@
 			confirmLabel: t('versionHistory.restore')
 		});
 		if (!ok) return;
-		filesStore.updateContent(active.id, v.content);
+		await filesStore.restoreVersion(active.id, v.content);
 		notify.success(t('versionHistory.restored'));
 		onClose();
 	}
@@ -91,6 +91,8 @@
 		onkeydown={(e) => {
 			if (e.key === 'Escape') onClose();
 		}}
+		inert={promptStore.open}
+		aria-hidden={promptStore.open ? 'true' : undefined}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="history-title"
@@ -126,10 +128,10 @@
 					{t('versionHistory.empty')}
 				</p>
 			{:else}
-				<div class="flex min-h-0 flex-1">
+				<div class="flex min-h-0 flex-1 flex-col sm:flex-row">
 					<!-- Version list -->
 					<ul
-						class="w-56 shrink-0 overflow-y-auto border-r border-border py-1"
+						class="max-h-32 w-full sm:max-h-none sm:w-56 shrink-0 overflow-y-auto border-b sm:border-r border-border py-1"
 						aria-label={t('versionHistory.availableVersions')}
 					>
 						{#each versions as v, i (v.id)}
@@ -154,7 +156,7 @@
 					</ul>
 
 					<!-- Preview of the selected version -->
-					<div class="flex min-w-0 flex-1 flex-col">
+					<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 						{#if selected}
 							<div
 								class="flex items-center gap-3 border-b border-border px-3 py-1.5 text-[11px] text-fg-dim"

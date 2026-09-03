@@ -1,21 +1,21 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import { focusTrap } from './focusTrap';
 
-// jsdom ne calcule pas de layout : `offsetParent` est toujours null, ce qui
+// jsdom ne calcule pas de layout : `getClientRects` est toujours vide, ce qui
 // ferait filtrer TOUS les focusables. On le mocke pour refléter la visibilité
 // (un élément connecté au document est considéré visible).
 let original: PropertyDescriptor | undefined;
 beforeAll(() => {
-	original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
-	Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+	original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getClientRects');
+	Object.defineProperty(HTMLElement.prototype, 'getClientRects', {
 		configurable: true,
-		get(this: HTMLElement) {
-			return this.isConnected ? document.body : null;
+		value(this: HTMLElement) {
+			return this.isConnected ? [{}] : [];
 		}
 	});
 });
 afterAll(() => {
-	if (original) Object.defineProperty(HTMLElement.prototype, 'offsetParent', original);
+	if (original) Object.defineProperty(HTMLElement.prototype, 'getClientRects', original);
 });
 
 beforeEach(() => {
@@ -141,4 +141,24 @@ describe('focusTrap', () => {
 		const e = tab(container, false);
 		expect(e.defaultPrevented).toBe(true);
 	});
+});
+
+it('ne compte pas les résultats tabindex=-1 comme dernière cible Tab', () => {
+	const { container, buttons } = makeContainer(3);
+	buttons[2]!.tabIndex = -1;
+	focusTrap(container);
+	buttons[1]!.focus();
+	expect(tab(container).defaultPrevented).toBe(true);
+	expect(document.activeElement).toBe(buttons[0]);
+});
+
+it('restaure le déclencheur après fermeture du drawer', () => {
+	const trigger = document.createElement('button');
+	document.body.append(trigger);
+	trigger.focus();
+	const { container, buttons } = makeContainer(2);
+	const trap = focusTrap(container, { active: true });
+	buttons[0]!.focus();
+	trap.update({ active: false, restoreOnDeactivate: true });
+	expect(document.activeElement).toBe(trigger);
 });

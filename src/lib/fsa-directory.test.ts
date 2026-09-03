@@ -8,7 +8,7 @@ import { pickDirectoryFiles, isDirectoryPickerSupported } from './fsa';
 interface FakeFile {
 	kind: 'file';
 	name: string;
-	getFile: () => Promise<{ text: () => Promise<string> }>;
+	getFile: () => Promise<File>;
 }
 interface FakeDir {
 	kind: 'directory';
@@ -17,7 +17,7 @@ interface FakeDir {
 }
 
 function file(name: string, content: string): FakeFile {
-	return { kind: 'file', name, getFile: async () => ({ text: async () => content }) };
+	return { kind: 'file', name, getFile: async () => new File([content], name) };
 }
 function dir(name: string, children: Array<FakeFile | FakeDir>): FakeDir {
 	return {
@@ -94,5 +94,52 @@ describe('pickDirectoryFiles', () => {
 		const { files, truncated } = await pickDirectoryFiles();
 		expect(files).toEqual([]);
 		expect(truncated).toBe(false);
+	});
+});
+
+describe('import de dossiers borné', () => {
+	it('importe 300 notes et signale la 301e sans la lire', async () => {
+		const entries = Array.from({ length: 301 }, (_, index) => file(`${index}.md`, '# Note'));
+		entries[300]!.getFile = vi.fn(entries[300]!.getFile);
+		installPicker(async () => dir('root', entries));
+		const result = await pickDirectoryFiles();
+		expect(result.files).toHaveLength(300);
+		expect(result.truncated).toBe(true);
+		expect(result.report.issues[0]?.reason).toBe('file-count');
+		expect(entries[300]!.getFile).not.toHaveBeenCalled();
+	});
+	it('poursuit après fichier illisible et faux markdown binaire', async () => {
+		const broken = file('broken.md', '');
+		broken.getFile = vi.fn().mockRejectedValue(new Error('permission'));
+		installPicker(async () =>
+			dir('root', [broken, file('binary.md', '\0'), file('good.md', 'ok')])
+		);
+		const result = await pickDirectoryFiles();
+		expect(result.files.map((entry) => entry.name)).toEqual(['good.md']);
+		expect(result.report.failed).toBe(2);
+		expect(result.truncated).toBe(true);
+	});
+	it('annule le parcours depuis la progression en conservant les notes déjà lues', async () => {
+		const controller = new AbortController();
+		installPicker(async () => dir('root', [file('one.md', '1'), file('two.md', '2')]));
+		const result = await pickDirectoryFiles({
+			signal: controller.signal,
+			onProgress: (report) => {
+				if (report.imported === 1) controller.abort();
+			}
+		});
+		expect(result.files).toHaveLength(1);
+		expect(result.report.cancelled).toBe(true);
+		expect(result.truncated).toBe(true);
+	});
+	it('signale une arborescence trop profonde et remonte les erreurs du sélecteur', async () => {
+		let nested = dir('leaf', [file('deep.md', 'x')]);
+		for (let i = 0; i < 9; i++) nested = dir(`level${i}`, [nested]);
+		installPicker(async () => nested);
+		expect((await pickDirectoryFiles()).report.issues[0]?.reason).toBe('depth');
+		installPicker(async () => {
+			throw new Error('permission');
+		});
+		await expect(pickDirectoryFiles()).rejects.toThrow('permission');
 	});
 });

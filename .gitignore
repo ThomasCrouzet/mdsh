@@ -40,3 +40,6 @@ dev-dist
 # Tauri (desktop shell) - Rust build artifacts
 /src-tauri/target
 /src-tauri/gen
+
+# Preuves des tests WebView natifs
+/native-test-results

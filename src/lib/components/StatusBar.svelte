@@ -3,6 +3,14 @@
 	import { computeStats, formatSaveAge } from '$lib/stats';
 	import { t } from '$lib/i18n';
 	import { onMount } from 'svelte';
+	import { reportPersistenceError } from '$lib/storage';
+	async function retrySave() {
+		try {
+			await filesStore.flushPendingAwait();
+		} catch (error) {
+			reportPersistenceError(error, 'save');
+		}
+	}
 
 	let now = $state(Date.now());
 
@@ -56,7 +64,8 @@
 
 {#if filesStore.active}
 	<footer
-		class="flex h-6 flex-shrink-0 items-center justify-between gap-3 border-t border-border
+		id="app-statusbar"
+		class="flex min-h-6 flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border
 		       bg-bg px-3 font-mono text-[11px] text-fg-muted"
 	>
 		<div class="flex items-center gap-3">
@@ -72,7 +81,12 @@
 		     Without this, the "saved Xs ago" label only moves every 10 s
 		     (setInterval), with no feedback that typing has been saved. -->
 		<div class="truncate">
-			{#if filesStore.hasPendingSave}
+			{#if filesStore.saveErrorIds.length > 0}
+				<span role="status" class="text-danger">{t('statusBar.saveFailed')}</span>
+				<button class="ml-2 underline text-danger" onclick={() => void retrySave()}
+					>{t('statusBar.retrySave')}</button
+				>
+			{:else if filesStore.hasPendingSave}
 				<span class="text-accent" aria-live="off">{t('statusBar.saving')}</span>
 			{:else}
 				{saveLabel}

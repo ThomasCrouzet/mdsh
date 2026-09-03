@@ -25,6 +25,7 @@ vi.mock('./desktop', () => ({
 }));
 
 vi.mock('./disk-tauri', () => ({
+	tauriPickDirectoryAndOpen: vi.fn(async () => ({ files: [], failed: 0 })),
 	tauriPickAndOpen: vi.fn(async () => ({ files: [], failed: 0 })),
 	tauriPickSaveTarget: vi.fn(async () => null),
 	tauriWritePath: vi.fn(async () => ({
@@ -42,6 +43,7 @@ import * as desktop from './desktop';
 import * as diskTauri from './disk-tauri';
 import {
 	openFromDisk,
+	openDirectoryFromDisk,
 	openPathsFromDesktop,
 	saveToDisk,
 	unlinkFromDisk,
@@ -77,8 +79,20 @@ function fakeFile(
 		name,
 		lastModified: over.lastModified ?? 0,
 		size: over.size ?? content.length,
-		text: () => Promise.resolve(content)
+		arrayBuffer: async () => new TextEncoder().encode(content).buffer
 	} as unknown as File;
+}
+
+function testDeps(store: FileItem[]): DiskSyncDeps {
+	return {
+		getFile: (id) => store.find((file) => file.id === id),
+		onCreate: (name, content) => {
+			const item = makeFile({ id: `test-${name}`, name, content });
+			store.push(item);
+			return item;
+		},
+		scheduleSave: vi.fn()
+	};
 }
 
 beforeEach(() => {
@@ -151,7 +165,7 @@ describe('openFromDisk', () => {
 			name: 'bad.md',
 			lastModified: 0,
 			size: 0,
-			text: vi.fn().mockRejectedValue(new Error('illisible'))
+			arrayBuffer: vi.fn().mockRejectedValue(new Error('illisible'))
 		} as unknown as File;
 		vi.mocked(fsa.pickAndOpen).mockResolvedValue([
 			{ handle, file: good },
@@ -496,6 +510,7 @@ describe('openFromDisk desktop capability backend', () => {
 		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
 			files: [
 				{
+					token: 'argv-token',
 					name: 'from-argv.md',
 					content: 'x',
 					path: '/Users/me/from-argv.md',
@@ -514,8 +529,9 @@ describe('openFromDisk desktop capability backend', () => {
 			stat: { lastModified: 1, size: 1, revision: 'sha256:argv' }
 		};
 		const created = await openPathsFromDesktop([nativeGrant], depsFor(store));
-		expect(created).toHaveLength(1);
-		expect(diskTauri.tauriOpenNativeGrants).toHaveBeenCalledWith([nativeGrant]);
+		expect(created.files).toHaveLength(1);
+		expect(created.processedTokens).toEqual(['argv-token']);
+		expect(diskTauri.tauriOpenNativeGrants).toHaveBeenCalledWith([nativeGrant], {});
 		expect(fsa.savePathLink).toHaveBeenCalled();
 	});
 });
@@ -733,5 +749,189 @@ describe('refreshBrokenLinks', () => {
 		await expect(refreshBrokenLinks([f], () => undefined)).resolves.toBeUndefined();
 		// L'objet d'origine n'est pas muté car le lookup renvoie undefined.
 		expect(f.brokenLink).toBeUndefined();
+	});
+});
+
+describe('imports natifs protégés', () => {
+	const opened = {
+		name: 'note.md',
+		content: 'disk',
+		path: '/tmp/note.md',
+		lastModified: 42,
+		size: 4,
+		revision: 'new-disk-revision',
+		link: { kind: 'path' as const, path: '/tmp/note.md' }
+	};
+	it('réactive le brouillon sale existant sans changer sa branche ni sa révision', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(diskTauri.tauriPickAndOpen).mockResolvedValue({ files: [opened], failed: 0 });
+		const file = makeFile({ content: 'local unsaved', dirty: true, diskRevision: 'old-revision' });
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: opened.path });
+		const onCreate = vi.fn();
+		const onActivate = vi.fn();
+		const result = await openFromDisk({
+			getFile: () => file,
+			getFiles: () => [file],
+			onCreate,
+			onActivate,
+			scheduleSave: vi.fn()
+		});
+		expect(result).toEqual([file]);
+		expect(onActivate).toHaveBeenCalledWith(file.id);
+		expect(onCreate).not.toHaveBeenCalled();
+		expect(file).toMatchObject({
+			content: 'local unsaved',
+			dirty: true,
+			diskRevision: 'old-revision'
+		});
+	});
+	it('importe un dossier natif et conserve les échecs du backend dans le bilan', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(diskTauri.tauriPickDirectoryAndOpen).mockResolvedValue({
+			files: [opened],
+			failed: 1
+		});
+		const onProgress = vi.fn();
+		const result = await openDirectoryFromDisk(
+			{
+				getFile: () => undefined,
+				onCreate: (name, content) => makeFile({ name, content }),
+				scheduleSave: vi.fn()
+			},
+			{ onProgress }
+		);
+		expect(result).toHaveLength(1);
+		expect(onProgress).toHaveBeenLastCalledWith(
+			expect.objectContaining({ imported: 1, failed: 1 })
+		);
+	});
+	it('refuse un faux markdown et abandonne les créations après annulation', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		const onCreate = vi.fn();
+		const deps = { getFile: () => undefined, onCreate, scheduleSave: vi.fn() };
+		vi.mocked(diskTauri.tauriPickAndOpen).mockResolvedValue({
+			files: [{ ...opened, content: '\0' }],
+			failed: 0
+		});
+		expect(await openFromDisk(deps)).toEqual([]);
+		const controller = new AbortController();
+		controller.abort();
+		expect(await openFromDisk(deps, { signal: controller.signal })).toEqual([]);
+		expect(onCreate).not.toHaveBeenCalled();
+	});
+	it('ne lance pas de sélecteur natif dans un navigateur', async () => {
+		expect(
+			await openDirectoryFromDisk({
+				getFile: () => undefined,
+				onCreate: vi.fn(),
+				scheduleSave: vi.fn()
+			})
+		).toEqual([]);
+		expect(diskTauri.tauriPickDirectoryAndOpen).not.toHaveBeenCalled();
+	});
+});
+
+describe('acquittement natif par capacité', () => {
+	it('retourne seulement les tokens créés ou dédupliqués avec leur lien persistant', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
+			files: [
+				{
+					token: 'good-token',
+					name: 'good.md',
+					content: 'ok',
+					path: '/tmp/good.md',
+					lastModified: 1,
+					size: 2,
+					revision: 'r1',
+					link: { kind: 'path', path: '/tmp/good.md' }
+				},
+				{
+					token: 'binary-token',
+					name: 'binary.md',
+					content: '\0',
+					path: '/tmp/binary.md',
+					lastModified: 1,
+					size: 1,
+					revision: 'r2',
+					link: { kind: 'path', path: '/tmp/binary.md' }
+				}
+			],
+			failed: 1
+		});
+		const result = await openPathsFromDesktop(
+			[
+				{ token: 'good-token', path: '/tmp/good.md', stat: null },
+				{ token: 'binary-token', path: '/tmp/binary.md', stat: null },
+				{ token: 'read-failed-token', path: '/tmp/read-failed.md', stat: null }
+			],
+			testDeps([])
+		);
+		expect(result.files.map((file) => file.name)).toEqual(['good.md']);
+		expect(result.processedTokens).toEqual(['good-token']);
+	});
+	it('révoque la création en mémoire si le lien du token ne peut être persisté', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
+			files: [
+				{
+					token: 'failed-token',
+					name: 'failed.md',
+					content: 'ok',
+					path: '/tmp/failed.md',
+					lastModified: 1,
+					size: 2,
+					revision: 'r1',
+					link: { kind: 'path', path: '/tmp/failed.md' }
+				}
+			],
+			failed: 0
+		});
+		vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('IndexedDB'));
+		const store: FileItem[] = [];
+		const deps = testDeps(store);
+		deps.onImportRollback = (id) =>
+			store.splice(
+				store.findIndex((file) => file.id === id),
+				1
+			);
+		const result = await openPathsFromDesktop(
+			[{ token: 'failed-token', path: '/tmp/failed.md', stat: null }],
+			deps
+		);
+		expect(result).toEqual({ files: [], processedTokens: [] });
+		expect(store).toEqual([]);
+	});
+	it('acquitte également le token qui réactive une branche locale existante', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		const existing = makeFile({ id: 'existing', content: 'local' });
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/same.md' });
+		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
+			files: [
+				{
+					token: 'same-token',
+					name: 'same.md',
+					content: 'disk',
+					path: '/tmp/same.md',
+					lastModified: 1,
+					size: 4,
+					revision: 'r1',
+					link: { kind: 'path', path: '/tmp/same.md' }
+				}
+			],
+			failed: 0
+		});
+		const result = await openPathsFromDesktop(
+			[{ token: 'same-token', path: '/tmp/same.md', stat: null }],
+			{
+				getFile: () => existing,
+				getFiles: () => [existing],
+				onCreate: vi.fn(),
+				onActivate: vi.fn(),
+				scheduleSave: vi.fn()
+			}
+		);
+		expect(result.processedTokens).toEqual(['same-token']);
+		expect(result.files).toEqual([existing]);
 	});
 });

@@ -25,19 +25,33 @@ export async function copyMarkdown(content: string): Promise<void> {
  * a `text/plain` fallback = markdown source. If the `ClipboardItem` API is not
  * available, we fall back to a text copy of the HTML.
  */
-export async function copyRichHtml(content: string): Promise<void> {
+export async function copyRichHtml(
+	content: string,
+	options: { allowNetworkImages?: boolean } = {}
+): Promise<void> {
 	if (!isClipboardSupported()) throw new Error(t('palette.clipboardUnavailable'));
-	const { renderMarkdown } = await import('../render/markdown');
-	const html = await renderMarkdown(content, { showFrontmatter: false });
+	const html = Promise.all([import('../render/markdown'), import('../render/image-media')]).then(
+		async ([{ renderMarkdown }, { prepareHtmlMediaOrThrow }]) => {
+			const rendered = await renderMarkdown(content, {
+				showFrontmatter: false,
+				allowRemoteImages: options.allowNetworkImages === true
+			});
+			return prepareHtmlMediaOrThrow(rendered, {
+				allowNetwork: options.allowNetworkImages === true
+			});
+		}
+	);
 
 	if (typeof ClipboardItem !== 'undefined' && typeof navigator.clipboard.write === 'function') {
 		const item = new ClipboardItem({
-			'text/html': new Blob([html], { type: 'text/html' }),
+			'text/html': html.then((value) => new Blob([value], { type: 'text/html' })),
 			'text/plain': new Blob([content], { type: 'text/plain' })
 		});
-		await navigator.clipboard.write([item]);
+		// Start the write during the user gesture. WebKit accepts the pending
+		// representations but rejects a write started after asynchronous rendering.
+		await Promise.all([navigator.clipboard.write([item]), html]);
 		return;
 	}
 	// Fallback: no ClipboardItem (old Firefox) → we copy the HTML as text.
-	await navigator.clipboard.writeText(html);
+	await navigator.clipboard.writeText(await html);
 }

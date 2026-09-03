@@ -2,6 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import { defineConfig, loadEnv } from 'vite';
+import { bundleGraphPlugin } from './scripts/bundle-graph.mjs';
 
 // Base servie (= `paths.base` SvelteKit en prod). Sert au mapping `index.html`
 // → base dans le transform de manifeste ci-dessous (cf. manifestTransforms).
@@ -41,6 +42,7 @@ export default defineConfig(({ mode }) => {
 		plugins: [
 			tailwindcss(),
 			sveltekit(),
+			bundleGraphPlugin(),
 			SvelteKitPWA({
 				// §1.2 - `prompt` (et non `autoUpdate`) : une nouvelle version ne
 				// s'installe pas en silence - `onNeedRefresh` (cf. ui/pwa-update)
@@ -156,19 +158,8 @@ export default defineConfig(({ mode }) => {
 					handle_links: 'preferred'
 				},
 				workbox: {
-					// §A1.5 - Precache de la coquille d'app COMPLÈTE + features légères.
-					// Inclut entry, nodes, TOUS les chunks ≤ 140 KB (toute la closure de
-					// boot - dont `0.*.css` Tailwind render-blocking et le chunk
-					// page+stores de 122 KB - ainsi que les chunks lazy légers), tous les
-					// CSS, le shell HTML, les icônes et le manifest. Garantit qu'une
-					// installation fraîche démarre ET rend un document HORS-LIGNE sans
-					// dépendre du cache runtime (qui pouvait être évincé : cf. maxEntries).
-					//
-					// Exclues du precache (cap 140 KB ci-dessous) et servies en cache-on-use :
-					// les 8 libs lourdes lazy (mermaid, codemirror, milkdown, marked, katex,
-					// highlight.js, jszip ; 192 KB-768 KB) + les 60 fonts KaTeX (woff2/woff/ttf,
-					// ~math export uniquement). Évite ~4,5 MB → on reste loin des 6,7 MB de
-					// l'ancien precache tout-compris, tout en étant réellement offline-ready.
+					// Préparation hors ligne complète : chaque moteur et ses ressources
+					// sont téléchargés sans évaluation JavaScript spéculative.
 					globPatterns: [
 						'client/_app/immutable/entry/*.js',
 						'client/_app/immutable/nodes/*.js',
@@ -178,7 +169,10 @@ export default defineConfig(({ mode }) => {
 						// worker n'est jamais en cache et la recherche est muette offline).
 						// ~1,2 KB, bien sous le cap chunks.
 						'client/_app/immutable/workers/*.js',
-						'client/_app/immutable/assets/*.css',
+						'client/_app/immutable/assets/*.{css,woff2}',
+						'client/print/*.css',
+						'client/katex/**/*.css',
+						'client/katex/**/*.woff2',
 						// `index.html` est servi par adapter-static comme fallback SPA mais
 						// n'est pas dans `.svelte-kit/output/client/` (workbox lit la sortie
 						// pré-adapter). Le SW navigateFallback est généré par workbox lui-même
@@ -189,30 +183,12 @@ export default defineConfig(({ mode }) => {
 						'client/pwa-{64x64,192x192,512x512}.png',
 						'client/manifest.webmanifest'
 					],
-					// Cap haut : sert uniquement à NE PAS faire échouer le build (le plugin
-					// jette une erreur dès qu'un fichier glob-matché dépasse le cap). Le tri
-					// réel coquille/libs-lourdes est fait par `manifestTransforms` ci-dessous.
 					maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-					// Exclut du PRECACHE les chunks lazy lourds (> 140 KB) : libs de rendu
-					// (mermaid, codemirror, milkdown, marked, katex, highlight.js, jszip).
-					// Elles restent disponibles via `runtimeCaching` (cache-on-use). Tout le
-					// reste - dont la closure statique de boot (max mesuré 122 KB) et les
-					// chunks lazy légers - est précaché, ce qui rend l'app réellement
-					// offline-ready dès le 1er install sans le poids des grosses libs.
-					// ATTENTION : fournir `manifestTransforms` REMPLACE le transform interne
-					// de @vite-pwa/sveltekit (il ne l'injecte QUE s'il est absent). Ce
-					// transform interne réécrit les URLs de la sortie pré-adapter vers les
-					// URLs SERVIES (strip `client/` / `prerendered/…`, `index.html` → base,
-					// retrait du webmanifest). On le RÉPLIQUE fidèlement ici - sinon le SW
-					// précacherait `/client/_app/…` et `/prerendered/pages/index.html` (404).
-					// Ajout : exclusion par TAILLE des gros chunks lazy (impossible via
-					// globIgnores, qui ne connaît pas les tailles).
+					// Le transform conserve la réécriture du plugin vers les URLs
+					// servies et la racine exacte, y compris avec BASE_PATH=/mdsh.
 					manifestTransforms: [
 						(entries) => {
-							const MAX = 140 * 1024;
 							const manifest = entries
-								// Exclut du precache les gros chunks lazy (libs de rendu).
-								.filter((e) => !(/_app\/immutable\/chunks\//.test(e.url) && (e.size ?? 0) > MAX))
 								// Réécriture vers l'URL servie (cf. createManifestTransform du plugin).
 								.map((e) => {
 									let url = e.url;
@@ -244,43 +220,9 @@ export default defineConfig(({ mode }) => {
 					// sinon `createHandlerBoundToURL` ne trouve rien et l'app reste blanche.
 					navigateFallback: `${PWA_BASE}/`,
 					navigateFallbackDenylist: [/^\/api/],
-					// §A3.1 - Runtime caching : tout le reste va en cache à l'usage. Les
-					// chunks `_app/immutable/*` ont un hash dans le filename (immutable) :
-					// CacheFirst sans expiration courte = parfait. Les assets static
-					// (katex, print) ont aussi des paths stables.
-					runtimeCaching: [
-						{
-							// Chunks lazy, fonts KaTeX bundlées par Vite, images.
-							urlPattern: /\/_app\/immutable\//,
-							handler: 'CacheFirst',
-							options: {
-								cacheName: 'mdsh-immutable-v1',
-								expiration: {
-									// 500 > total des fichiers `_app/immutable` (~320) : les libs
-									// lourdes lazy + fonts KaTeX non précachées ne risquent plus
-									// l'éviction LRU d'une génération de déploiement à l'autre.
-									maxEntries: 500,
-									maxAgeSeconds: 60 * 60 * 24 * 60 // 60 jours
-								},
-								cacheableResponse: { statuses: [0, 200] }
-							}
-						},
-						{
-							// Static katex/* (fonts servies à l'iframe d'impression PDF) +
-							// print/print.css. Ces fichiers sont stables (pas de hash mais
-							// changent peu) - on les met en cache 30 jours.
-							urlPattern: /\/(katex|print)\//,
-							handler: 'CacheFirst',
-							options: {
-								cacheName: 'mdsh-static-v1',
-								expiration: {
-									maxEntries: 80,
-									maxAgeSeconds: 60 * 60 * 24 * 30
-								},
-								cacheableResponse: { statuses: [0, 200] }
-							}
-						}
-					]
+					// Les révisions du précache remplacent aussi les CSS/polices
+					// d'impression à chaque mise à jour, sans cache stable de 30 jours.
+					cleanupOutdatedCaches: true
 				},
 				devOptions: {
 					enabled: false

@@ -47,6 +47,7 @@ class I18nStore {
 				// Best-effort persistence: ignore a storage failure.
 			}
 			document.documentElement.lang = locale;
+			window.dispatchEvent(new CustomEvent('mdsh:locale-change', { detail: { locale } }));
 		}
 	}
 

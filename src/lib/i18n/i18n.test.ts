@@ -127,3 +127,17 @@ describe('i18nStore.load / set (browser)', () => {
 		expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en');
 	});
 });
+
+it('annonce le changement de langue au menu natif', () => {
+	let detail: unknown;
+	const listener = (event: Event) => {
+		detail = (event as CustomEvent).detail;
+	};
+	window.addEventListener('mdsh:locale-change', listener);
+	try {
+		i18n.set('fr');
+		expect(detail).toEqual({ locale: 'fr' });
+	} finally {
+		window.removeEventListener('mdsh:locale-change', listener);
+	}
+});

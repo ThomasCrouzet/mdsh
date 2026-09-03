@@ -5,7 +5,6 @@ on:
     branches: [main]
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       release_tag:
@@ -28,17 +27,54 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  RELEASE_TAG: ${{ inputs.release_tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+  RELEASE_TAG: ${{ inputs.release_tag || '' }}
 
 jobs:
-  validate-desktop:
+  resolve-source:
     runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Checkout requested source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag || github.sha }}
+          persist-credentials: false
+      - name: Resolve and validate source identity
+        id: source
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const tag = process.env.RELEASE_TAG;
+          const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+          if (tag && tag !== `v${version}`) throw new Error('Source tag/version mismatch');
+          const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          if (tag) {
+            if (!/^v\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(tag)) throw new Error('Invalid release tag');
+            execFileSync('git', ['show-ref', '--verify', '--quiet', `refs/tags/${tag}`]);
+            const tagSha = execFileSync('git', ['rev-parse', `${tag}^{commit}`], { encoding: 'utf8' }).trim();
+            if (tagSha !== sha) throw new Error('Release tag does not identify checked out source');
+            if (process.env.GITHUB_SHA !== sha) throw new Error('Run the release workflow from the source tag so provenance identifies the same commit');
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `sha=${sha}\n`);
+          JS
+
+  validate-desktop:
+    needs: resolve-source
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-24.04, windows-2022, macos-14, macos-15-intel]
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.resolve-source.outputs.sha }}
           persist-credentials: false
       - name: Install Linux WebKit dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
@@ -58,16 +94,69 @@ jobs:
       - name: Tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
+  native-smoke:
+    needs: [resolve-source, validate-desktop]
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-24.04, windows-2022, macos-14, macos-15-intel]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.sha }}
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Linux WebView and virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.1
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Build isolated native test app
+        run: npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
+        env:
+          BASE_PATH: ''
+      - name: Exercise actual Linux WebView
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node scripts/native-smoke.mjs
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+      - name: Exercise actual native WebView
+        if: runner.os != 'Linux'
+        run: node scripts/native-smoke.mjs
+      - name: Upload native evidence
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: native-smoke-${{ matrix.platform }}
+          path: native-test-results/
+          retention-days: 14
+
   build-desktop:
-    needs: validate-desktop
-    if: inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
+    needs: [resolve-source, validate-desktop, native-smoke]
+    if: inputs.release_tag != ''
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-15
-            args: --target aarch64-apple-darwin
           - platform: macos-14
+            args: --target aarch64-apple-darwin
+          - platform: macos-15-intel
             args: --target x86_64-apple-darwin
           - platform: ubuntu-24.04
             args: ''
@@ -78,6 +167,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.resolve-source.outputs.sha }}
           persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -111,13 +201,14 @@ jobs:
           uploadWorkflowArtifacts: true
 
   build-sbom:
-    needs: validate-desktop
-    if: inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
+    needs: [resolve-source, validate-desktop]
+    if: inputs.release_tag != ''
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.resolve-source.outputs.sha }}
           persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -135,51 +226,94 @@ jobs:
       - name: Install Cargo SBOM generator
         run: cargo install cargo-cyclonedx --locked --version 0.5.9
       - name: Generate Cargo SBOM
-        run: cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --spec-version 1.5 --override-filename sbom-cargo
+        run: cargo cyclonedx --manifest-path src-tauri/Cargo.toml --target all --format json --spec-version 1.5 --override-filename sbom-cargo
       - name: Collect Cargo SBOM
         run: cp src-tauri/sbom-cargo.json sbom-cargo.cdx.json
+      - name: Record source identity
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+          writeFileSync('desktop-source.json', JSON.stringify({ sha: process.env.SOURCE_SHA, tag: process.env.RELEASE_TAG, version }, null, 2));
+          JS
       - name: Upload SBOMs
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: desktop-sboms
-          path: sbom-*.cdx.json
+          path: |
+            sbom-*.cdx.json
+            desktop-source.json
           if-no-files-found: error
 
   publish-desktop-beta:
-    needs: [build-desktop, build-sbom]
-    if: inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
+    needs: [resolve-source, build-desktop, build-sbom]
+    if: inputs.release_tag != ''
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write
       attestations: write
     steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.sha }}
+          persist-credentials: false
       - name: Download build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: release-assets
-          merge-multiple: true
-      - name: Generate checksums
+          path: downloaded-assets
+          merge-multiple: false
+      - name: Select installers and verify source before checksums
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
+        run: node scripts/collect-desktop-assets.mjs downloaded-assets release-assets
+      - name: Verify checksums from the release directory
         working-directory: release-assets
-        run: |
-          checksum_file=$(mktemp)
-          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$checksum_file"
-          mv "$checksum_file" SHA256SUMS
+        run: sha256sum --check SHA256SUMS
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: release-assets/**
+          subject-path: release-assets/*
       - name: Publish distinct Desktop Beta release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           SOURCE_TAG: ${{ env.RELEASE_TAG }}
           DESKTOP_TAG: desktop-${{ env.RELEASE_TAG }}
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
         run: |
-          source_sha=$(gh api "repos/$GH_REPO/commits/$SOURCE_TAG" --jq '.sha')
-          gh release view "$DESKTOP_TAG" >/dev/null 2>&1 || gh release create "$DESKTOP_TAG" \
-            --target "$source_sha" \
-            --title "mdsh editor Desktop Beta $SOURCE_TAG" \
-            --notes "Desktop Beta installers. Review SHA256SUMS, SBOMs, and build provenance before installation. The desktop shell is a beta distribution channel." \
-            --prerelease
+          tag_sha=$(gh api "repos/$GH_REPO/commits/$SOURCE_TAG" --jq '.sha')
+          gh api "repos/$GH_REPO/git/ref/tags/$SOURCE_TAG" >/dev/null
+          test "$tag_sha" = "$SOURCE_SHA"
+          if gh api "repos/$GH_REPO/git/ref/tags/$DESKTOP_TAG" >/dev/null 2>&1; then
+            desktop_tag_sha=$(gh api "repos/$GH_REPO/commits/$DESKTOP_TAG" --jq '.sha')
+            test "$desktop_tag_sha" = "$SOURCE_SHA"
+          fi
+          if gh release view "$DESKTOP_TAG" >/dev/null 2>&1; then
+            gh release view "$DESKTOP_TAG" --json targetCommitish,assets,isPrerelease,tagName > existing-release.json
+            node --input-type=module <<'JS'
+            import { readFileSync, readdirSync } from 'node:fs';
+            const release = JSON.parse(readFileSync('existing-release.json', 'utf8'));
+            if (release.tagName !== process.env.DESKTOP_TAG || release.isPrerelease !== true) {
+              throw new Error('La release Desktop existante ne correspond pas au canal bêta attendu');
+            }
+            const expected = new Set(readdirSync('release-assets'));
+            const unexpected = release.assets.map(({ name }) => name).filter(name => !expected.has(name));
+            if (unexpected.length) throw new Error(`Artefacts inattendus dans la release existante: ${unexpected.join(', ')}`);
+            JS
+            release_target=$(jq -r '.targetCommitish' existing-release.json)
+            release_target_sha=$(gh api "repos/$GH_REPO/commits/$release_target" --jq '.sha')
+            test "$release_target_sha" = "$SOURCE_SHA"
+          else
+            gh release create "$DESKTOP_TAG" \
+              --target "$SOURCE_SHA" \
+              --title "mdsh editor Desktop Beta $SOURCE_TAG" \
+              --notes "Les installateurs Desktop Beta ne sont pas signés. macOS Gatekeeper et Windows SmartScreen peuvent afficher un avertissement. Vérifiez SHA256SUMS, les SBOM et l'attestation avant installation." \
+              --prerelease
+          fi
+          desktop_tag_sha=$(gh api "repos/$GH_REPO/commits/$DESKTOP_TAG" --jq '.sha')
+          test "$desktop_tag_sha" = "$SOURCE_SHA"
           find release-assets -type f -print0 | xargs -0 -n 1 gh release upload "$DESKTOP_TAG" --clobber

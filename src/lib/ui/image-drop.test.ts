@@ -9,6 +9,21 @@ import {
 import { notify } from '$lib/notify.svelte';
 import { i18n } from '$lib/i18n';
 
+const PNG_BYTES = Uint8Array.from(
+	atob(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aDfoAAAAASUVORK5CYII='
+	),
+	(character) => character.charCodeAt(0)
+);
+
+beforeEach(() =>
+	vi.stubGlobal(
+		'createImageBitmap',
+		vi.fn(async () => ({ width: 1, height: 1, close: vi.fn() }))
+	)
+);
+afterEach(() => vi.unstubAllGlobals());
+
 function makeStore(initial = 'corps') {
 	const state = {
 		active: { id: 'a', content: initial } as { id: string; content: string } | null,
@@ -72,7 +87,7 @@ describe('appendImagesToActive', () => {
 
 	it('insère une image valide en data URI dans le fichier actif', async () => {
 		const { store } = makeStore();
-		const img = new File(['hello'], 'photo.png', { type: 'image/png' });
+		const img = new File([PNG_BYTES], 'photo.png', { type: 'image/png' });
 		await appendImagesToActive([img], store);
 		expect(store.updateContent).toHaveBeenCalledOnce();
 		const [, content] = store.updateContent.mock.calls[0]!;
@@ -91,7 +106,7 @@ describe('appendImagesToActive', () => {
 
 	it('drop mixte : insère la valide, notifie pour la trop lourde', async () => {
 		const { store } = makeStore();
-		const ok = new File(['x'], 'ok.png', { type: 'image/png' });
+		const ok = new File([PNG_BYTES], 'ok.png', { type: 'image/png' });
 		const big = new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], 'big.png', { type: 'image/png' });
 		await appendImagesToActive([ok, big], store);
 		expect(store.updateContent).toHaveBeenCalledOnce();
@@ -101,7 +116,7 @@ describe('appendImagesToActive', () => {
 	it('crée un fichier si aucun n’est actif', async () => {
 		const { store, state } = makeStore();
 		state.active = null;
-		const img = new File(['x'], 'sansactif.png', { type: 'image/png' });
+		const img = new File([PNG_BYTES], 'sansactif.png', { type: 'image/png' });
 		await appendImagesToActive([img], store);
 		expect(state.created).toContain('Images.md');
 	});
@@ -117,7 +132,7 @@ describe('appendImagesToActive', () => {
 		// On enlève le contenu d'origine pour isoler exactement ce qui a été ajouté.
 		const orig = 'corps\n';
 		const { store } = makeStore(orig);
-		const img = new File(['x'], 'p.png', { type: 'image/png' });
+		const img = new File([PNG_BYTES], 'p.png', { type: 'image/png' });
 		await appendImagesToActive([img], store);
 		const [, content] = store.updateContent.mock.calls[0]!;
 		const added = content.slice(orig.length);
@@ -129,7 +144,7 @@ describe('appendImagesToActive', () => {
 	it('séparateur double \\n\\n quand le contenu ne finit pas par un saut de ligne', async () => {
 		const orig = 'corps';
 		const { store } = makeStore(orig);
-		const img = new File(['x'], 'p.png', { type: 'image/png' });
+		const img = new File([PNG_BYTES], 'p.png', { type: 'image/png' });
 		await appendImagesToActive([img], store);
 		const [, content] = store.updateContent.mock.calls[0]!;
 		const added = content.slice(orig.length);
@@ -139,8 +154,8 @@ describe('appendImagesToActive', () => {
 
 	it('plusieurs blocs images séparés par \\n\\n et terminés par \\n', async () => {
 		const { store } = makeStore('corps\n');
-		const a = new File(['x'], 'a.png', { type: 'image/png' });
-		const b = new File(['y'], 'b.png', { type: 'image/png' });
+		const a = new File([PNG_BYTES], 'a.png', { type: 'image/png' });
+		const b = new File([PNG_BYTES], 'b.png', { type: 'image/png' });
 		await appendImagesToActive([a, b], store);
 		const [, content] = store.updateContent.mock.calls[0]!;
 		expect(content).toContain('![a](data:image/png;base64,');
@@ -173,7 +188,7 @@ describe('appendImagesToActive', () => {
 			}
 		};
 		vi.stubGlobal('FileReader', FakeReader);
-		const img = new File(['x'], 'broken.png', { type: 'image/png' });
+		const img = new File([PNG_BYTES], 'broken.png', { type: 'image/png' });
 		await appendImagesToActive([img], store);
 		vi.unstubAllGlobals();
 		expect(store.updateContent).not.toHaveBeenCalled();
@@ -198,7 +213,7 @@ describe('fileToDataUri', () => {
 			}
 		};
 		vi.stubGlobal('FileReader', FakeReader);
-		const out = await fileToDataUri(new File(['x'], 'p.png', { type: 'image/png' }));
+		const out = await fileToDataUri(new File([PNG_BYTES], 'p.png', { type: 'image/png' }));
 		expect(out).toBe('data:image/png;base64,AAAA');
 	});
 
@@ -213,7 +228,7 @@ describe('fileToDataUri', () => {
 			}
 		};
 		vi.stubGlobal('FileReader', FakeReader);
-		const out = await fileToDataUri(new File(['x'], 'p.png', { type: 'image/png' }));
+		const out = await fileToDataUri(new File([PNG_BYTES], 'p.png', { type: 'image/png' }));
 		expect(out).toBeNull();
 	});
 
@@ -227,7 +242,7 @@ describe('fileToDataUri', () => {
 			}
 		};
 		vi.stubGlobal('FileReader', FakeReader);
-		const out = await fileToDataUri(new File(['x'], 'p.png', { type: 'image/png' }));
+		const out = await fileToDataUri(new File([PNG_BYTES], 'p.png', { type: 'image/png' }));
 		expect(out).toBeNull();
 	});
 });
@@ -295,7 +310,7 @@ describe('buildDropHandlers', () => {
 		const setDragOver = vi.fn();
 		const { handleDrop } = buildDropHandlers({ store, setDragOver });
 		const md = new File(['# titre'], 'doc.md', { type: 'text/markdown' });
-		const img = new File(['x'], 'pic.png', { type: 'image/png' });
+		const img = new File([PNG_BYTES], 'pic.png', { type: 'image/png' });
 		const e = makeDragEvent({ types: ['Files'], files: [md, img] });
 		await handleDrop(e);
 		expect(setDragOver).toHaveBeenCalledWith(false);
@@ -343,7 +358,7 @@ describe('buildDropHandlers', () => {
 		const { store } = makeStore();
 		const setDragOver = vi.fn();
 		const { handleDrop } = buildDropHandlers({ store, setDragOver });
-		const img = new File(['x'], 'pic.png', { type: 'image/png' });
+		const img = new File([PNG_BYTES], 'pic.png', { type: 'image/png' });
 		const e = makeDragEvent({ types: ['Files'], files: [img] });
 		await handleDrop(e);
 		expect(store.importFiles).not.toHaveBeenCalled();

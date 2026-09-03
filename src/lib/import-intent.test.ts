@@ -13,7 +13,7 @@ describe('shouldFallThroughToFileInput', () => {
 		).toBe(true);
 	});
 
-	it('browser FSA: fall through on cancel (createdCount 0)', () => {
+	it('browser FSA: cancellation never opens a second picker', () => {
 		expect(
 			shouldFallThroughToFileInput({
 				diskLinkingAvailable: true,
@@ -21,7 +21,7 @@ describe('shouldFallThroughToFileInput', () => {
 				createdCount: 0,
 				openThrew: false
 			})
-		).toBe(true);
+		).toBe(false);
 	});
 
 	it('browser FSA: no fall through when files were opened', () => {

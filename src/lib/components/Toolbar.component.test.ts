@@ -54,6 +54,7 @@ function seedStore(file: FileItem | null) {
 function defaultProps(mode: EditMode = 'wysiwyg') {
 	return {
 		mode,
+		sidebarOpen: true,
 		onToggleSidebar: vi.fn(),
 		onSetMode: vi.fn(),
 		onExport: vi.fn(),

@@ -25,6 +25,27 @@ export interface SnapshotInput {
 	content: string;
 }
 
+async function latestVersion(draftId: string): Promise<VersionRow | undefined> {
+	return db.versions
+		.where('[draftId+createdAt]')
+		.between([draftId, Dexie.minKey], [draftId, Dexie.maxKey])
+		.last();
+}
+
+async function putCheckpoint(draft: SnapshotInput, now: number): Promise<boolean> {
+	const last = await latestVersion(draft.id);
+	if (last?.content === draft.content && last.name === draft.name) return false;
+	await db.versions.put({
+		id: newId(),
+		draftId: draft.id,
+		name: draft.name,
+		content: draft.content,
+		createdAt: now
+	});
+	await pruneVersions(draft.id, now);
+	return true;
+}
+
 /**
  * Records a snapshot of the file, IF relevant:
  *   - non-empty content;
@@ -42,10 +63,7 @@ export async function recordVersion(draft: SnapshotInput, now = Date.now()): Pro
 		// Reads only the most recent snapshot via the composite index
 		// [draftId+createdAt], instead of loading the whole file history on every
 		// save flush (the throttle/dedup decision only looks at it).
-		const last = await db.versions
-			.where('[draftId+createdAt]')
-			.between([draft.id, Dexie.minKey], [draft.id, Dexie.maxKey])
-			.last();
+		const last = await latestVersion(draft.id);
 		if (last) {
 			if (last.content === draft.content) return false;
 			if (now - last.createdAt < VERSION_LIMITS.minIntervalMs) return false;
@@ -60,6 +78,32 @@ export async function recordVersion(draft: SnapshotInput, now = Date.now()): Pro
 		await db.versions.put(row);
 		await pruneVersions(draft.id, now);
 		return true;
+	});
+}
+
+/**
+ * Records the exact state before a destructive content operation. Unlike the
+ * periodic snapshot, this checkpoint is never throttled and accepts empty
+ * content. The caller must await it before mutating the draft.
+ */
+export async function createCheckpoint(draft: SnapshotInput, now = Date.now()): Promise<boolean> {
+	return db.transaction('rw', db.versions, () => putCheckpoint(draft, now));
+}
+
+/**
+ * Atomically records checkpoints for a group operation. A storage failure
+ * aborts the whole transaction, so callers can leave every draft unchanged.
+ */
+export async function createCheckpoints(
+	drafts: readonly SnapshotInput[],
+	now = Date.now()
+): Promise<number> {
+	return db.transaction('rw', db.versions, async () => {
+		let written = 0;
+		for (const draft of drafts) {
+			if (await putCheckpoint(draft, now)) written += 1;
+		}
+		return written;
 	});
 }
 

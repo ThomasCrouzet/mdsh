@@ -1,3 +1,10 @@
+import {
+	ImportSession,
+	ImportReadError,
+	validateMarkdownContent,
+	type ImportOptions,
+	type ImportReport
+} from './import-limits';
 // §6.9 / P2.7 - Disk synchronization via FSA (browser) or path links (Tauri).
 //
 // Groups `openFromDisk`, `saveToDisk`, `saveActiveToDisk`, `unlinkFromDisk`
@@ -32,6 +39,7 @@ import {
 	tauriCheckPath,
 	tauriOpenNativeGrants,
 	tauriPickAndOpen,
+	tauriPickDirectoryAndOpen,
 	tauriPickSaveTarget,
 	tauriReadMeta,
 	tauriWritePath,
@@ -47,10 +55,13 @@ import type { FileItem } from './types';
 export interface DiskSyncDeps {
 	/** Read access to a FileItem by id. */
 	getFile: (id: string) => FileItem | undefined;
+	getFiles?: () => FileItem[];
+	onActivate?: (id: string) => void;
 	/** Creates a new file in the store (delegates to `createNew`). */
 	onCreate: (name: string, content: string) => FileItem;
 	/** Schedules Dexie persistence of the file (delegates to `scheduleSave`). */
 	scheduleSave: (id: string) => void;
+	onImportRollback?: (id: string) => void;
 }
 
 /** True when either Chromium FSA or the Tauri desktop shell can link files to disk. */
@@ -73,21 +84,36 @@ export function isDiskLinkingAvailable(): boolean {
  * surfaced to the user via an info toast; the caller keeps the list of files
  * actually opened (`FileItem[]`).
  */
-export async function openFromDisk(deps: DiskSyncDeps): Promise<FileItem[]> {
+export async function openFromDisk(
+	deps: DiskSyncDeps,
+	options: ImportOptions = {}
+): Promise<FileItem[]> {
 	if (!browser) return [];
-	if (isDesktop()) return openFromDiskDesktop(deps);
+	if (isDesktop()) return openFromDiskDesktop(deps, options);
 	if (!isFSASupported()) return [];
-	return openFromDiskFsa(deps);
+	return openFromDiskFsa(deps, options);
 }
 
-async function openFromDiskFsa(deps: DiskSyncDeps): Promise<FileItem[]> {
+async function openFromDiskFsa(deps: DiskSyncDeps, options: ImportOptions): Promise<FileItem[]> {
 	const picked = await pickAndOpen();
+	const session = new ImportSession(options);
 	const created: FileItem[] = [];
 	let failed = 0;
 	for (const { handle, file } of picked) {
+		if (!(await session.pause())) break;
+		let item: FileItem | undefined;
 		try {
-			const content = await file.text();
-			const item = deps.onCreate(file.name, content);
+			const content = await session.read(file);
+			if (content === null) {
+				if (session.cancelled) break;
+				reportError(
+					`ouverture du fichier « ${file.name} »`,
+					new ImportReadError(session.report.issues.at(-1)!.reason)
+				);
+				failed++;
+				continue;
+			}
+			item = deps.onCreate(file.name, content);
 			item.linkedToDisk = true;
 			// §C2 - Records the disk state (mtime + size) at open time. Serves as a
 			// reference to detect an external modification before a future write.
@@ -95,10 +121,13 @@ async function openFromDiskFsa(deps: DiskSyncDeps): Promise<FileItem[]> {
 			item.diskSize = file.size;
 			await saveHandle(item.id, handle);
 			created.push(item);
+			session.accept();
 		} catch (err) {
+			if (item) deps.onImportRollback?.(item.id);
 			// §D - An unreadable file must not fail the whole selection.
 			reportError(`ouverture du fichier « ${file.name} »`, err);
 			failed += 1;
+			session.fail(file.name, err instanceof ImportReadError ? err.reason : 'read');
 		}
 	}
 	// §D - Partial summary: if some files were skipped while others were
@@ -106,12 +135,28 @@ async function openFromDiskFsa(deps: DiskSyncDeps): Promise<FileItem[]> {
 	if (failed > 0 && created.length > 0) {
 		notify.info(t('disk.openPartial', { n: created.length, failed }));
 	}
+	session.publish();
 	return created;
 }
 
-async function openFromDiskDesktop(deps: DiskSyncDeps): Promise<FileItem[]> {
-	const result = await tauriPickAndOpen();
-	return ingestDesktopOpens(result.files, deps, result.failed);
+async function openFromDiskDesktop(
+	deps: DiskSyncDeps,
+	options: ImportOptions
+): Promise<FileItem[]> {
+	const result = await tauriPickAndOpen(options);
+	return (await ingestDesktopOpens(result.files, deps, result.failed, options, result.report))
+		.files;
+}
+
+/** Opens a bounded directory selection through the native desktop capability backend. */
+export async function openDirectoryFromDisk(
+	deps: DiskSyncDeps,
+	options: ImportOptions = {}
+): Promise<FileItem[]> {
+	if (!browser || !isDesktop()) return [];
+	const result = await tauriPickDirectoryAndOpen(options);
+	return (await ingestDesktopOpens(result.files, deps, result.failed, options, result.report))
+		.files;
 }
 
 /**
@@ -120,11 +165,24 @@ async function openFromDiskDesktop(deps: DiskSyncDeps): Promise<FileItem[]> {
  */
 export async function openPathsFromDesktop(
 	grants: NativeDiskGrant[],
-	deps: DiskSyncDeps
-): Promise<FileItem[]> {
-	if (!browser || !isDesktop() || grants.length === 0) return [];
-	const result = await tauriOpenNativeGrants(grants);
-	return ingestDesktopOpens(result.files, deps, result.failed);
+	deps: DiskSyncDeps,
+	options: ImportOptions = {}
+): Promise<DesktopIngestResult> {
+	if (!browser || !isDesktop() || grants.length === 0) return { files: [], processedTokens: [] };
+	const result = await tauriOpenNativeGrants(grants, options);
+	const opened = await ingestDesktopOpens(
+		result.files,
+		deps,
+		result.failed,
+		options,
+		result.report
+	);
+	return { files: opened.files, processedTokens: opened.processedTokens };
+}
+
+interface DesktopIngestResult {
+	files: FileItem[];
+	processedTokens: string[];
 }
 
 async function ingestDesktopOpens(
@@ -135,25 +193,63 @@ async function ingestDesktopOpens(
 		lastModified: number;
 		size: number;
 		revision: string;
+		token?: string;
 		link: { kind: 'path'; path: string };
 	}>,
 	deps: DiskSyncDeps,
-	initialFailed = 0
-): Promise<FileItem[]> {
+	initialFailed = 0,
+	options: ImportOptions = {},
+	readReport?: ImportReport
+): Promise<DesktopIngestResult> {
 	const created: FileItem[] = [];
+	const processedTokens: string[] = [];
 	let failed = initialFailed;
+	const session = new ImportSession(options);
+	session.report.failed = initialFailed;
+	if (readReport) {
+		session.report.issues = [...readReport.issues];
+		session.report.cancelled = readReport.cancelled;
+		session.report.bytes = readReport.bytes;
+	}
+	session.report.processed = initialFailed;
+	session.publish();
 	for (const file of picked) {
+		if (!(await session.pause())) break;
+		let createdItem: FileItem | undefined;
 		try {
+			let existing: FileItem | undefined;
+			for (const candidate of deps.getFiles?.() ?? []) {
+				if ((await getPathLink(candidate.id))?.path === file.path) {
+					existing = candidate;
+					break;
+				}
+			}
+			if (existing) {
+				await savePathLink(existing.id, file.link);
+				deps.onActivate?.(existing.id);
+				created.push(existing);
+				const token = file.token ?? picked.find((entry) => entry.path === file.path)?.token;
+				if (token) processedTokens.push(token);
+				session.accept();
+				continue;
+			}
+			if (!readReport) session.reserve(file.size);
+			validateMarkdownContent(file.content);
 			const item = deps.onCreate(file.name, file.content);
+			createdItem = item;
 			item.linkedToDisk = true;
 			item.diskLastModified = file.lastModified;
 			item.diskSize = file.size;
 			item.diskRevision = file.revision;
 			await savePathLink(item.id, file.link);
 			created.push(item);
+			if (file.token) processedTokens.push(file.token);
+			session.accept();
 		} catch (err) {
+			if (createdItem) deps.onImportRollback?.(createdItem.id);
 			reportError(`ouverture du fichier « ${file.name} »`, err);
 			failed += 1;
+			session.fail(file.name, err instanceof ImportReadError ? err.reason : 'read');
 		}
 	}
 	if (failed > 0) {
@@ -163,7 +259,8 @@ async function ingestDesktopOpens(
 			notify.error(t('page.openFromDiskError'));
 		}
 	}
-	return created;
+	session.publish();
+	return { files: created, processedTokens };
 }
 
 /**

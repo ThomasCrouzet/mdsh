@@ -21,6 +21,6 @@ export function shouldFallThroughToFileInput(opts: {
 	// hidden file input even when the system WebView also exposes FSA pickers
 	// (Windows Chromium WebView): that path uses importFiles without path links.
 	if (opts.isDesktop) return false;
-	// Browser: FSA cancel / empty selection → fall through to <input type="file">.
-	return true;
+	// A completed picker with no file is a cancellation, not an unavailable API.
+	return false;
 }

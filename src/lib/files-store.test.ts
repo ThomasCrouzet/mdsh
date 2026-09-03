@@ -1,4 +1,7 @@
+import * as versionHistory from './version-history';
+import { ImportSession } from './import-limits';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import Dexie from 'dexie';
 import { db, type DraftRow } from './db';
 
 // Les wrappers d'export et de disque délèguent à des modules purs : on les mocke
@@ -14,7 +17,8 @@ vi.mock('./export-ops', () => ({
 }));
 vi.mock('./disk-sync', () => ({
 	openFromDisk: vi.fn(async () => []),
-	openPathsFromDesktop: vi.fn(async () => []),
+	openPathsFromDesktop: vi.fn(async () => ({ files: [], processedTokens: [] })),
+	openDirectoryFromDisk: vi.fn(async () => []),
 	saveToDisk: vi.fn(async () => true),
 	unlinkFromDisk: vi.fn(async () => {}),
 	refreshBrokenLinks: vi.fn(async () => {}),
@@ -51,7 +55,11 @@ vi.mock('./fsa', async (importOriginal) => {
 		isFSASupported: vi.fn(() => false),
 		getHandle: vi.fn(async () => null),
 		getPathLink: vi.fn(async () => null),
-		pickDirectoryFiles: vi.fn(async () => ({ files: [], truncated: false }))
+		pickDirectoryFiles: vi.fn(async () => ({
+			files: [],
+			truncated: false,
+			report: new ImportSession().publish()
+		}))
 	};
 });
 
@@ -87,19 +95,15 @@ function receiveCrossTab(message: CrossTabMessage): void {
 	crossTabHarness.onMessage(message);
 }
 
-function storeInternals(): {
-	purge: (id: string) => void;
-} {
-	return filesStore as unknown as {
-		purge: (id: string) => void;
-	};
-}
-
 beforeEach(async () => {
 	vi.mocked(fsa.isFSASupported).mockReturnValue(false);
 	vi.mocked(fsa.getHandle).mockResolvedValue(null);
 	vi.mocked(fsa.getPathLink).mockResolvedValue(null);
-	vi.mocked(fsa.pickDirectoryFiles).mockResolvedValue({ files: [], truncated: false });
+	vi.mocked(fsa.pickDirectoryFiles).mockResolvedValue({
+		files: [],
+		truncated: false,
+		report: new ImportSession().publish()
+	});
 	crossTabHarness.post.mockClear();
 	crossTabHarness.workspaceReload.mockClear();
 	crossTabHarness.templateReload.mockClear();
@@ -161,10 +165,50 @@ describe('updateContent', () => {
 });
 
 describe('close + restore (corbeille)', () => {
+	it('ferme une vue sans perdre le document ou son historique après rechargement', async () => {
+		const file = filesStore.createNew('conserver.md', 'texte jamais exporté');
+		await filesStore.flushPendingAwait();
+		await db.versions.put({
+			id: 'history',
+			draftId: file.id,
+			name: file.name,
+			content: 'avant',
+			createdAt: Date.now()
+		});
+		filesStore.updateContent(file.id, 'dernières frappes');
+		filesStore.close(file.id);
+		await filesStore.flushPendingAwait();
+		await filesStore.reload(false);
+		expect(filesStore.files).toEqual([]);
+		expect(filesStore.closedFiles.find((entry) => entry.id === file.id)?.content).toBe(
+			'dernières frappes'
+		);
+		expect(await db.versions.get('history')).toBeDefined();
+		expect(filesStore.reopen(file.id)?.content).toBe('dernières frappes');
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(file.id))?.open).toBe(true);
+	});
+
+	it('une suppression reste récupérable au-delà de cinq secondes', async () => {
+		const file = filesStore.createNew('supprimer.md', 'récupérable');
+		await filesStore.flushPendingAwait();
+		filesStore.delete(file.id);
+		await vi.waitFor(async () => expect(await db.trashed.get(file.id)).toBeDefined());
+		await db.trashed.update(file.id, { trashedAt: Date.now() - 60_000 });
+		await filesStore.reload(false);
+		expect(filesStore.trash.find((entry) => entry.file.id === file.id)?.file.content).toBe(
+			'récupérable'
+		);
+		expect(filesStore.restore(file.id)?.content).toBe('récupérable');
+		await vi.waitFor(async () =>
+			expect((await db.drafts.get(file.id))?.content).toBe('récupérable')
+		);
+	});
+
 	it('close (trash) retire de la vue puis restore réinjecte', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPending();
-		filesStore.close(f.id);
+		filesStore.delete(f.id);
 		expect(filesStore.files.some((x) => x.id === f.id)).toBe(false);
 		expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(true);
 
@@ -197,39 +241,33 @@ describe('close + restore (corbeille)', () => {
 		});
 	});
 
-	it('close hard-delete supprime le draft de la base', async () => {
+	it('close sans corbeille conserve aussi le draft dans la bibliothèque', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPending();
 		filesStore.close(f.id, { trash: false });
 		expect(filesStore.files.some((x) => x.id === f.id)).toBe(false);
-		expect(await db.drafts.get(f.id)).toBeUndefined();
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(f.id))?.open).toBe(false);
+		expect(filesStore.closedFiles.some((file) => file.id === f.id)).toBe(true);
 	});
 
-	it('close trash pendant put in-flight ne ressuscite pas le draft', async () => {
-		vi.useFakeTimers();
-		let resolvePut: ((value: string) => void) | undefined;
-		const pendingPut = new Promise<string>((resolve) => {
-			resolvePut = resolve;
+	it('la suppression pendant une écriture ne ressuscite pas le draft', async () => {
+		let deletedId = '';
+		const put = vi.spyOn(db.drafts, 'put').mockImplementationOnce((row) => {
+			deletedId = row.id;
+			queueMicrotask(() => Dexie.ignoreTransaction(() => filesStore.delete(row.id)));
+			return Promise.resolve(row.id) as ReturnType<typeof db.drafts.put>;
 		});
-		const put = vi
-			.spyOn(db.drafts, 'put')
-			.mockReturnValue(pendingPut as ReturnType<typeof db.drafts.put>);
 		try {
-			const f = filesStore.createNew('a.md', '# A');
-			// Advance past debounce so put is in flight.
-			await vi.advanceTimersByTimeAsync(400);
-			expect(put).toHaveBeenCalled();
-			filesStore.close(f.id); // trash path uses discard
-			// Let the in-flight put settle - discard must reverse resurrection.
-			resolvePut?.(f.id);
+			const file = filesStore.createNew('a.md', '# A');
+			filesStore.flushPending();
+			await vi.waitFor(() => expect(deletedId).toBe(file.id));
 			await vi.waitFor(async () => {
-				expect(await db.drafts.get(f.id)).toBeUndefined();
+				expect(await db.drafts.get(file.id)).toBeUndefined();
+				expect(await db.trashed.get(file.id)).toBeDefined();
 			});
 		} finally {
-			// Always release the deferred put and restore so later tests do not hang.
-			resolvePut?.('released');
 			put.mockRestore();
-			vi.useRealTimers();
 		}
 	});
 
@@ -260,7 +298,7 @@ describe('close + restore (corbeille)', () => {
 		try {
 			const f = filesStore.createNew('race.md', '# race');
 			await filesStore.flushPendingAwait();
-			filesStore.close(f.id);
+			filesStore.delete(f.id);
 			expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(true);
 			// Undo immediately while moveToTrash is still gated.
 			filesStore.restore(f.id);
@@ -277,42 +315,29 @@ describe('close + restore (corbeille)', () => {
 		}
 	});
 
-	it('restore pendant put discard ne reverse-delete pas le draft restaure', async () => {
-		vi.useFakeTimers();
-		let resolvePut: ((value: string) => void) | undefined;
-		const pendingPut = new Promise<string>((resolve) => {
-			resolvePut = resolve;
+	it('la restauration attend une écriture supprimée avant de rétablir le draft', async () => {
+		let restoredId = '';
+		const put = vi.spyOn(db.drafts, 'put').mockImplementationOnce((row) => {
+			queueMicrotask(() =>
+				Dexie.ignoreTransaction(() => {
+					filesStore.delete(row.id);
+					filesStore.restore(row.id);
+					restoredId = row.id;
+				})
+			);
+			return Promise.resolve(row.id) as ReturnType<typeof db.drafts.put>;
 		});
-		const put = vi
-			.spyOn(db.drafts, 'put')
-			.mockReturnValue(pendingPut as ReturnType<typeof db.drafts.put>);
 		try {
-			const f = filesStore.createNew('undo.md', '# undo-me');
-			await vi.advanceTimersByTimeAsync(400);
-			expect(put).toHaveBeenCalled();
-			// Trash while put is still open (discard armed).
-			filesStore.close(f.id);
-			expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(true);
-			// Undo restore: settleAndRearm waits for the discarded put then rearms.
-			const restored = filesStore.restore(f.id);
-			expect(restored?.id).toBe(f.id);
-			// Release the deferred put that was open at close time.
-			resolvePut?.(f.id);
-			// Real timers for waitFor + restoreFromTrash after mock ends.
-			put.mockRestore();
-			vi.useRealTimers();
+			const file = filesStore.createNew('undo.md', '# undo-me');
+			filesStore.flushPending();
+			await vi.waitFor(() => expect(restoredId).toBe(file.id));
 			await vi.waitFor(async () => {
-				expect(filesStore.files.some((x) => x.id === f.id)).toBe(true);
-				expect(await db.drafts.get(f.id)).toBeTruthy();
+				expect(filesStore.files.some((entry) => entry.id === file.id)).toBe(true);
+				expect((await db.drafts.get(file.id))?.content).toBe('# undo-me');
+				expect(await db.trashed.get(file.id)).toBeUndefined();
 			});
 		} finally {
-			resolvePut?.('released');
-			try {
-				put.mockRestore();
-			} catch {
-				// already restored
-			}
-			vi.useRealTimers();
+			put.mockRestore();
 		}
 	});
 
@@ -333,7 +358,7 @@ describe('close + restore (corbeille)', () => {
 	it('restore annule l UI si restoreFromTrash echoue', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPendingAwait();
-		filesStore.close(f.id);
+		filesStore.delete(f.id);
 		expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(true);
 
 		const trashMod = await import('./trash');
@@ -498,6 +523,32 @@ describe('importFiles', () => {
 });
 
 describe('synchronisation multi-onglets', () => {
+	it('protège une écriture en erreur puis conserve la branche distante lors du retry', async () => {
+		const file = filesStore.createNew('quota.md', 'initial');
+		await filesStore.flushPendingAwait();
+		filesStore.updateContent(file.id, 'local non durable');
+		const put = vi.spyOn(db.drafts, 'put').mockRejectedValueOnce(new Error('quota'));
+		await expect(filesStore.flushPendingAwait()).rejects.toThrow();
+		expect(filesStore.hasSaveError(file.id)).toBe(true);
+		expect(filesStore.hasPendingSave).toBe(true);
+		put.mockRestore();
+		await db.drafts.put({
+			...draftRow(file.id, file.name, 'branche distante'),
+			updatedAt: Date.now() + 1
+		});
+		receiveCrossTab({ type: 'draft-written', id: file.id, updatedAt: Date.now() + 1 });
+		expect(filesStore.files.find((entry) => entry.id === file.id)?.content).toBe(
+			'local non durable'
+		);
+		await filesStore.flushPendingAwait();
+		expect(filesStore.hasSaveError(file.id)).toBe(false);
+		expect((await db.drafts.toArray()).map((entry) => entry.content).sort()).toEqual([
+			'branche distante',
+			'local non durable'
+		]);
+		expect(filesStore.closedFiles.some((entry) => entry.content === 'branche distante')).toBe(true);
+	});
+
 	it('recharge un draft distant lorsqu’aucune sauvegarde locale n’est en attente', async () => {
 		const file = filesStore.createNew('local.md', 'local');
 		filesStore.flushPending();
@@ -585,7 +636,7 @@ describe('récupération corbeille', () => {
 	it('annule la fermeture optimiste si la transaction vers la corbeille échoue', async () => {
 		const moveToTrash = vi.spyOn(trashOps, 'moveToTrash').mockResolvedValueOnce(false);
 		const file = filesStore.createNew('rollback.md', '# Rollback');
-		filesStore.close(file.id);
+		filesStore.delete(file.id);
 
 		await vi.waitFor(() =>
 			expect(filesStore.files.some((candidate) => candidate.id === file.id)).toBe(true)
@@ -595,15 +646,15 @@ describe('récupération corbeille', () => {
 		moveToTrash.mockRestore();
 	});
 
-	it('purge une entrée connue et ignore un identifiant absent', () => {
+	it('purge une entrée connue et ignore un identifiant absent', async () => {
 		const file = filesStore.createNew('purge.md', '# Purge');
 		filesStore.close(file.id, { trash: false, keepDB: true });
 		filesStore.trash = [{ file, order: 0, trashedAt: Date.now() }];
 
-		storeInternals().purge(file.id);
-		storeInternals().purge('ghost');
+		filesStore.purgeTrash(file.id);
+		filesStore.purgeTrash('ghost');
 
-		expect(filesStore.trash).toEqual([]);
+		await vi.waitFor(() => expect(filesStore.trash).toEqual([]));
 	});
 });
 
@@ -668,10 +719,62 @@ describe('loadDemo', () => {
 });
 
 describe('replaceInAll', () => {
-	it('remplace une occurrence dans tous les fichiers', () => {
+	it('archive les dernières frappes avant le remplacement malgré le throttle', async () => {
+		const file = filesStore.createNew('a.md', 'foo initial');
+		await filesStore.flushPendingAwait();
+		filesStore.updateContent(file.id, 'foo juste avant');
+		await filesStore.replaceInAll('foo', 'bar', {
+			caseSensitive: true,
+			wholeWord: false,
+			useRegex: false
+		});
+		expect(
+			(await db.versions.where('draftId').equals(file.id).toArray()).map(
+				(version) => version.content
+			)
+		).toContain('foo juste avant');
+		expect(filesStore.files.find((entry) => entry.id === file.id)?.content).toBe('bar juste avant');
+	});
+
+	it('ne modifie aucun document si le checkpoint du lot échoue', async () => {
+		const file = filesStore.createNew('a.md', 'foo avant');
+		await filesStore.flushPendingAwait();
+		filesStore.updateContent(file.id, 'foo dernières frappes');
+		const put = vi.spyOn(db.versions, 'put').mockRejectedValue(new Error('quota'));
+		try {
+			await expect(
+				filesStore.replaceInAll('foo', 'bar', {
+					caseSensitive: true,
+					wholeWord: false,
+					useRegex: false
+				})
+			).rejects.toThrow('quota');
+			expect(filesStore.files.find((entry) => entry.id === file.id)?.content).toBe(
+				'foo dernières frappes'
+			);
+		} finally {
+			put.mockRestore();
+		}
+	});
+
+	it('archive l’état immédiatement antérieur à une restauration de version', async () => {
+		const file = filesStore.createNew('a.md', 'état courant');
+		await filesStore.flushPendingAwait();
+		await filesStore.restoreVersion(file.id, 'version ancienne');
+		expect(filesStore.files.find((entry) => entry.id === file.id)?.content).toBe(
+			'version ancienne'
+		);
+		expect(
+			(await db.versions.where('draftId').equals(file.id).toArray()).map(
+				(version) => version.content
+			)
+		).toContain('état courant');
+	});
+
+	it('remplace une occurrence dans tous les fichiers', async () => {
 		const a = filesStore.createNew('a.md', 'foo bar foo');
 		filesStore.createNew('b.md', 'no match');
-		const res = filesStore.replaceInAll('foo', 'baz', {
+		const res = await filesStore.replaceInAll('foo', 'baz', {
 			caseSensitive: true,
 			wholeWord: false,
 			useRegex: false
@@ -682,9 +785,9 @@ describe('replaceInAll', () => {
 		expect(filesStore.files.find((x) => x.id === a.id)?.content).toContain('baz');
 	});
 
-	it('retourne regexError sur une regex invalide (useRegex)', () => {
+	it('retourne regexError sur une regex invalide (useRegex)', async () => {
 		filesStore.createNew('a.md', 'foo bar');
-		const res = filesStore.replaceInAll('(unclosed', 'x', {
+		const res = await filesStore.replaceInAll('(unclosed', 'x', {
 			caseSensitive: false,
 			wholeWord: false,
 			useRegex: true
@@ -895,12 +998,13 @@ describe('importDirectory', () => {
 				{ name: 'a.md', content: '# A' },
 				{ name: 'b.txt', content: 'B' }
 			],
-			truncated: true
+			truncated: true,
+			report: new ImportSession().publish()
 		});
 
 		const result = await filesStore.importDirectory();
 
-		expect(result).toEqual({ count: 2, truncated: true });
+		expect(result).toMatchObject({ count: 2, truncated: true });
 		expect(filesStore.files.map((file) => file.name)).toEqual(['a.md', 'b.txt']);
 	});
 });
@@ -1029,5 +1133,421 @@ describe('métadonnées (getTags / displayTitle / wiki-links)', () => {
 		filesStore.createNew('a.md', '---\ntags: [zebre, alpha]\n---\n');
 		filesStore.createNew('b.md', '---\ntags: [alpha, mango]\n---\n');
 		expect(filesStore.allTags).toEqual(['alpha', 'mango', 'zebre']);
+	});
+});
+
+describe('orchestration des imports bornés', () => {
+	it('importe 300 notes puis refuse le surplus sans lecture', async () => {
+		const extra = { name: 'extra.md', size: 1, arrayBuffer: vi.fn() } as unknown as File;
+		const result = await filesStore.importFiles([
+			...Array.from({ length: 300 }, (_, index) => mdFile(`${index}.md`, '# Note')),
+			extra
+		]);
+		expect(result.created).toHaveLength(300);
+		expect(result.failed).toBe(1);
+		expect(extra.arrayBuffer).not.toHaveBeenCalled();
+		expect(filesStore.lastImportReport?.issues[0]?.reason).toBe('file-count');
+		expect(filesStore.importProgress).toBeNull();
+	});
+	it('annule depuis la progression et conserve le bilan partiel', async () => {
+		const result = await filesStore.importFiles([mdFile('one.md'), mdFile('two.md')], {
+			onProgress: (report) => {
+				if (report.imported === 1) filesStore.cancelImport();
+			}
+		});
+		expect(result.created).toHaveLength(1);
+		expect(filesStore.lastImportReport).toMatchObject({ cancelled: true, imported: 1 });
+	});
+	it('respecte un signal externe déjà annulé', async () => {
+		const controller = new AbortController();
+		controller.abort();
+		expect(
+			(await filesStore.importFiles([mdFile('one.md')], { signal: controller.signal })).created
+		).toEqual([]);
+		expect(filesStore.lastImportReport?.cancelled).toBe(true);
+	});
+	it('demande une autorisation propre à chaque grand document', () => {
+		const first = filesStore.createNew('large.md', 'x'.repeat(256 * 1024));
+		const second = filesStore.createNew('large2.md', first.content);
+		expect(filesStore.requiresRenderConfirmation(first.id)).toBe(true);
+		filesStore.allowDocumentRendering(first.id);
+		filesStore.allowDocumentRendering(first.id);
+		expect(filesStore.requiresRenderConfirmation(first.id)).toBe(false);
+		expect(filesStore.requiresRenderConfirmation(second.id)).toBe(true);
+		expect(filesStore.requiresRenderConfirmation('missing')).toBe(false);
+	});
+	it('une nouvelle importation ne perd pas sa progression lorsque la précédente finit', async () => {
+		let resolveFirst!: (value: ArrayBuffer) => void;
+		const first = {
+			name: 'first.md',
+			size: 1,
+			arrayBuffer: () =>
+				new Promise<ArrayBuffer>((resolve) => {
+					resolveFirst = resolve;
+				})
+		} as File;
+		const pendingFirst = filesStore.importFiles([first]);
+		await vi.waitFor(() => expect(resolveFirst).toBeTypeOf('function'));
+		const second = await filesStore.importFiles([mdFile('second.md')]);
+		resolveFirst(new Uint8Array([65]).buffer);
+		await pendingFirst;
+		expect(filesStore.lastImportReport).toEqual(second.report);
+		expect(filesStore.files.map((file) => file.name)).toEqual(['second.md']);
+	});
+});
+
+describe('barrière argv et erreurs de récupération', () => {
+	it('n’acquitte l’ouverture native qu’une fois le document durable', async () => {
+		vi.mocked(diskSync.openPathsFromDesktop).mockImplementationOnce(async (_grants, deps) => ({
+			files: [deps.onCreate('argv.md', 'contenu natif')],
+			processedTokens: ['argv-token']
+		}));
+		const processed = await filesStore.openPathsFromDesktop([]);
+		expect(processed).toEqual(['argv-token']);
+		expect((await db.drafts.toArray())[0]?.content).toBe('contenu natif');
+	});
+	it('remonte une erreur de persistance avant l’acquittement natif', async () => {
+		vi.mocked(diskSync.openPathsFromDesktop).mockImplementationOnce(async (_grants, deps) => ({
+			files: [deps.onCreate('argv.md', 'contenu natif')],
+			processedTokens: ['argv-token']
+		}));
+		const put = vi.spyOn(db.drafts, 'put').mockRejectedValue(new Error('quota'));
+		try {
+			await expect(filesStore.openPathsFromDesktop([])).rejects.toThrow();
+			expect(filesStore.files[0]?.content).toBe('contenu natif');
+			expect(filesStore.hasSaveError(filesStore.files[0]!.id)).toBe(true);
+		} finally {
+			put.mockRestore();
+			await filesStore.flushPendingAwait();
+		}
+	});
+	it('une purge défaillante laisse la note dans la corbeille visible', async () => {
+		const file = filesStore.createNew('safe.md', 'safe');
+		await filesStore.flushPendingAwait();
+		filesStore.delete(file.id);
+		await filesStore.flushPendingAwait();
+		const purge = vi.spyOn(trashOps, 'purgePermanently').mockRejectedValue(new Error('storage'));
+		try {
+			filesStore.purgeTrash(file.id);
+			await vi.waitFor(() => expect(purge).toHaveBeenCalled());
+			expect(filesStore.trash.some((entry) => entry.file.id === file.id)).toBe(true);
+		} finally {
+			purge.mockRestore();
+		}
+	});
+	it('ignore la restauration d’une version sans changement et d’un document absent', async () => {
+		const file = filesStore.createNew('same.md', 'same');
+		expect(await filesStore.restoreVersion('missing', 'other')).toBe(false);
+		expect(await filesStore.restoreVersion(file.id, 'same')).toBe(false);
+	});
+	it('réactive par callback natif un document fermé sans le dupliquer', async () => {
+		const file = filesStore.createNew('closed.md', 'local');
+		filesStore.close(file.id);
+		await filesStore.flushPendingAwait();
+		vi.mocked(diskSync.openFromDisk).mockImplementationOnce(async (deps) => {
+			expect(deps.getFiles?.()).toContainEqual(expect.objectContaining({ id: file.id }));
+			deps.onActivate?.(file.id);
+			return [file];
+		});
+		await filesStore.openFromDisk();
+		expect(filesStore.activeId).toBe(file.id);
+		expect(filesStore.closedFiles).toHaveLength(0);
+		expect(filesStore.files).toHaveLength(1);
+	});
+});
+
+describe('collisions entre restauration globale et corbeille', () => {
+	async function replaceCurrent() {
+		const { applyBackup, BACKUP_FORMAT } = await import('./services/backup');
+		const file = filesStore.createNew('same.md', 'version A');
+		await filesStore.flushPendingAwait();
+		await applyBackup(
+			{
+				format: BACKUP_FORMAT,
+				schemaVersion: 1,
+				exportedAt: Date.now(),
+				drafts: [{ ...draftRow(file.id, file.name, 'version B'), updatedAt: Date.now() }],
+				workspaces: [],
+				templates: []
+			},
+			'replace'
+		);
+		await filesStore.reload();
+		return file.id;
+	}
+	it('supprime B après restauration globale sans perdre A et conserve son historique', async () => {
+		const id = await replaceCurrent();
+		filesStore.delete(id);
+		expect(new Set(filesStore.trash.map((entry) => entry.file.id)).size).toBe(
+			filesStore.trash.length
+		);
+		await filesStore.flushPendingAwait();
+		const rows = await db.trashed.toArray();
+		expect(rows.map((row) => row.file.content).sort()).toEqual(['version A', 'version B']);
+		expect(new Set(rows.map((row) => row.id)).size).toBe(2);
+		const old = rows.find((row) => row.file.content === 'version A')!;
+		expect(old.file.id).toBe(old.id);
+		expect(await db.versions.where('draftId').equals(old.id).count()).toBeGreaterThan(0);
+		expect(filesStore.trash.map((entry) => entry.file.content).sort()).toEqual([
+			'version A',
+			'version B'
+		]);
+	});
+	it.each([false, true])('restaure A sans collision avec B fermé=%s', async (closed) => {
+		const id = await replaceCurrent();
+		if (closed) {
+			filesStore.close(id);
+			await filesStore.flushPendingAwait();
+		}
+		const restored = filesStore.restore(id)!;
+		expect(restored.id).not.toBe(id);
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(id))?.content).toBe('version B');
+		expect((await db.drafts.get(restored.id))?.content).toBe('version A');
+		const all = [...filesStore.files, ...filesStore.closedFiles];
+		expect(all.map((file) => file.content).sort()).toEqual(['version A', 'version B']);
+		expect(new Set(all.map((file) => file.id)).size).toBe(2);
+		expect(await db.versions.where('draftId').equals(restored.id).count()).toBeGreaterThan(0);
+	});
+	it('une erreur de copie de corbeille restaure B ouvert et A dans la corbeille', async () => {
+		const id = await replaceCurrent();
+		const put = vi.spyOn(db.trashed, 'put').mockRejectedValueOnce(new Error('quota'));
+		try {
+			filesStore.delete(id);
+			await filesStore.flushPendingAwait();
+			expect(filesStore.files.map((file) => file.content)).toEqual(['version B']);
+			expect(filesStore.trash.map((entry) => entry.file.content)).toEqual(['version A']);
+			expect((await db.trashed.get(id))?.file.content).toBe('version A');
+		} finally {
+			put.mockRestore();
+		}
+	});
+	it('openMany ne crée jamais deux onglets pour des références répétées', async () => {
+		const row = draftRow('duplicate', 'duplicate.md');
+		filesStore.openMany([row, row, row]);
+		expect(filesStore.files.map((file) => file.id)).toEqual(['duplicate']);
+	});
+});
+
+describe('références renouvelées pendant les opérations', () => {
+	it('refuse la restauration de version si un rechargement a remplacé l’objet courant', async () => {
+		const file = filesStore.createNew('same.md', 'before');
+		await filesStore.flushPendingAwait();
+		let release!: (ok: boolean) => void;
+		const checkpoint = vi.spyOn(versionHistory, 'createCheckpoint').mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					release = resolve;
+				})
+		);
+		try {
+			const restoring = filesStore.restoreVersion(file.id, 'old');
+			filesStore.files = [{ ...filesStore.files[0]!, content: 'newly loaded' }];
+			release(true);
+			await expect(restoring).rejects.toThrow();
+			expect(filesStore.files[0]?.content).toBe('newly loaded');
+		} finally {
+			checkpoint.mockRestore();
+		}
+	});
+	it('retire un document fermé supprimé par un autre onglet sans le ressusciter', async () => {
+		const file = filesStore.createNew('closed.md', 'before');
+		filesStore.close(file.id);
+		await filesStore.flushPendingAwait();
+		await db.drafts.delete(file.id);
+		receiveCrossTab({ type: 'removed', id: file.id });
+		expect(filesStore.closedFiles).toHaveLength(0);
+		expect(filesStore.reopen(file.id)).toBeNull();
+		await filesStore.flushPendingAwait();
+		expect(await db.drafts.get(file.id)).toBeUndefined();
+	});
+	it('synchronise aussi le contenu durable des documents fermés', async () => {
+		const file = filesStore.createNew('closed.md', 'before');
+		filesStore.close(file.id);
+		await filesStore.flushPendingAwait();
+		await db.drafts.update(file.id, { content: 'remote', updatedAt: Date.now() });
+		receiveCrossTab({ type: 'draft-written', id: file.id, updatedAt: Date.now() });
+		await vi.waitFor(() => expect(filesStore.closedFiles[0]?.content).toBe('remote'));
+	});
+});
+
+describe('barrière de synchronisation de l’éditeur', () => {
+	it('demande le contenu Milkdown courant avant une barrière durable', async () => {
+		const file = filesStore.createNew('wysiwyg.md', 'avant');
+		await filesStore.flushPendingAwait();
+		const listener = () => filesStore.updateContent(file.id, 'frappe non débouncée');
+		window.addEventListener('mdsh:flush-editor', listener, { once: true });
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(file.id))?.content).toBe('frappe non débouncée');
+	});
+	it('déclenche aussi la barrière synchrone du pagehide', async () => {
+		const file = filesStore.createNew('wysiwyg.md', 'avant');
+		await filesStore.flushPendingAwait();
+		window.addEventListener(
+			'mdsh:flush-editor',
+			() => filesStore.updateContent(file.id, 'dernière frappe'),
+			{ once: true }
+		);
+		filesStore.flushPending();
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(file.id))?.content).toBe('dernière frappe');
+	});
+});
+
+describe('branches de récupération du store', () => {
+	it('la fermeture explicitement destructive utilise la corbeille durable', async () => {
+		const file = filesStore.createNew('trash.md', 'body');
+		await filesStore.flushPendingAwait();
+		filesStore.close(file.id, { trash: true });
+		await filesStore.flushPendingAwait();
+		expect(filesStore.trash[0]?.file.id).toBe(file.id);
+		expect(await db.trashed.get(file.id)).toBeDefined();
+	});
+	it('supprime un document fermé et ignore un identifiant inconnu', async () => {
+		const file = filesStore.createNew('closed.md', 'body');
+		filesStore.close(file.id);
+		await filesStore.flushPendingAwait();
+		filesStore.delete('missing');
+		filesStore.delete(file.id);
+		await filesStore.flushPendingAwait();
+		expect(filesStore.closedFiles).toEqual([]);
+		expect((await db.trashed.get(file.id))?.file.content).toBe('body');
+	});
+	it('restaure la vue fermée quand sa mise en corbeille échoue', async () => {
+		const file = filesStore.createNew('closed.md', 'body');
+		filesStore.close(file.id);
+		await filesStore.flushPendingAwait();
+		const move = vi.spyOn(trashOps, 'moveToTrash').mockResolvedValueOnce(false);
+		try {
+			filesStore.delete(file.id);
+			await vi.waitFor(() =>
+				expect(filesStore.closedFiles.map((entry) => entry.id)).toEqual([file.id])
+			);
+			expect(filesStore.trash).toEqual([]);
+		} finally {
+			move.mockRestore();
+		}
+	});
+	it('annule une restauration défaillante sans retirer la branche en collision', async () => {
+		const current = filesStore.createNew('current.md', 'current');
+		filesStore.trash = [
+			{ file: { ...current, name: 'old.md', content: 'old' }, order: 0, trashedAt: Date.now() }
+		];
+		const restore = vi.spyOn(trashOps, 'restoreFromTrash').mockResolvedValueOnce(false);
+		try {
+			const optimistic = filesStore.restore(current.id)!;
+			await vi.waitFor(() =>
+				expect(filesStore.trash.map((entry) => entry.file.content)).toEqual(['old'])
+			);
+			expect(filesStore.files.map((entry) => entry.content)).toEqual(['current']);
+			expect(optimistic.id).not.toBe(current.id);
+		} finally {
+			restore.mockRestore();
+		}
+	});
+	it('exécute les callbacks d’activation et rollback fournis au disque', async () => {
+		const open = filesStore.createNew('open.md', 'open');
+		const closed = filesStore.createNew('closed.md', 'closed');
+		filesStore.close(closed.id);
+		await filesStore.flushPendingAwait();
+		vi.mocked(diskSync.openFromDisk).mockImplementationOnce(async (deps) => {
+			deps.onActivate?.(open.id);
+			deps.onActivate?.(closed.id);
+			const temporary = deps.onCreate('temporary.md', 'temporary');
+			deps.onImportRollback?.(temporary.id);
+			return [];
+		});
+		await filesStore.openFromDisk();
+		expect(filesStore.activeId).toBe(closed.id);
+		expect(filesStore.files.map((entry) => entry.id).sort()).toEqual([closed.id, open.id].sort());
+		expect(filesStore.files.some((entry) => entry.name === 'temporary.md')).toBe(false);
+	});
+	it('importe un dossier desktop avec bilan partiel, puis expose le garde hors desktop', async () => {
+		(window as Window & { isTauri?: boolean }).isTauri = true;
+		vi.mocked(diskSync.openDirectoryFromDisk).mockImplementationOnce(async (deps, options) => {
+			options?.onProgress?.({
+				processed: 2,
+				imported: 1,
+				skipped: 0,
+				failed: 1,
+				bytes: 4,
+				cancelled: false,
+				issues: [{ name: 'bad.md', reason: 'read' }]
+			});
+			return [deps.onCreate('good.md', 'good')];
+		});
+		try {
+			const result = await filesStore.importDirectory();
+			expect(result).toMatchObject({
+				count: 1,
+				truncated: true,
+				report: { imported: 1, failed: 1 }
+			});
+			expect(filesStore.lastImportReport).toMatchObject({ imported: 1, failed: 1 });
+		} finally {
+			delete (window as Window & { isTauri?: boolean }).isTauri;
+		}
+		expect(await filesStore.importDirectoryFromDesktop()).toEqual({ count: 0, truncated: false });
+	});
+});
+
+describe('réouverture et liens de workspace défensifs', () => {
+	it('réouvre une ligne déjà fermée sans recréer son contenu', async () => {
+		const file = filesStore.createNew('closed.md', 'mémoire');
+		filesStore.close(file.id);
+		await filesStore.flushPendingAwait();
+		filesStore.openMany([{ ...draftRow(file.id, 'disk.md', 'disque'), open: false }]);
+		expect(filesStore.files).toHaveLength(1);
+		expect(filesStore.files[0]).toMatchObject({
+			id: file.id,
+			name: 'closed.md',
+			content: 'mémoire'
+		});
+		expect(filesStore.closedFiles).toEqual([]);
+	});
+	it('restaure un handle FSA et ignore proprement une ligne sans aucun lien', async () => {
+		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
+		vi.mocked(fsa.getHandle).mockImplementation(async (id) =>
+			id === 'handle' ? ({} as FileSystemFileHandle) : null
+		);
+		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
+		filesStore.openMany([
+			{ ...draftRow('handle', 'handle.md'), open: true },
+			{ ...draftRow('plain', 'plain.md'), open: true }
+		]);
+		await vi.waitFor(() =>
+			expect(filesStore.files.find((file) => file.id === 'handle')?.linkedToDisk).toBe(true)
+		);
+		expect(filesStore.files.find((file) => file.id === 'plain')?.linkedToDisk).toBe(false);
+	});
+	it('ignore références absentes et répétées en conservant les onglets hors workspace', () => {
+		const a = filesStore.createNew('a.md');
+		const b = filesStore.createNew('b.md');
+		const c = filesStore.createNew('c.md');
+		filesStore.reorderToIds(['missing', b.id, b.id]);
+		expect(filesStore.files.map((file) => file.id)).toEqual([b.id, a.id, c.id]);
+		filesStore.reorderToIds([b.id, a.id, c.id]);
+		expect(filesStore.files.map((file) => file.id)).toEqual([b.id, a.id, c.id]);
+	});
+	it('n’ajoute pas deux fois une variante déjà injectée par le backend de restauration', async () => {
+		const current = filesStore.createNew('current.md', 'current');
+		filesStore.trash = [
+			{ file: { ...current, id: 'trash', content: 'trash' }, order: 0, trashedAt: Date.now() }
+		];
+		const variant = { ...draftRow('variant', 'variant.md', 'variant'), open: false };
+		filesStore.closedFiles = [{ ...variant, dirty: false }];
+		const restore = vi
+			.spyOn(trashOps, 'restoreFromTrash')
+			.mockImplementationOnce(async (_id, _row, onPreserved) => {
+				onPreserved?.(variant);
+				return true;
+			});
+		try {
+			filesStore.restore('trash');
+			await filesStore.flushPendingAwait();
+			expect(filesStore.closedFiles.filter((file) => file.id === 'variant')).toHaveLength(1);
+		} finally {
+			restore.mockRestore();
+		}
 	});
 });

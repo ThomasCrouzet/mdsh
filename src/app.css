@@ -85,7 +85,7 @@
 
 	--color-accent: #6f4e18; /* ~6.5:1 sur #f0ede5 */
 	--color-accent-dim: #9b6c24;
-	--color-danger: #c92a2a;
+	--color-danger: #991b1b;
 	--color-warning: #7d5200;
 }
 
@@ -201,51 +201,15 @@ button:disabled {
    et navigation clavier cassée. Le hover/focus-within les ramène avec un
    `inert: false` posé en JS dans `+page.svelte`.
    ========================================================================== */
-body.focus-mode :is(header, aside, footer) {
+body.focus-mode :is(#app-toolbar, #files-panel, #app-statusbar, .mdsh-toc-col) {
 	opacity: 0;
 	transition: opacity 180ms ease;
 	pointer-events: none;
 }
-body.focus-mode :is(header, aside, footer):hover,
-body.focus-mode :is(header, aside, footer):focus-within {
+body.focus-mode :is(#app-toolbar, #files-panel, #app-statusbar, .mdsh-toc-col):hover,
+body.focus-mode :is(#app-toolbar, #files-panel, #app-statusbar, .mdsh-toc-col):focus-within {
 	opacity: 1;
 	pointer-events: auto;
-}
-
-/* Indicateur subtil en haut à droite quand le mode est actif, pour ne pas
-   perdre l'utilisateur. §B3.3 - Confirmation visible 2 s puis fade-out à
-   0.15 (toujours présent mais discret), full opacity au hover. Avant :
-   constant à 0.5 - pollution visuelle dans un mode censé désencombrer. */
-body.focus-mode::after {
-	content: 'FOCUS // ACTIVE';
-	position: fixed;
-	top: 0.5rem;
-	right: 0.75rem;
-	padding: 0.15rem 0.5rem;
-	border-radius: 0;
-	border: 1px solid color-mix(in oklab, var(--color-accent) 45%, transparent);
-	background: color-mix(in oklab, var(--color-accent) 14%, transparent);
-	color: var(--color-accent);
-	font-family: var(--font-mono);
-	font-size: 10px;
-	letter-spacing: 0.05em;
-	text-transform: uppercase;
-	pointer-events: none;
-	z-index: 60;
-	animation: focus-mode-fade 2.5s ease forwards;
-}
-body.focus-mode:hover::after {
-	opacity: 1;
-	animation: none;
-}
-@keyframes focus-mode-fade {
-	0%,
-	60% {
-		opacity: 0.6;
-	}
-	100% {
-		opacity: 0.15;
-	}
 }
 
 /* ==========================================================================
@@ -412,10 +376,7 @@ body.typewriter-mode .mdsh-editor {
 @media (prefers-reduced-motion: no-preference) {
 	.mdsh-icon-button,
 	.mdsh-mode-switch button {
-		transition:
-			color 110ms ease,
-			border-color 110ms ease,
-			background-color 110ms ease;
+		transition: border-color 110ms ease;
 	}
 }
 
@@ -471,3 +432,73 @@ body.typewriter-mode .mdsh-editor {
 /* ==========================================================================
    Fonts - stack système uniquement (zéro requête réseau, 100 % offline).
    ========================================================================== */
+
+/* Couleurs de syntaxe lisibles sur toutes les surfaces du thème. */
+:root {
+	--syntax-comment: #aaa59b;
+	--syntax-keyword: #dba3eb;
+	--syntax-name: #ef929a;
+	--syntax-literal: #7bd0da;
+	--syntax-string: #b3d79a;
+	--syntax-number: #e1b080;
+	--syntax-title: #8dc7f5;
+	--syntax-built-in: #e6c07b;
+}
+:root[data-theme='light'] {
+	--syntax-comment: #56504a;
+	--syntax-keyword: #74318a;
+	--syntax-name: #91313a;
+	--syntax-literal: #175960;
+	--syntax-string: #37591e;
+	--syntax-number: #784614;
+	--syntax-title: #215580;
+	--syntax-built-in: #5f4917;
+}
+@media (pointer: coarse) {
+	#app-toolbar button,
+	#files-panel button,
+	[role='dialog'] button,
+	[role='dialog'] summary,
+	#files-panel summary,
+	body > button {
+		min-height: 44px;
+		min-width: 44px;
+	}
+	.mdsh-file-row button {
+		opacity: 1;
+	}
+}
+@media (max-height: 500px) {
+	[role='dialog'] {
+		padding-top: 1rem;
+		padding-bottom: 1rem;
+	}
+	.mdsh-dialog-panel {
+		max-height: calc(100dvh - 2rem);
+	}
+}
+
+@media (max-width: 639px) {
+	#app-toolbar {
+		flex-wrap: wrap;
+		padding-block: 4px;
+	}
+	#app-toolbar .mdsh-mode-switch {
+		order: 2;
+		width: 100%;
+		margin-left: 0;
+		justify-content: center;
+	}
+	#app-toolbar .mdsh-mode-switch button {
+		flex: 1;
+	}
+	#app-toolbar .mdsh-mode-switch span {
+		display: inline;
+	}
+}
+
+@media (max-width: 639px) {
+	.search-input-row input[role='combobox'] {
+		flex-basis: calc(100% - 2rem);
+	}
+}

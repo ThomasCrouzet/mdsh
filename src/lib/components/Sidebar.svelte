@@ -15,22 +15,26 @@
 		CircleX,
 		AlertTriangle
 	} from '@lucide/svelte';
-	import { formatKbd } from '$lib/platform';
+	import { keyboardStore } from '$lib/ui/keyboard.svelte';
 	import { spinnerStore } from '$lib/spinner.svelte';
 	import { t } from '$lib/i18n';
+	import { promptStore } from '$lib/prompt.svelte';
+	import { ArrowUp, ArrowDown } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;
+		focusMode?: boolean;
 		onClose: () => void;
 		onNew: () => void;
-		onImport: () => void;
+		onImport: () => Promise<void> | void;
 	}
 
-	let { open, onClose, onNew, onImport }: Props = $props();
+	let { open, focusMode = false, onClose, onNew, onImport }: Props = $props();
 
 	let draggingId = $state<string | null>(null);
 	let dragOverId = $state<string | null>(null);
 	let fileList = $state<HTMLUListElement | null>(null);
+	let closeButton = $state<HTMLButtonElement | null>(null);
 
 	// Tag filter: null = "all files". Auto-reset if the tag
 	// disappears from the corpus (file deleted / modified without the tag).
@@ -144,6 +148,31 @@
 		if (window.innerWidth < 768) onClose();
 	}
 
+	function moveFile(id: string, direction: number) {
+		const index = filesStore.files.findIndex((file) => file.id === id);
+		const target = filesStore.files[index + direction];
+		if (target) filesStore.reorder(id, target.id);
+	}
+	async function purgeFile(id: string) {
+		if (
+			await promptStore.confirm({
+				title: t('sidebar.purgeConfirm'),
+				message: t('sidebar.purgeMessage'),
+				danger: true
+			})
+		)
+			filesStore.purgeTrash(id);
+	}
+	async function deleteFile(id: string) {
+		if (
+			await promptStore.confirm({
+				title: t('sidebar.deleteConfirm'),
+				message: t('sidebar.deleteMessage'),
+				danger: true
+			})
+		)
+			filesStore.delete(id);
+	}
 	function handleClose(id: string) {
 		filesStore.close(id);
 	}
@@ -211,7 +240,18 @@
 		if (!browser) return;
 		let raf = 0;
 		const update = () => {
-			isMobile = window.innerWidth < 768;
+			const nextMobile = window.innerWidth < 768;
+			const focusWasInDrawer = isMobile && !nextMobile && document.activeElement === closeButton;
+			isMobile = nextMobile;
+			if (focusWasInDrawer)
+				void tick().then(() => {
+					const toggles = document.querySelectorAll<HTMLButtonElement>(
+						'#app-toolbar button[aria-controls="files-panel"]'
+					);
+					Array.from(toggles)
+						.find((button) => button.getClientRects().length > 0)
+						?.focus();
+				});
 		};
 		update();
 		const onResize = () => {
@@ -227,7 +267,19 @@
 			if (raf) cancelAnimationFrame(raf);
 		};
 	});
-	const trapActive = $derived(isMobile && open);
+	const trapActive = $derived(isMobile && open && !focusMode);
+	$effect(() => {
+		if (trapActive) tick().then(() => closeButton?.focus());
+	});
+
+	function handleNewFromSidebar(): void {
+		onNew();
+		if (isMobile) onClose();
+	}
+
+	async function handleImportFromSidebar(): Promise<void> {
+		await onImport();
+	}
 
 	// §a11y - Escape closes the mobile drawer. Previously the overlay carried an
 	// onkeydown Escape but, not being focusable (tabindex=-1), it never received
@@ -255,13 +307,16 @@
 {/if}
 
 <aside
+	id="files-panel"
 	class="mdsh-sidebar fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-bg-1
 	       transform transition-transform duration-200 ease-out
 	       md:static md:w-60 md:translate-x-0"
 	class:-translate-x-full={!open}
 	class:translate-x-0={open}
 	aria-label={t('sidebar.filesPanel')}
-	use:focusTrap={{ active: trapActive }}
+	inert={!open || focusMode}
+	aria-hidden={!open || focusMode ? 'true' : undefined}
+	use:focusTrap={{ active: trapActive, restoreOnDeactivate: true }}
 >
 	<!-- Header -->
 	<div class="mdsh-sidebar-head flex h-12 items-center justify-between border-b border-border px-4">
@@ -275,6 +330,7 @@
 			</div>
 		</div>
 		<button
+			bind:this={closeButton}
 			class="text-fg-subtle hover:text-fg md:hidden"
 			onclick={onClose}
 			aria-label={t('sidebar.closePanel')}
@@ -382,12 +438,14 @@
 				<div style:height={`${topSpacerHeight}px`} aria-hidden="true"></div>
 			{/if}
 			<ul bind:this={fileList} class="flex flex-col" aria-label={t('sidebar.openFilesReorderHint')}>
-				{#each visibleFiles as file (file.id)}
+				{#each visibleFiles as file, fileIndex (file.id)}
 					{@const isActive = file.id === filesStore.activeId}
 					{@const dirtyHint = file.dirty ? t('sidebar.unexportedChangesHint') : ''}
 					{@const label = filesStore.displayTitle(file.id)}
 					{@const isSelected = filesStore.selectedIds.has(file.id)}
 					<li
+						aria-posinset={visibleStart + fileIndex + 1}
+						aria-setsize={filteredFiles.length}
 						class="mdsh-file-row group relative flex items-stretch transition-colors
 						       before:pointer-events-none before:absolute before:left-0 before:top-0 before:bottom-0
 						       before:w-0.5 before:bg-accent before:opacity-0 before:transition-opacity"
@@ -446,10 +504,12 @@
 						</button>
 						<button
 							class="flex flex-shrink-0 items-center rounded p-1 text-fg-dim opacity-0 transition
-							       hover:bg-bg-3 hover:text-fg group-hover:opacity-100 mr-2 my-1"
+							       hover:bg-bg-3 hover:text-fg group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 mr-2 my-1"
 							onclick={() => handleClose(file.id)}
 							aria-label={t('sidebar.closeFile', { label })}
-							title={t('sidebar.closeWithShortcut', { shortcut: formatKbd('⌘W') })}
+							title={t('sidebar.closeWithShortcut', {
+								shortcut: keyboardStore.label('close-file') ?? ''
+							})}
 						>
 							<X size={12} />
 						</button>
@@ -461,6 +521,66 @@
 			{/if}
 		{/if}
 	</div>
+
+	{#if filesStore.active}
+		<details class="border-t border-border px-3 py-2 text-xs">
+			<summary class="cursor-pointer text-fg">{t('sidebar.fileActions')}</summary>
+			<div class="flex flex-wrap gap-2 pt-2">
+				<button
+					class="rounded border border-border p-2"
+					disabled={filesStore.files[0]?.id === filesStore.activeId}
+					onclick={() => moveFile(filesStore.activeId!, -1)}
+					aria-label={t('sidebar.moveUp')}><ArrowUp size={16} /></button
+				>
+				<button
+					class="rounded border border-border p-2"
+					disabled={filesStore.files.at(-1)?.id === filesStore.activeId}
+					onclick={() => moveFile(filesStore.activeId!, 1)}
+					aria-label={t('sidebar.moveDown')}><ArrowDown size={16} /></button
+				>
+				<button
+					class="rounded border border-border p-2 text-danger"
+					onclick={() => void deleteFile(filesStore.activeId!)}>{t('palette.deleteFile')}</button
+				>
+			</div>
+		</details>
+	{/if}
+	{#if filesStore.closedFiles.length > 0}
+		<details class="max-h-48 overflow-y-auto border-t border-border px-3 py-2 text-xs">
+			<summary class="cursor-pointer text-fg"
+				>{t('sidebar.closedFiles')} ({filesStore.closedFiles.length})</summary
+			>
+			{#each filesStore.closedFiles as file (file.id)}
+				<button
+					class="block w-full truncate py-2 text-left"
+					onclick={() => {
+						filesStore.reopen(file.id);
+						if (isMobile) onClose();
+					}}>{file.name}</button
+				>
+			{/each}
+		</details>
+	{/if}
+	{#if filesStore.trash.length > 0}
+		<details class="max-h-48 overflow-y-auto border-t border-border px-3 py-2 text-xs">
+			<summary class="cursor-pointer text-fg"
+				>{t('sidebar.trash')} ({filesStore.trash.length})</summary
+			>
+			{#each filesStore.trash as entry (entry.file.id)}
+				<div class="flex items-center gap-1">
+					<button
+						class="min-w-0 flex-1 truncate py-2 text-left"
+						onclick={() => filesStore.restore(entry.file.id)}
+						>{t('sidebar.restore', { name: entry.file.name })}</button
+					><button
+						class="p-2 text-danger"
+						aria-label={t('sidebar.purge', { name: entry.file.name })}
+						onclick={() => void purgeFile(entry.file.id)}><X size={14} /></button
+					>
+				</div>
+			{/each}
+		</details>
+	{/if}
 
 	<!-- §5.2 - Backlinks: files pointing to the active file via [[...]].
 	     Shown only if at least one backlink exists, to avoid cluttering
@@ -494,24 +614,30 @@
 	<!-- Bottom actions -->
 	<div class="border-t border-border px-2 py-2">
 		<button
-			class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-fg-muted
+			class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-fg
 			       transition-colors hover:bg-bg-2 hover:text-fg"
-			onclick={onNew}
-			aria-label={t('sidebar.newFileWithShortcut', { shortcut: formatKbd('⌘N') })}
+			onclick={handleNewFromSidebar}
+			aria-label={t('sidebar.newFileWithShortcut', { shortcut: keyboardStore.label('new') ?? '' })}
 		>
 			<FilePlus size={14} />
 			<span>{t('sidebar.newFile')}</span>
-			<kbd class="ml-auto text-[10px] text-fg-dim" aria-hidden="true">{formatKbd('⌘N')}</kbd>
+			<kbd class="ml-auto text-[10px] text-fg-dim" aria-hidden="true"
+				>{keyboardStore.label('new') ?? ''}</kbd
+			>
 		</button>
 		<button
-			class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-fg-muted
+			class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-fg
 			       transition-colors hover:bg-bg-2 hover:text-fg"
-			onclick={onImport}
-			aria-label={t('sidebar.importFileWithShortcut', { shortcut: formatKbd('⌘O') })}
+			onclick={() => void handleImportFromSidebar()}
+			aria-label={t('sidebar.importFileWithShortcut', {
+				shortcut: keyboardStore.label('import') ?? ''
+			})}
 		>
 			<Upload size={14} />
 			<span>{t('sidebar.importMd')}</span>
-			<kbd class="ml-auto text-[10px] text-fg-dim" aria-hidden="true">{formatKbd('⌘O')}</kbd>
+			<kbd class="ml-auto text-[10px] text-fg-dim" aria-hidden="true"
+				>{keyboardStore.label('import') ?? ''}</kbd
+			>
 		</button>
 	</div>
 </aside>
@@ -519,6 +645,11 @@
 <style>
 	.mdsh-sidebar {
 		box-shadow: 16px 0 48px rgba(0, 0, 0, 0.12);
+	}
+	@media (min-width: 768px) {
+		.mdsh-sidebar[inert] {
+			display: none;
+		}
 	}
 	.mdsh-sidebar-head {
 		position: relative;

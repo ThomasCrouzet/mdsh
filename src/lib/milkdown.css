@@ -132,7 +132,7 @@ milkdown-image-block {
 .milkdown .preview-panel .mdsh-mermaid-preview-error {
 	background: rgba(255, 80, 80, 0.08);
 	border: 1px solid rgba(255, 80, 80, 0.25);
-	color: #ffb3b3;
+	color: var(--color-danger);
 	padding: 0.8em 1em;
 	border-radius: var(--radius-md);
 	font-size: 0.9em;

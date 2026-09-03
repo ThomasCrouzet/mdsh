@@ -1,3 +1,5 @@
+import { ImportSession, type ImportOptions, type ImportReport } from './import-limits';
+import { IMPORT_LIMITS } from './config';
 import { browser } from '$app/environment';
 import { t } from '$lib/i18n';
 import { isPathLinkRecord, pathBasename, type PathLinkRecord } from './disk-link';
@@ -63,62 +65,69 @@ export function isDirectoryPickerSupported(): boolean {
 	return browser && 'showDirectoryPicker' in window;
 }
 
-// §2.3 - Directory import guards: we cap the recursion depth and the number of
-// files so we don't DoS the app on a giant directory (node_modules, a vault of
-// thousands of notes). Consistent with the app's target scale of a few hundred
-// files (see docs/DEVELOPMENT.md, "Design limits").
-const DIR_MAX_DEPTH = 8;
-const DIR_MAX_FILES = 500;
 const MD_FILE_RE = /\.(md|markdown|mdx|txt)$/i;
 
 async function collectMarkdownFiles(
 	dir: MdshDirectoryHandle,
 	out: Array<{ name: string; content: string }>,
-	depth: number
+	depth: number,
+	session: ImportSession
 ): Promise<void> {
-	if (depth > DIR_MAX_DEPTH || out.length >= DIR_MAX_FILES) return;
+	if (depth > IMPORT_LIMITS.maxDepth) {
+		session.fail(dir.name, 'depth');
+		return;
+	}
 	for await (const entry of dir.values()) {
-		if (out.length >= DIR_MAX_FILES) return;
+		if (!(await session.pause())) return;
+		if (session.report.imported >= IMPORT_LIMITS.maxFiles) {
+			session.fail(entry.name, 'file-count');
+			return;
+		}
 		if (entry.kind === 'file') {
-			if (!MD_FILE_RE.test(entry.name)) continue;
+			if (!MD_FILE_RE.test(entry.name)) {
+				session.skip();
+				continue;
+			}
+			let file: File;
 			try {
-				const file = await entry.getFile();
-				out.push({ name: entry.name, content: await file.text() });
+				file = await entry.getFile();
 			} catch {
-				// Unreadable file (permission, deleted in flight) - we skip it.
+				session.fail(entry.name, 'read');
+				continue;
+			}
+			const content = await session.read(file);
+			if (content !== null) {
+				out.push({ name: entry.name, content });
+				session.accept();
 			}
 		} else {
-			// Ignores hidden directories / common bulky dependencies.
 			if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-			await collectMarkdownFiles(entry, out, depth + 1);
+			await collectMarkdownFiles(entry, out, depth + 1, session);
 		}
 	}
 }
 
-/**
- * §2.3 - Opens a directory picker and recursively collects markdown files
- * (.md/.markdown/.mdx/.txt). Returns `{ name, content }[]` (empty if cancelled
- * or unsupported). Capped (depth + count) by the guard.
- *
- * `flagTruncated` is set to true if the file cap was reached (the caller can
- * inform the user).
- */
-export async function pickDirectoryFiles(): Promise<{
+export async function pickDirectoryFiles(options: ImportOptions = {}): Promise<{
 	files: Array<{ name: string; content: string }>;
 	truncated: boolean;
+	report: ImportReport;
 }> {
-	if (!isDirectoryPickerSupported() || !window.showDirectoryPicker) {
-		return { files: [], truncated: false };
+	const session = new ImportSession(options);
+	const files: Array<{ name: string; content: string }> = [];
+	if (isDirectoryPickerSupported() && window.showDirectoryPicker && !session.cancelled) {
+		try {
+			const dir = await window.showDirectoryPicker({ mode: 'read' });
+			await collectMarkdownFiles(dir, files, 0, session);
+		} catch (err) {
+			if ((err as Error).name !== 'AbortError') throw err;
+			session.report.cancelled = true;
+		}
 	}
-	try {
-		const dir = await window.showDirectoryPicker({ mode: 'read' });
-		const files: Array<{ name: string; content: string }> = [];
-		await collectMarkdownFiles(dir, files, 0);
-		return { files, truncated: files.length >= DIR_MAX_FILES };
-	} catch (err) {
-		if ((err as Error).name === 'AbortError') return { files: [], truncated: false };
-		throw err;
-	}
+	return {
+		files,
+		truncated: session.report.failed > 0 || session.cancelled,
+		report: session.publish()
+	};
 }
 
 export async function saveHandle(id: string, handle: FileSystemFileHandle): Promise<void> {

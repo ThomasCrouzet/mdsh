@@ -7,6 +7,7 @@
 
 import { isDesktop } from './desktop';
 import { reportError, reportWarning } from './report';
+import { t } from './i18n';
 import type { NativeDiskGrant } from './disk-tauri';
 
 export type DesktopMenuAction =
@@ -35,8 +36,10 @@ export interface DesktopMenuLabels {
 export interface DesktopShellHandlers {
 	onMenuAction: (action: DesktopMenuAction) => void | Promise<void>;
 	/** Native capabilities from argv, OS "Open with" and subsequent open events. */
-	onOpenPaths: (grants: NativeDiskGrant[]) => void | Promise<void>;
-	labels: DesktopMenuLabels;
+	onOpenPaths: (grants: NativeDiskGrant[]) => string[] | Promise<string[]>;
+	labels?: DesktopMenuLabels;
+	getLabels?: () => DesktopMenuLabels;
+	onBeforeClose?: () => void | Promise<void>;
 }
 
 /**
@@ -47,28 +50,107 @@ export async function initDesktopShell(handlers: DesktopShellHandlers): Promise<
 	if (!isDesktop()) return () => {};
 
 	const unsubs: Array<() => void> = [];
+	let menuQueue = Promise.resolve();
+	const updateMenu = () => {
+		menuQueue = menuQueue
+			.catch(() => {})
+			.then(async () => {
+				const labels = handlers.getLabels?.() ?? handlers.labels;
+				if (!labels) throw new Error('Desktop menu labels are unavailable.');
+				await installAppMenu(handlers.onMenuAction, labels);
+			});
+		return menuQueue;
+	};
 
 	try {
-		await installAppMenu(handlers.onMenuAction, handlers.labels);
+		await updateMenu();
 	} catch (err) {
 		reportWarning('initialisation du menu desktop', err);
 	}
+	const onLocaleChange = () => {
+		void updateMenu().catch((err: unknown) => reportWarning('langue du menu desktop', err));
+	};
+	window.addEventListener('mdsh:locale-change', onLocaleChange);
+	unsubs.push(() => window.removeEventListener('mdsh:locale-change', onLocaleChange));
+	unsubs.push(installExternalLinkHandler());
+
+	interface PendingGrant extends NativeDiskGrant {
+		queuedPath: string;
+	}
+	interface PendingDelivery {
+		grants: PendingGrant[];
+		rejected: Array<{ path: string; reason: string }>;
+		remaining: number;
+	}
+	let openQueue = Promise.resolve();
+	const drainPending = () => {
+		const next = openQueue.then(async () => {
+			const { invoke } = await import('@tauri-apps/api/core');
+			const excludedPaths = new Set<string>();
+			let remaining: number;
+			do {
+				const pending = await invoke<PendingDelivery>('take_pending_open_paths', {
+					excludePaths: [...excludedPaths]
+				});
+				if (!pending || !Array.isArray(pending.grants) || !Array.isArray(pending.rejected))
+					throw new Error('Invalid pending file delivery');
+				remaining = pending.remaining;
+				if (pending.rejected.length > 0) {
+					const details = pending.rejected
+						.slice(0, 5)
+						.map(({ path, reason }) => `${path}: ${reason}`)
+						.join('\n');
+					reportError('fichiers desktop refusés', new Error(details), {
+						notifyUser: t('page.openFromDiskError')
+					});
+					await invoke('ack_pending_open_paths', {
+						processed: [],
+						rejectedPaths: pending.rejected.map(({ path }) => path)
+					});
+				}
+				if (pending.grants.length > 0) {
+					const processedTokens = new Set(await handlers.onOpenPaths(pending.grants));
+					const knownTokens = new Set(pending.grants.map(({ token }) => token));
+					for (const token of processedTokens) {
+						if (!knownTokens.has(token)) throw new Error('Unknown processed file capability');
+					}
+					const processed = pending.grants
+						.filter(({ token }) => processedTokens.has(token))
+						.map(({ token, queuedPath }) => ({ token, queuedPath }));
+					for (const grant of pending.grants) {
+						if (!processedTokens.has(grant.token)) excludedPaths.add(grant.queuedPath);
+					}
+					if (processed.length > 0)
+						await invoke('ack_pending_open_paths', { processed, rejectedPaths: [] });
+				}
+				if (remaining > 0 && pending.grants.length === 0 && pending.rejected.length === 0)
+					throw new Error('Pending file delivery made no progress');
+			} while (remaining > 0);
+		});
+		openQueue = next.catch(() => {});
+		return next;
+	};
 
 	try {
-		const unlistenOpen = await listenOpenPaths(handlers.onOpenPaths);
+		const unlistenOpen = await listenOpenPaths(drainPending);
 		unsubs.push(unlistenOpen);
 	} catch (err) {
 		reportWarning("initialisation de l'écoute des fichiers desktop", err);
 	}
 
 	try {
-		const { invoke } = await import('@tauri-apps/api/core');
-		const pending = await invoke<NativeDiskGrant[]>('take_pending_open_paths');
-		if (Array.isArray(pending) && pending.length > 0) {
-			await handlers.onOpenPaths(pending);
-		}
+		await drainPending();
 	} catch (err) {
 		reportWarning('lecture des fichiers desktop en attente', err);
+	}
+	if (handlers.onBeforeClose) {
+		try {
+			unsubs.push(await installCloseGuard(handlers.onBeforeClose));
+		} catch (err) {
+			reportError('protection de fermeture desktop', err, {
+				notifyUser: t('desktop.closeFailed')
+			});
+		}
 	}
 
 	return () => {
@@ -92,9 +174,11 @@ async function installAppMenu(
 			id,
 			text,
 			action: () => {
-				void Promise.resolve(onAction(id)).catch((err: unknown) => {
-					reportError(`action du menu desktop "${id}"`, err);
-				});
+				void Promise.resolve()
+					.then(() => onAction(id))
+					.catch((err: unknown) => {
+						reportError(`action du menu desktop "${id}"`, err);
+					});
 			}
 		});
 
@@ -133,20 +217,78 @@ async function installAppMenu(
 	const menu = await Menu.new({
 		items: [fileMenu, editMenu]
 	});
-	await menu.setAsAppMenu();
+	const previous = await menu.setAsAppMenu();
+	await previous?.close();
 }
 
-async function listenOpenPaths(
-	onOpenPaths: DesktopShellHandlers['onOpenPaths']
-): Promise<() => void> {
+async function listenOpenPaths(drainPending: () => Promise<void>): Promise<() => void> {
 	const { listen } = await import('@tauri-apps/api/event');
-	const unlisten = await listen<NativeDiskGrant[]>('mdsh://open-paths', (event) => {
-		const grants = event.payload;
-		if (Array.isArray(grants) && grants.length > 0) {
-			void Promise.resolve(onOpenPaths(grants)).catch((err: unknown) => {
-				reportError('ouverture depuis un événement desktop', err);
-			});
-		}
+	const unlisten = await listen('mdsh://open-paths-pending', () => {
+		void drainPending().catch((err: unknown) => {
+			reportError('ouverture depuis un événement desktop', err);
+		});
 	});
 	return unlisten;
+}
+
+async function installCloseGuard(onBeforeClose: () => void | Promise<void>): Promise<() => void> {
+	const [{ listen }, { invoke }] = await Promise.all([
+		import('@tauri-apps/api/event'),
+		import('@tauri-apps/api/core')
+	]);
+	let closing: Promise<void> | null = null;
+	const unlisten = await listen('mdsh://close-request', () => {
+		if (closing) return;
+		closing = Promise.resolve()
+			.then(onBeforeClose)
+			.then(() => invoke<void>('desktop_complete_close'))
+			.catch((err: unknown) => {
+				reportError('fermeture desktop', err, { notifyUser: t('desktop.closeFailed') });
+			})
+			.finally(() => {
+				closing = null;
+			});
+	});
+	try {
+		await invoke('desktop_arm_close_guard');
+	} catch (err) {
+		unlisten();
+		throw err;
+	}
+	return unlisten;
+}
+
+function installExternalLinkHandler(): () => void {
+	const onClick = (event: MouseEvent) => {
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		const anchor = target.closest<HTMLAnchorElement>('a[href]');
+		if (!anchor || anchor.hasAttribute('download') || anchor.hasAttribute('data-mdsh-wiki')) return;
+		const raw = anchor.getAttribute('href') ?? '';
+		if (raw.startsWith('#')) return;
+		let url: URL;
+		try {
+			url = new URL(anchor.href, window.location.href);
+		} catch (err) {
+			event.preventDefault();
+			reportError('lien desktop', err, { notifyUser: t('desktop.linkFailed') });
+			return;
+		}
+		if (url.origin === window.location.origin && url.pathname === window.location.pathname) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (!/^https?:$/.test(url.protocol) || url.origin === window.location.origin) {
+			reportError('lien desktop', new Error('Unsupported external link'), {
+				notifyUser: t('desktop.linkFailed')
+			});
+			return;
+		}
+		void import('@tauri-apps/api/core')
+			.then(({ invoke }) => invoke('desktop_open_external', { url: url.href }))
+			.catch((err: unknown) => {
+				reportError('lien desktop', err, { notifyUser: t('desktop.linkFailed') });
+			});
+	};
+	document.addEventListener('click', onClick, true);
+	return () => document.removeEventListener('click', onClick, true);
 }

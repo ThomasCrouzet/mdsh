@@ -14,7 +14,10 @@ test.describe('Workspaces - sauvegarde/restauration de sessions', () => {
 
 		// Sauvegarde du workspace via la palette → prompt → nom → Enter.
 		await openPalette(page);
-		await page.keyboard.type('Sauvegarder');
+		await page.keyboard.type('Sauvegarder le workspace courant');
+		await expect(
+			page.getByRole('option', { name: 'Sauvegarder le workspace courant', exact: true })
+		).toBeVisible();
 		await page.keyboard.press('Enter');
 		const promptDialog = page.getByRole('dialog', { name: 'Nom du workspace ?' });
 		await expect(promptDialog).toBeVisible({ timeout: 5000 });

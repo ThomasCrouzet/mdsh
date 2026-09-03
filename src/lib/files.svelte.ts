@@ -1,8 +1,9 @@
+import { ImportSession, type ImportOptions, type ImportReport } from './import-limits';
+import { IMPORT_LIMITS } from './config';
 import { browser } from '$app/environment';
 import { db, newId } from './db';
 import type { DraftRow } from './db';
 import type { FileItem, TrashedFile } from './types';
-import { TIMERS } from './config';
 import { isFSASupported, getHandle, getPathLink, pickDirectoryFiles } from './fsa';
 import { isDesktop } from './desktop';
 import type { NativeDiskGrant } from './disk-tauri';
@@ -16,6 +17,7 @@ import {
 import {
 	openFromDisk as diskOpenFromDisk,
 	openPathsFromDesktop as diskOpenPathsFromDesktop,
+	openDirectoryFromDisk as diskOpenDirectoryFromDisk,
 	saveToDisk as diskSaveToDisk,
 	unlinkFromDisk as diskUnlinkFromDisk,
 	refreshBrokenLinks as diskRefreshBrokenLinks
@@ -31,9 +33,10 @@ import {
 import { MetaIndex } from './meta-index';
 import { SaveQueue } from './save-queue';
 import { reportPersistenceError } from './storage';
-import { reportError, reportWarning } from './report';
-import { recordVersion, deleteVersionsFor } from './version-history';
-import { replaceInFiles, type ReplaceOptions } from './replace';
+import { reportError } from './report';
+import { recordVersion, createCheckpoint, createCheckpoints } from './version-history';
+import type { ReplaceOptions } from './replace';
+import { replaceInFilesAsync } from './replace-worker';
 import { createCrossTab, type CrossTabMessage } from './cross-tab';
 import { handleCrossTabPolicy } from './cross-tab-policy';
 import { t } from '$lib/i18n';
@@ -43,20 +46,71 @@ import { toggleSelection, rangeSelection, clearSelection } from './selection';
 
 const ACTIVE_ID_KEY = 'mdsh:activeId';
 
-function toDraftRow(file: FileItem, order: number): DraftRow {
+function toDraftRow(file: FileItem, order: number, open = true): DraftRow {
 	return {
 		id: file.id,
 		name: file.name,
 		content: file.content,
 		createdAt: file.createdAt,
 		updatedAt: file.updatedAt,
-		order
+		order,
+		open
 	};
 }
 
 class FilesStore {
 	files = $state<FileItem[]>([]);
+	/** Durable documents that are not currently shown as tabs. */
+	closedFiles = $state<FileItem[]>([]);
 	activeId = $state<string | null>(null);
+	importProgress = $state<ImportReport | null>(null);
+	lastImportReport = $state<ImportReport | null>(null);
+	private importController: AbortController | null = null;
+	private importSignal: AbortSignal | undefined;
+	private renderAllowedIds = $state<string[]>([]);
+
+	requiresRenderConfirmation(id: string): boolean {
+		const file = this.files.find((file) => file.id === id);
+		return (
+			!!file &&
+			file.content.length >= IMPORT_LIMITS.largeDocumentChars &&
+			!this.renderAllowedIds.includes(id)
+		);
+	}
+
+	allowDocumentRendering(id: string): void {
+		if (!this.renderAllowedIds.includes(id)) this.renderAllowedIds.push(id);
+	}
+
+	cancelImport(): void {
+		this.importController?.abort();
+	}
+
+	private beginImport(options: ImportOptions): ImportOptions {
+		this.cancelImport();
+		const controller = new AbortController();
+		this.importController = controller;
+		const signal = options.signal
+			? AbortSignal.any([controller.signal, options.signal])
+			: controller.signal;
+		this.importSignal = signal;
+		return {
+			signal,
+			onProgress: (report) => {
+				if (this.importSignal !== signal) return;
+				this.importProgress = report;
+				options.onProgress?.(report);
+			}
+		};
+	}
+
+	private finishImport(report: ImportReport, signal?: AbortSignal): void {
+		if (signal !== this.importSignal) return;
+		this.lastImportReport = report;
+		this.importProgress = null;
+		this.importController = null;
+	}
+
 	loaded = $state(false);
 	// §J1 - Error message if IndexedDB access fails at startup (private mode,
 	// storage disabled, corrupted profile). Shown as a banner by +page.
@@ -65,16 +119,17 @@ class FilesStore {
 	trash = $state<TrashedFile[]>([]);
 	// §B3.2 - `true` during the debounce (400 ms) + the IDB write. Shown by StatusBar.
 	hasPendingSave = $state(false);
+	saveErrorIds = $state<string[]>([]);
 	// §6.5 - Always reassigned (new Set) - Svelte 5 does not track in-place mutations.
 	selectedIds = $state<Set<string>>(new Set());
 
-	private trashTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	/**
 	 * In-flight moveToTrash promises per draft id. restore() must await these
 	 * before restoreFromTrash so a late moveToTrash cannot delete a just-restored
 	 * drafts row (fast Undo race).
 	 */
 	private pendingTrashMoves = new Map<string, Promise<boolean>>();
+	private pendingRestores = new Map<string, Promise<void>>();
 	private metaIndex = new MetaIndex(() => this.files);
 	// §M3 - Ids with a local keystroke not yet persisted ("dirty") in the
 	// cross-tab sense: a draft is dirty as long as a write is pending OR its
@@ -86,6 +141,9 @@ class FilesStore {
 		onPendingChange: (pending) => {
 			this.hasPendingSave = pending;
 		},
+		onFailuresChange: (ids) => {
+			this.saveErrorIds = ids;
+		},
 		onSaved: (ts) => {
 			this.lastSavedAt = ts;
 		},
@@ -94,11 +152,23 @@ class FilesStore {
 		// resynchronize this draft (and do not overwrite our write).
 		onDraftSaved: (id, updatedAt) => {
 			this.crossTab.post({ type: 'draft-written', id, updatedAt });
+		},
+		onConflictPreserved: (id, variant) => {
+			this.closedFiles.push({ ...variant, dirty: false });
+			this.notifyCrossTabConflict(
+				t('files.modifiedInOtherTab', {
+					name: this.files.find((file) => file.id === id)?.name ?? id
+				})
+			);
 		}
 	});
 
 	get active(): FileItem | null {
 		return this.files.find((f) => f.id === this.activeId) ?? null;
+	}
+
+	hasSaveError(id: string): boolean {
+		return this.saveErrorIds.includes(id);
 	}
 
 	/**
@@ -122,12 +192,20 @@ class FilesStore {
 	private handleCrossTabMessage(msg: CrossTabMessage): void {
 		if (!browser) return;
 		handleCrossTabPolicy(msg, {
-			isLoaded: (id) => this.files.some((f) => f.id === id),
+			isLoaded: (id) => [...this.files, ...this.closedFiles].some((f) => f.id === id),
 			isPending: (id) => this.saveQueue.has(id),
 			hasAnyPending: () => this.hasLocalPendingEdits(),
-			fileName: (id) => this.files.find((f) => f.id === id)?.name ?? id,
+			fileName: (id) =>
+				this.files.find((file) => file.id === id)?.name ??
+				this.closedFiles.find((file) => file.id === id)?.name ??
+				id,
 			syncDraft: (id) => this.syncDraftFromOtherTab(id),
-			closeRemoved: (id) => this.close(id, { trash: false, keepDB: true }),
+			closeRemoved: (id) => {
+				this.detachFromView(id);
+				const closed = this.closedFiles.findIndex((file) => file.id === id);
+				if (closed >= 0) this.closedFiles.splice(closed, 1);
+				this.saveQueue.discard(id);
+			},
 			reloadQuiet: () => this.reload(false),
 			reloadSiblings: () => {
 				void import('./workspaces.svelte').then((m) => m.workspaceStore.reload());
@@ -141,25 +219,31 @@ class FilesStore {
 
 	/** §M3 - Is there at least one draft with a local write pending? */
 	private hasLocalPendingEdits(): boolean {
-		return this.files.some((f) => this.saveQueue.has(f.id));
+		return (
+			this.pendingTrashMoves.size > 0 ||
+			this.pendingRestores.size > 0 ||
+			[...this.files, ...this.closedFiles].some((file) => this.saveQueue.has(file.id))
+		);
 	}
 
 	/**
-	 * §M3 - Conflict toast with an explicit reload action so the user can
-	 * discard the local unflushed edit and resync from IndexedDB when ready.
+	 * Conflict reload first makes the local branch durable. The save queue
+	 * preserves a conflicting remote branch before the view is reloaded.
 	 */
 	private notifyCrossTabConflict(message: string): void {
 		notify.actionable(message, {
 			label: t('files.reloadFromStorage'),
 			run: () => {
-				void this.reload(false);
+				void this.flushPendingAwait()
+					.then(() => this.reload(false))
+					.catch((error) => reportPersistenceError(error, 'save'));
 			}
 		});
 	}
 
 	/** §M3 - Reloads a specific draft from Dexie after it was written by another tab. */
 	private async syncDraftFromOtherTab(id: string): Promise<void> {
-		const file = this.files.find((f) => f.id === id);
+		const file = [...this.files, ...this.closedFiles].find((f) => f.id === id);
 		if (!file) return; // not loaded here → nothing to resynchronize
 		// Local editing pending on this file: real conflict. We do NOT reload (we
 		// would lose the local keystroke) - we signal the conflict to the user.
@@ -177,6 +261,12 @@ class FilesStore {
 			file.content = row.content;
 			file.updatedAt = row.updatedAt;
 			file.dirty = false;
+			this.saveQueue.trackPersisted(row);
+			if (row.open === false) {
+				this.detachFromView(id, file);
+				if (!this.closedFiles.some((entry) => entry.id === id)) this.closedFiles.push(file);
+				return;
+			}
 			this.metaIndex.invalidateMeta(id);
 		} catch (err) {
 			reportError('cross-tab resync', err);
@@ -200,7 +290,7 @@ class FilesStore {
 				);
 				for (const c of checks) if (c.has) linkedIds.add(c.id);
 			}
-			this.files = rows.map((r) => ({
+			const items = rows.map((r) => ({
 				id: r.id,
 				name: r.name,
 				content: r.content,
@@ -209,6 +299,9 @@ class FilesStore {
 				dirty: false,
 				linkedToDisk: linkedIds.has(r.id)
 			}));
+			for (const row of rows) this.saveQueue.trackPersisted(row);
+			this.files = items.filter((_file, index) => rows[index]?.open !== false);
+			this.closedFiles = items.filter((_file, index) => rows[index]?.open === false);
 			const savedActiveId = localStorage.getItem(ACTIVE_ID_KEY);
 			if (savedActiveId && this.files.some((f) => f.id === savedActiveId)) {
 				this.activeId = savedActiveId;
@@ -242,10 +335,9 @@ class FilesStore {
 		if (!browser) return;
 		// invalidateAll (not discardAll): skip in-flight puts without deleting
 		// IDB rows - discard reverse-delete would wipe restored / reloaded drafts.
-		this.saveQueue.invalidateAll(this.files.map((f) => f.id));
-		for (const t of this.trashTimers.values()) clearTimeout(t);
-		this.trashTimers.clear();
+		this.saveQueue.invalidateAll([...this.files, ...this.closedFiles].map((file) => file.id));
 		this.files = [];
+		this.closedFiles = [];
 		this.trash = [];
 		this.activeId = null;
 		this.selectedIds = new Set();
@@ -255,13 +347,11 @@ class FilesStore {
 		if (broadcast) this.crossTab.post({ type: 'backup-applied' });
 	}
 
-	/** Reloads the trash from Dexie, purges expired entries, restarts the timers. */
+	/** Reloads the durable trash and purges entries past the retention period. */
 	private async loadTrash(): Promise<void> {
 		const results = await loadTrashRows();
-		for (const { entry, remainingMs } of results) {
+		for (const { entry } of results) {
 			this.trash.push(entry);
-			const timer = setTimeout(() => this.purge(entry.file.id), remainingMs);
-			this.trashTimers.set(entry.file.id, timer);
 		}
 	}
 
@@ -288,6 +378,7 @@ class FilesStore {
 
 	/** §A2.8 - Immediate flush of pending saves (pagehide / beforeunload). */
 	flushPending(): void {
+		this.dispatchEditorFlush();
 		this.saveQueue.flush((id) => this.rowForFlush(id));
 	}
 
@@ -296,12 +387,21 @@ class FilesStore {
 	 * Used before backup export so the JSON snapshot includes the latest edits.
 	 */
 	async flushPendingAwait(): Promise<void> {
+		this.dispatchEditorFlush();
 		await this.saveQueue.flushAwait((id) => this.rowForFlush(id));
+		await Promise.all([...this.pendingTrashMoves.values(), ...this.pendingRestores.values()]);
+		await this.saveQueue.flushAwait((id) => this.rowForFlush(id));
+	}
+
+	private dispatchEditorFlush(): void {
+		if (browser) window.dispatchEvent(new Event('mdsh:flush-editor'));
 	}
 
 	/** Shared draft-row builder for flush paths (history snapshot side-effect). */
 	private rowForFlush(id: string): DraftRow | null {
-		const file = this.files.find((f) => f.id === id);
+		const openIndex = this.files.findIndex((file) => file.id === id);
+		const file =
+			openIndex >= 0 ? this.files[openIndex] : this.closedFiles.find((entry) => entry.id === id);
 		if (!file) return null;
 		// §M2 - History snapshot also on the close flush. The `scheduleSave`
 		// debounce path already records a version, but not the
@@ -311,14 +411,14 @@ class FilesStore {
 		void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
 			reportError('historique de version', err)
 		);
-		return toDraftRow(file, this.files.indexOf(file));
+		return toDraftRow(file, openIndex >= 0 ? openIndex : this.files.length, openIndex >= 0);
 	}
 
 	createNew(name = t('files.untitledFilename'), content = ''): FileItem {
 		const file: FileItem = {
 			id: newId(),
 			name: uniqueName(
-				this.files.map((f) => f.name),
+				[...this.files, ...this.closedFiles].map((f) => f.name),
 				name
 			),
 			content,
@@ -334,42 +434,35 @@ class FilesStore {
 		return file;
 	}
 
-	/**
-	 * Imports files: creates one tab per recognized markdown file.
-	 *
-	 * §#6 - Non-markdown entries are counted (`skipped`) so the caller can report
-	 * "no markdown file recognized" rather than leaving a .pdf/.docx drop with no
-	 * visible feedback.
-	 *
-	 * §D - Per-file protected read: if `f.text()` rejects (file became unreadable
-	 * between selection and reading), we log and skip that file without
-	 * interrupting the loop (the following ones are still imported).
-	 */
 	async importFiles(
-		fileList: FileList | File[]
-	): Promise<{ created: FileItem[]; skipped: number; failed: number }> {
-		const arr = Array.from(fileList);
+		fileList: FileList | File[],
+		options: ImportOptions = {}
+	): Promise<{ created: FileItem[]; skipped: number; failed: number; report: ImportReport }> {
+		const session = new ImportSession(this.beginImport(options));
 		const created: FileItem[] = [];
-		let skipped = 0;
-		let failed = 0;
-		for (const f of arr) {
-			if (!isMarkdownFile(f)) {
-				skipped += 1;
-				continue;
+		session.publish();
+		try {
+			for (const file of Array.from(fileList)) {
+				if (!(await session.pause())) break;
+				if (!isMarkdownFile(file)) {
+					session.skip();
+					continue;
+				}
+				const content = await session.read(file);
+				if (content === null) continue;
+				const name = /\.(md|markdown)$/i.test(file.name) ? file.name : `${file.name}.md`;
+				created.push(this.createNew(name, content));
+				session.accept();
 			}
-			let content: string;
-			try {
-				content = await f.text();
-			} catch (err) {
-				// §D - An unreadable file must not fail the whole import.
-				reportError(`import du fichier « ${f.name} »`, err);
-				failed += 1;
-				continue;
-			}
-			const name = f.name.endsWith('.md') || f.name.endsWith('.markdown') ? f.name : `${f.name}.md`;
-			created.push(this.createNew(name, content));
+			return {
+				created,
+				skipped: session.report.skipped,
+				failed: session.report.failed,
+				report: session.publish()
+			};
+		} finally {
+			this.finishImport(session.publish(), session.options.signal);
 		}
-		return { created, skipped, failed };
 	}
 
 	setActive(id: string): void {
@@ -377,72 +470,95 @@ class FilesStore {
 		this.persistActiveId();
 	}
 
-	close(id: string, opts: { trash?: boolean; keepDB?: boolean } = {}): void {
-		const idx = this.files.findIndex((f) => f.id === id);
-		if (idx === -1) return;
-		// invariant: splice on a valid index (idx !== -1) returns exactly 1 element.
-		const file = this.files.splice(idx, 1)[0]!;
+	private detachFromView(
+		id: string,
+		knownFile?: FileItem
+	): { file: FileItem; index: number } | null {
+		const idx = this.files.findIndex((file) => file.id === id);
+		if (idx === -1) return null;
+		const file = knownFile ?? this.files[idx]!;
+		this.files.splice(idx, 1);
 		if (this.activeId === id) {
 			this.activeId = this.files[Math.min(idx, this.files.length - 1)]?.id ?? null;
 			this.persistActiveId();
 		}
-		// keepDB detaches the tab but leaves the Dexie row as source of truth on
-		// re-open (workspaces.restore). Flush unflushed keystrokes first - cancel
-		// would drop edits still inside the 400 ms debounce window (H1).
-		// Trash / hard-delete use discard so in-flight puts cannot resurrect the
-		// draft after moveToTrash / drafts.delete.
-		if (opts.keepDB === true) {
-			this.saveQueue.flushPending([id], () => toDraftRow(file, idx));
-		} else {
-			this.saveQueue.discard(id);
-		}
-		this.metaIndex.invalidateMeta(id);
 		if (this.selectedIds.has(id)) {
-			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- reassigning the $state with a fresh Set (deliberate Svelte 5 pattern, cf. selectionToggle)
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- replace the state with a fresh Set
 			const next = new Set(this.selectedIds);
 			next.delete(id);
 			this.selectedIds = next;
 		}
-		if (opts.trash !== false) {
-			const trashedAt = Date.now();
-			const entry: TrashedFile = { file, order: idx, trashedAt };
-			this.trash.push(entry);
-			const timer = setTimeout(() => this.purge(id), TIMERS.trashUndoMs);
-			this.trashTimers.set(id, timer);
-			const moveP = moveToTrash(id, toDraftRow(file, idx), idx, trashedAt).then((ok) => {
-				if (ok) {
-					// §M3 - The `drafts` row left the base (moved to trash): signals the
-					// other tabs to remove the corresponding tab.
-					this.crossTab.post({ type: 'removed', id });
-				} else {
-					// The trash write failed (transaction rollback on the Dexie side, the
-					// draft is still in base): we cancel the optimistic mutation so the UI
-					// does not lie about a "closed" but not trashed file.
-					this.rollbackTrash(id, file, idx);
-				}
-				return ok;
-			});
-			this.pendingTrashMoves.set(id, moveP);
-			void moveP.finally(() => {
-				if (this.pendingTrashMoves.get(id) === moveP) this.pendingTrashMoves.delete(id);
-			});
-		} else if (opts.keepDB === true) {
-			// §6.8 - keepDB: removes the tab without deleting the draft (workspaces.restore).
-			// No broadcast: the row stays in base, nothing to resynchronize elsewhere.
-		} else {
-			db.drafts.delete(id).catch((err) => reportPersistenceError(err, 'delete'));
-			// §2.4 - Hard deletion: also purges the version history.
-			void deleteVersionsFor(id).catch((err) =>
-				reportWarning('suppression historique de versions', err)
-			);
-			// §M3 - Hard deletion of the row: signals the other tabs.
-			this.crossTab.post({ type: 'removed', id });
+		this.metaIndex.invalidateMeta(id);
+		return { file, index: idx };
+	}
+
+	close(id: string, opts: { trash?: boolean; keepDB?: boolean } = {}): void {
+		if (opts.trash === true) {
+			this.delete(id);
+			return;
 		}
+		const detached = this.detachFromView(id);
+		if (!detached) return;
+		this.closedFiles.push(detached.file);
+		this.saveQueue.persist(toDraftRow(detached.file, detached.index, false));
+	}
+
+	/** Moves a document to the durable trash. This is distinct from closing a tab. */
+	delete(id: string): void {
+		const open = this.detachFromView(id);
+		const closedIndex = this.closedFiles.findIndex((file) => file.id === id);
+		const file =
+			open?.file ?? (closedIndex >= 0 ? this.closedFiles.splice(closedIndex, 1)[0]! : null);
+		if (!file) return;
+		const order = open?.index ?? this.files.length + Math.max(0, closedIndex);
+		this.saveQueue.discard(id);
+		const trashedAt = Date.now();
+		const entry: TrashedFile = { file, order, trashedAt };
+		const displaced = this.trash.find((existing) => existing.file.id === id);
+		if (displaced) this.trash = this.trash.filter((existing) => existing !== displaced);
+		this.trash.push(entry);
+		const moveP = moveToTrash(
+			id,
+			toDraftRow(file, order, false),
+			order,
+			trashedAt,
+			(row) =>
+				this.trash.push({
+					file: { ...row.file, dirty: false },
+					order: row.order,
+					trashedAt: row.trashedAt
+				}),
+			(row) => this.closedFiles.push({ ...row, dirty: false })
+		).then((ok) => {
+			if (ok) this.crossTab.post({ type: 'removed', id });
+			else {
+				this.rollbackTrash(id, file, order, Boolean(open));
+				if (displaced) this.trash.push(displaced);
+			}
+			return ok;
+		});
+		this.pendingTrashMoves.set(id, moveP);
+		void moveP.finally(() => {
+			if (this.pendingTrashMoves.get(id) === moveP) this.pendingTrashMoves.delete(id);
+		});
+	}
+
+	/** Reopens a durable document without creating a new copy. */
+	reopen(id: string): FileItem | null {
+		const idx = this.closedFiles.findIndex((file) => file.id === id);
+		if (idx === -1) return null;
+		const file = this.closedFiles.splice(idx, 1)[0]!;
+		this.files.push(file);
+		this.activeId = file.id;
+		this.persistActiveId();
+		this.metaIndex.invalidateBacklinksIndex();
+		this.saveQueue.persist(toDraftRow(file, this.files.length - 1, true));
+		return file;
 	}
 
 	/**
-	 * §6.8 - Closes several tabs. `keepDB: true` preserves the drafts in DB
-	 * (workspaces.restore); `trash: false` without keepDB = hard deletion.
+	 * Closes several views while preserving their durable documents.
+	 * An explicit `trash: true` still delegates to the separate deletion action.
 	 */
 	closeMany(ids: string[], opts: { trash?: boolean; keepDB?: boolean } = {}): void {
 		const toClose = ids.filter((id) => this.files.some((f) => f.id === id));
@@ -458,19 +574,27 @@ class FilesStore {
 	 */
 	openMany(rows: DraftRow[]): void {
 		if (!browser || rows.length === 0) return;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient local set, never exposed to rendering
 		const existing = new Set(this.files.map((f) => f.id));
 		const addedIds: string[] = [];
 		for (const r of rows) {
 			if (!r || existing.has(r.id)) continue;
-			this.files.push({
-				id: r.id,
-				name: r.name,
-				content: r.content,
-				createdAt: r.createdAt,
-				updatedAt: r.updatedAt,
-				dirty: false,
-				linkedToDisk: false
-			});
+			const closedIndex = this.closedFiles.findIndex((file) => file.id === r.id);
+			const item =
+				closedIndex >= 0
+					? this.closedFiles.splice(closedIndex, 1)[0]!
+					: {
+							id: r.id,
+							name: r.name,
+							content: r.content,
+							createdAt: r.createdAt,
+							updatedAt: r.updatedAt,
+							dirty: false,
+							linkedToDisk: false
+						};
+			this.files.push(item);
+			existing.add(r.id);
+			this.saveQueue.persist(toDraftRow(item, this.files.length - 1, true));
 			addedIds.push(r.id);
 		}
 		if (addedIds.length === 0) return;
@@ -536,15 +660,25 @@ class FilesStore {
 		if (idx === -1) return null;
 		// invariant: splice on a valid index returns exactly 1 element.
 		const entry = this.trash.splice(idx, 1)[0]!;
+		const collision = [...this.files, ...this.closedFiles].some((file) => file.id === id);
+		const restored: FileItem = collision
+			? {
+					id: newId(),
+					name: uniqueName(
+						[...this.files, ...this.closedFiles].map((file) => file.name),
+						entry.file.name
+					),
+					content: entry.file.content,
+					createdAt: entry.file.createdAt,
+					updatedAt: entry.file.updatedAt,
+					dirty: false,
+					linkedToDisk: false
+				}
+			: entry.file;
 		const insertAt = Math.min(entry.order, this.files.length);
-		this.files.splice(insertAt, 0, entry.file);
-		this.activeId = entry.file.id;
+		this.files.splice(insertAt, 0, restored);
+		this.activeId = restored.id;
 		this.persistActiveId();
-		const t = this.trashTimers.get(id);
-		if (t) {
-			clearTimeout(t);
-			this.trashTimers.delete(id);
-		}
 		this.metaIndex.invalidateBacklinksIndex();
 		// Atomic restoration (put draft + delete trashed in one transaction): no
 		// window where the file exists in NO table. Since the row is persisted, no
@@ -555,7 +689,7 @@ class FilesStore {
 		//    and wipe the restored drafts row;
 		// 2) settleAndRearm so a discarded in-flight put reverse-deletes before
 		//    we rewrite the draft (not after).
-		void (async () => {
+		const restorePromise = (async () => {
 			const pendingMove = this.pendingTrashMoves.get(id);
 			if (pendingMove) {
 				try {
@@ -564,11 +698,18 @@ class FilesStore {
 					// moveToTrash errors already handled in close's then
 				}
 			}
-			await this.saveQueue.settleAndRearm(id);
-			const ok = await restoreFromTrash(id, toDraftRow(entry.file, insertAt));
-			if (!ok) this.rollbackRestore(id, entry, insertAt);
+			await this.saveQueue.settleAndRearm(restored.id);
+			const ok = await restoreFromTrash(id, toDraftRow(restored, insertAt), (row) => {
+				if (!this.closedFiles.some((file) => file.id === row.id))
+					this.closedFiles.push({ ...row, dirty: false });
+			});
+			if (!ok) this.rollbackRestore(restored.id, entry, insertAt);
 		})();
-		return entry.file;
+		this.pendingRestores.set(id, restorePromise);
+		void restorePromise.finally(() => {
+			if (this.pendingRestores.get(id) === restorePromise) this.pendingRestores.delete(id);
+		});
+		return restored;
 	}
 
 	/**
@@ -579,10 +720,8 @@ class FilesStore {
 	private rollbackRestore(id: string, entry: TrashedFile, insertAt: number): void {
 		const fIdx = this.files.findIndex((f) => f.id === id);
 		if (fIdx !== -1) this.files.splice(fIdx, 1);
-		if (!this.trash.some((t) => t.file.id === id)) {
+		if (!this.trash.some((t) => t.file.id === entry.file.id)) {
 			this.trash.push(entry);
-			const timer = setTimeout(() => this.purge(id), TIMERS.trashUndoMs);
-			this.trashTimers.set(id, timer);
 		}
 		if (this.activeId === id) {
 			this.activeId = this.files[Math.min(insertAt, this.files.length - 1)]?.id ?? null;
@@ -597,27 +736,26 @@ class FilesStore {
 	 * draft is still in base (Dexie transaction rollback), so the view becomes
 	 * consistent with storage again.
 	 */
-	private rollbackTrash(id: string, file: FileItem, idx: number): void {
+	private rollbackTrash(id: string, file: FileItem, idx: number, wasOpen: boolean): void {
 		const tIdx = this.trash.findIndex((t) => t.file.id === id);
 		if (tIdx !== -1) this.trash.splice(tIdx, 1);
-		const timer = this.trashTimers.get(id);
-		if (timer) {
-			clearTimeout(timer);
-			this.trashTimers.delete(id);
-		}
-		if (!this.files.some((f) => f.id === id)) {
+		if (wasOpen && !this.files.some((f) => f.id === id)) {
 			this.files.splice(Math.min(idx, this.files.length), 0, file);
 			this.metaIndex.invalidateBacklinksIndex();
+		} else if (!wasOpen && !this.closedFiles.some((entry) => entry.id === id)) {
+			this.closedFiles.push(file);
 		}
+		this.saveQueue.persist(toDraftRow(file, idx, wasOpen));
 	}
 
-	private purge(id: string): void {
-		const idx = this.trash.findIndex((t) => t.file.id === id);
-		if (idx === -1) return;
-		this.trash.splice(idx, 1);
-		this.trashTimers.delete(id);
-		// purgePermanently clears trashed + FSA handle + version history.
-		void purgePermanently(id);
+	purgeTrash(id: string): void {
+		if (!this.trash.some((entry) => entry.file.id === id)) return;
+		void purgePermanently(id)
+			.then(() => {
+				const index = this.trash.findIndex((entry) => entry.file.id === id);
+				if (index >= 0) this.trash.splice(index, 1);
+			})
+			.catch((error) => reportPersistenceError(error, 'trash'));
 	}
 
 	updateContent(id: string, content: string): void {
@@ -709,18 +847,42 @@ class FilesStore {
 	private get diskDeps() {
 		return {
 			getFile: (id: string) => this.files.find((f) => f.id === id),
+			getFiles: () => [...this.files, ...this.closedFiles],
+			onActivate: (id: string) => {
+				if (this.closedFiles.some((file) => file.id === id)) this.reopen(id);
+				else this.setActive(id);
+			},
 			onCreate: (name: string, content: string) => this.createNew(name, content),
-			scheduleSave: (id: string) => this.scheduleSave(id)
+			scheduleSave: (id: string) => this.scheduleSave(id),
+			onImportRollback: (id: string) => {
+				this.detachFromView(id);
+				this.saveQueue.discard(id);
+			}
 		};
 	}
 
-	async openFromDisk(): Promise<FileItem[]> {
-		return diskOpenFromDisk(this.diskDeps);
+	async openFromDisk(options: ImportOptions = {}): Promise<FileItem[]> {
+		const configured = this.beginImport(options);
+		try {
+			return await diskOpenFromDisk(this.diskDeps, configured);
+		} finally {
+			this.finishImport(this.importProgress ?? new ImportSession().publish(), configured.signal);
+		}
 	}
 
 	/** Desktop: open native capabilities from argv / file association. */
-	async openPathsFromDesktop(grants: NativeDiskGrant[]): Promise<FileItem[]> {
-		return diskOpenPathsFromDesktop(grants, this.diskDeps);
+	async openPathsFromDesktop(
+		grants: NativeDiskGrant[],
+		options: ImportOptions = {}
+	): Promise<string[]> {
+		const configured = this.beginImport(options);
+		try {
+			const result = await diskOpenPathsFromDesktop(grants, this.diskDeps, configured);
+			await this.flushPendingAwait();
+			return result.processedTokens;
+		} finally {
+			this.finishImport(this.importProgress ?? new ImportSession().publish(), configured.signal);
+		}
 	}
 
 	/**
@@ -729,11 +891,45 @@ class FilesStore {
 	 * - they become normal local drafts, which resolves the inter-file wiki-links
 	 * via the existing MetaIndex.
 	 */
-	async importDirectory(): Promise<{ count: number; truncated: boolean }> {
+	async importDirectory(
+		options: ImportOptions = {}
+	): Promise<{ count: number; truncated: boolean; report?: ImportReport }> {
 		if (!browser) return { count: 0, truncated: false };
-		const { files, truncated } = await pickDirectoryFiles();
-		for (const f of files) this.createNew(f.name, f.content);
-		return { count: files.length, truncated };
+		if (isDesktop()) return this.importDirectoryFromDesktop(options);
+		const configured = this.beginImport(options);
+		try {
+			const { files, truncated, report } = await pickDirectoryFiles(configured);
+			for (const file of files) this.createNew(file.name, file.content);
+			this.finishImport(report, configured.signal);
+			return { count: files.length, truncated, report };
+		} finally {
+			if (this.importSignal === configured.signal) {
+				this.importProgress = null;
+				this.importController = null;
+			}
+		}
+	}
+
+	async importDirectoryFromDesktop(
+		options: ImportOptions = {}
+	): Promise<{ count: number; truncated: boolean; report?: ImportReport }> {
+		if (!browser || !isDesktop()) return { count: 0, truncated: false };
+		const configured = this.beginImport(options);
+		try {
+			const files = await diskOpenDirectoryFromDisk(this.diskDeps, configured);
+			const report = this.importProgress;
+			if (report) this.finishImport(report, configured.signal);
+			return {
+				count: files.length,
+				truncated: !!report && (report.failed > 0 || report.cancelled),
+				...(report ? { report } : {})
+			};
+		} finally {
+			if (this.importSignal === configured.signal) {
+				this.importProgress = null;
+				this.importController = null;
+			}
+		}
 	}
 
 	/**
@@ -755,16 +951,47 @@ class FilesStore {
 	 * the version history). Returns the number of affected files + occurrences, or
 	 * a regex error.
 	 */
-	replaceInAll(
+	async replaceInAll(
 		query: string,
 		replacement: string,
 		opts: ReplaceOptions
-	): { files: number; occurrences: number; regexError: string | null } {
+	): Promise<{ files: number; occurrences: number; regexError: string | null }> {
 		const slices = this.files.map((f) => ({ id: f.id, name: f.name, content: f.content }));
-		const { results, total, regexError } = replaceInFiles(slices, query, replacement, opts);
+		const { results, total, regexError } = await replaceInFilesAsync(
+			slices,
+			query,
+			replacement,
+			opts
+		);
 		if (regexError) return { files: 0, occurrences: 0, regexError };
+		const unchanged = () =>
+			results.every((result) => {
+				const before = slices.find((file) => file.id === result.id);
+				const current = this.files.find((file) => file.id === result.id);
+				return (
+					before && current && before.content === current.content && before.name === current.name
+				);
+			});
+		if (!unchanged()) return { files: 0, occurrences: 0, regexError: t('files.otherTabChanges') };
+		await createCheckpoints(
+			slices.filter((file) => results.some((result) => result.id === file.id))
+		);
+		if (!unchanged()) return { files: 0, occurrences: 0, regexError: t('files.otherTabChanges') };
 		for (const r of results) this.updateContent(r.id, r.content);
 		return { files: results.length, occurrences: total, regexError: null };
+	}
+
+	async restoreVersion(id: string, content: string): Promise<boolean> {
+		const file = this.files.find((entry) => entry.id === id);
+		if (!file || file.content === content) return false;
+		const before = { id: file.id, name: file.name, content: file.content };
+		await createCheckpoint(before);
+		const current = this.files.find((entry) => entry.id === id);
+		if (current !== file || current.content !== before.content || current.name !== before.name) {
+			throw new Error(t('files.otherTabChanges'));
+		}
+		this.updateContent(id, content);
+		return true;
 	}
 	async saveActiveToDisk(): Promise<boolean> {
 		if (!browser || !this.active) return false;

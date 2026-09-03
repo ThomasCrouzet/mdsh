@@ -38,7 +38,20 @@ vi.mock('@tauri-apps/api/menu', () => ({
 	Submenu: { new: mocks.submenuNew }
 }));
 
-import { initDesktopShell, type DesktopMenuAction, type DesktopMenuLabels } from './desktop-shell';
+import {
+	initDesktopShell as initializeDesktopShell,
+	type DesktopMenuAction,
+	type DesktopMenuLabels
+} from './desktop-shell';
+import type { NativeDiskGrant } from './disk-tauri';
+
+const disposers: Array<() => void> = [];
+
+async function initDesktopShell(...args: Parameters<typeof initializeDesktopShell>) {
+	const dispose = await initializeDesktopShell(...args);
+	disposers.push(dispose);
+	return dispose;
+}
 
 const labels: DesktopMenuLabels = {
 	file: 'File',
@@ -69,13 +82,19 @@ interface OpenEvent {
 const nativeGrant = (path: string) => ({
 	token: `token:${path}`,
 	path,
+	queuedPath: path,
 	stat: { lastModified: 1, size: 1, revision: 'sha256:test' }
 });
+const pendingDelivery = (
+	grants: ReturnType<typeof nativeGrant>[] = [],
+	rejected: Array<{ path: string; reason: string }> = [],
+	remaining = 0
+) => ({ grants, rejected, remaining });
 
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.isDesktop.mockReturnValue(false);
-	mocks.invoke.mockResolvedValue([]);
+	mocks.invoke.mockResolvedValue(pendingDelivery());
 	mocks.listen.mockResolvedValue(mocks.unlisten);
 	mocks.menuItemNew.mockImplementation(async (options: unknown) => options);
 	mocks.predefinedMenuItemNew.mockImplementation(async (options: unknown) => options);
@@ -85,6 +104,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	for (const dispose of disposers.splice(0)) dispose();
 	vi.restoreAllMocks();
 });
 
@@ -104,15 +124,17 @@ describe('initDesktopShell', () => {
 
 	it('installs the menu, handles pending paths and disposes the listener', async () => {
 		mocks.isDesktop.mockReturnValue(true);
-		mocks.invoke.mockResolvedValue([nativeGrant('/tmp/pending.md')]);
+		mocks.invoke.mockResolvedValue(pendingDelivery([nativeGrant('/tmp/pending.md')]));
 		const onMenuAction = vi.fn(async () => {});
-		const onOpenPaths = vi.fn(async () => {});
+		const onOpenPaths = vi.fn(async (grants: NativeDiskGrant[]) =>
+			grants.map(({ token }) => token)
+		);
 
 		const dispose = await initDesktopShell({ onMenuAction, onOpenPaths, labels });
 
 		expect(mocks.setAsAppMenu).toHaveBeenCalledOnce();
-		expect(mocks.listen).toHaveBeenCalledWith('mdsh://open-paths', expect.any(Function));
-		expect(mocks.invoke).toHaveBeenCalledWith('take_pending_open_paths');
+		expect(mocks.listen).toHaveBeenCalledWith('mdsh://open-paths-pending', expect.any(Function));
+		expect(mocks.invoke).toHaveBeenCalledWith('take_pending_open_paths', { excludePaths: [] });
 		expect(onOpenPaths).toHaveBeenCalledWith([nativeGrant('/tmp/pending.md')]);
 
 		const menuCalls = mocks.menuItemNew.mock.calls as unknown as Array<[MenuItemOptions]>;
@@ -123,7 +145,8 @@ describe('initDesktopShell', () => {
 		const listenCalls = mocks.listen.mock.calls as unknown as Array<
 			[string, (event: OpenEvent) => void]
 		>;
-		listenCalls[0]![1]({ payload: [nativeGrant('/tmp/event.md')] });
+		mocks.invoke.mockResolvedValue(pendingDelivery([nativeGrant('/tmp/event.md')]));
+		listenCalls[0]![1]({ payload: [] });
 		await vi.waitFor(() =>
 			expect(onOpenPaths).toHaveBeenCalledWith([nativeGrant('/tmp/event.md')])
 		);
@@ -158,7 +181,8 @@ describe('initDesktopShell', () => {
 		const listenCalls = mocks.listen.mock.calls as unknown as Array<
 			[string, (event: OpenEvent) => void]
 		>;
-		listenCalls[0]![1]({ payload: [nativeGrant('/tmp/failing.md')] });
+		mocks.invoke.mockResolvedValue(pendingDelivery([nativeGrant('/tmp/failing.md')]));
+		listenCalls[0]![1]({ payload: [] });
 		await vi.waitFor(() =>
 			expect(mocks.reportError).toHaveBeenCalledWith(
 				'ouverture depuis un événement desktop',
@@ -199,5 +223,222 @@ describe('initDesktopShell', () => {
 		>;
 		listenCalls[0]![1]({ payload: [] });
 		expect(onOpenPaths).not.toHaveBeenCalled();
+	});
+
+	it('waits for durable changes before acknowledging a native close', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		let finishSave: () => void = () => {};
+		const onBeforeClose = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					finishSave = resolve;
+				})
+		);
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), onBeforeClose, labels });
+		const closeListener = mocks.listen.mock.calls.find(
+			([name]) => name === 'mdsh://close-request'
+		)?.[1] as () => void;
+		closeListener();
+		await vi.waitFor(() => expect(onBeforeClose).toHaveBeenCalledOnce());
+		expect(mocks.invoke).not.toHaveBeenCalledWith('desktop_complete_close');
+		finishSave();
+		await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('desktop_complete_close'));
+	});
+
+	it('keeps the native window open after a persistence failure', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		const onBeforeClose = vi.fn(async () => {
+			throw new Error('quota');
+		});
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), onBeforeClose, labels });
+		const closeListener = mocks.listen.mock.calls.find(
+			([name]) => name === 'mdsh://close-request'
+		)?.[1] as () => void;
+		closeListener();
+		await vi.waitFor(() =>
+			expect(mocks.reportError).toHaveBeenCalledWith(
+				'fermeture desktop',
+				expect.any(Error),
+				expect.objectContaining({ notifyUser: expect.any(String) })
+			)
+		);
+		expect(mocks.invoke).not.toHaveBeenCalledWith('desktop_complete_close');
+	});
+
+	it('rebuilds translated menu labels after a locale change', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		const getLabels = vi.fn(() => labels);
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), getLabels });
+		getLabels.mockReturnValue({ ...labels, file: 'Fichier' });
+		window.dispatchEvent(new CustomEvent('mdsh:locale-change'));
+		await vi.waitFor(() => expect(mocks.setAsAppMenu).toHaveBeenCalledTimes(2));
+		expect(mocks.submenuNew).toHaveBeenCalledWith(expect.objectContaining({ text: 'Fichier' }));
+	});
+
+	it('opens external links through the restricted native command', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), labels });
+		const link = document.createElement('a');
+		link.href = 'https://example.com/article';
+		document.body.append(link);
+		link.click();
+		await vi.waitFor(() =>
+			expect(mocks.invoke).toHaveBeenCalledWith('desktop_open_external', {
+				url: 'https://example.com/article'
+			})
+		);
+		link.remove();
+	});
+	it('acknowledges a delivery only after durable ingestion and retains a failed delivery', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		const grant = nativeGrant('/tmp/waiting.md');
+		mocks.invoke.mockResolvedValue(pendingDelivery([grant]));
+		let resolve: () => void = () => {};
+		const onOpenPaths = vi.fn(
+			() =>
+				new Promise<string[]>((done) => {
+					resolve = () => done([grant.token]);
+				})
+		);
+		const starting = initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths, labels });
+		await vi.waitFor(() => expect(onOpenPaths).toHaveBeenCalledOnce());
+		expect(mocks.invoke).not.toHaveBeenCalledWith('ack_pending_open_paths', expect.anything());
+		resolve();
+		await starting;
+		expect(mocks.invoke).toHaveBeenCalledWith('ack_pending_open_paths', {
+			processed: [{ token: grant.token, queuedPath: grant.path }],
+			rejectedPaths: []
+		});
+		mocks.invoke.mockClear();
+		onOpenPaths.mockRejectedValueOnce(new Error('quota'));
+		const listener = mocks.listen.mock.calls.find(
+			([name]) => name === 'mdsh://open-paths-pending'
+		)?.[1] as () => void;
+		listener();
+		await vi.waitFor(() => expect(mocks.reportError).toHaveBeenCalled());
+		expect(mocks.invoke).not.toHaveBeenCalledWith('ack_pending_open_paths', expect.anything());
+	});
+
+	it('acknowledges only durable files, reports rejects and drains later batches', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		const first = nativeGrant('/tmp/first.md');
+		const retry = nativeGrant('/tmp/retry.md');
+		const last = nativeGrant('/tmp/last.md');
+		let deliveries = 0;
+		mocks.invoke.mockImplementation(async (command: string) => {
+			if (command !== 'take_pending_open_paths') return undefined;
+			deliveries += 1;
+			return deliveries === 1
+				? pendingDelivery([first, retry], [{ path: '/tmp/binary.md', reason: 'invalid UTF-8' }], 1)
+				: pendingDelivery([last]);
+		});
+		const onOpenPaths = vi
+			.fn<(grants: NativeDiskGrant[]) => Promise<string[]>>()
+			.mockResolvedValueOnce([first.token])
+			.mockResolvedValueOnce([last.token]);
+
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths, labels });
+
+		expect(mocks.reportError).toHaveBeenCalledWith(
+			'fichiers desktop refusés',
+			expect.objectContaining({ message: expect.stringContaining('invalid UTF-8') }),
+			expect.objectContaining({ notifyUser: expect.any(String) })
+		);
+		expect(mocks.invoke).toHaveBeenCalledWith('ack_pending_open_paths', {
+			processed: [],
+			rejectedPaths: ['/tmp/binary.md']
+		});
+		expect(mocks.invoke).toHaveBeenCalledWith('take_pending_open_paths', {
+			excludePaths: ['/tmp/retry.md']
+		});
+		expect(mocks.invoke).toHaveBeenCalledWith('ack_pending_open_paths', {
+			processed: [{ token: first.token, queuedPath: first.path }],
+			rejectedPaths: []
+		});
+		expect(mocks.invoke).toHaveBeenCalledWith('ack_pending_open_paths', {
+			processed: [{ token: last.token, queuedPath: last.path }],
+			rejectedPaths: []
+		});
+	});
+
+	it('recovers menu rebuilds and disposes the replaced native menu', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		const close = vi.fn();
+		mocks.setAsAppMenu.mockResolvedValue({ close });
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn() });
+		expect(mocks.reportWarning).toHaveBeenCalled();
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), labels });
+		expect(close).toHaveBeenCalled();
+		mocks.menuItemNew.mockRejectedValueOnce(new Error('menu rebuild'));
+		window.dispatchEvent(new Event('mdsh:locale-change'));
+		await vi.waitFor(() =>
+			expect(mocks.reportWarning).toHaveBeenCalledWith('langue du menu desktop', expect.any(Error))
+		);
+	});
+
+	it('reports a close guard startup failure and unregisters the unusable listener', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		mocks.invoke.mockImplementation(async (name: string) => {
+			if (name === 'desktop_arm_close_guard') throw new Error('bridge unavailable');
+			return [];
+		});
+		await initDesktopShell({
+			onMenuAction: vi.fn(),
+			onOpenPaths: vi.fn(),
+			onBeforeClose: vi.fn(),
+			labels
+		});
+		expect(mocks.unlisten).toHaveBeenCalledOnce();
+		expect(mocks.reportError).toHaveBeenCalledWith(
+			'protection de fermeture desktop',
+			expect.any(Error),
+			expect.objectContaining({ notifyUser: expect.any(String) })
+		);
+	});
+
+	it('blocks unsupported external schemes and reports opener failures without navigating', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), labels });
+		for (const href of ['file:///tmp/file.md', 'mailto:test@example.com', '/another-path']) {
+			const anchor = document.createElement('a');
+			anchor.href = href;
+			document.body.append(anchor);
+			expect(
+				anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+			).toBe(false);
+			anchor.remove();
+		}
+		expect(mocks.reportError).toHaveBeenCalledTimes(3);
+		mocks.invoke.mockRejectedValue(new Error('opener unavailable'));
+		const anchor = document.createElement('a');
+		anchor.href = 'https://example.com';
+		document.body.append(anchor);
+		anchor.click();
+		anchor.remove();
+		await vi.waitFor(() => expect(mocks.reportError).toHaveBeenCalledTimes(4));
+	});
+
+	it('leaves wiki links, downloads, fragments and non-links to their own handlers', async () => {
+		mocks.isDesktop.mockReturnValue(true);
+		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), labels });
+		mocks.invoke.mockClear();
+		for (const attribute of ['data-mdsh-wiki', 'download']) {
+			const anchor = document.createElement('a');
+			anchor.href = '#inside';
+			anchor.setAttribute(attribute, '');
+			document.body.append(anchor);
+			anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+			anchor.remove();
+		}
+		for (const href of ['#section', window.location.href]) {
+			const anchor = document.createElement('a');
+			anchor.href = href;
+			document.body.append(anchor);
+			anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+			anchor.remove();
+		}
+		document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		expect(mocks.invoke).not.toHaveBeenCalled();
 	});
 });

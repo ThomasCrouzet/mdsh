@@ -184,7 +184,7 @@
 }
 .mdsh-preview .math-error,
 .mdsh-preview .math-error-display {
-	color: #ff9b9b;
+	color: var(--color-danger);
 	background: rgba(255, 80, 80, 0.08);
 	border: 1px solid rgba(255, 80, 80, 0.25);
 	padding: 0.1em 0.4em;
@@ -207,7 +207,7 @@
 .mdsh-preview .mermaid-error {
 	background: rgba(255, 80, 80, 0.08);
 	border: 1px solid rgba(255, 80, 80, 0.25);
-	color: #ffb3b3;
+	color: var(--color-danger);
 	padding: 0.8em 1em;
 	border-radius: var(--radius-md);
 	margin: 1em 0;
@@ -229,35 +229,35 @@
    Highlight.js - thème atom-one-dark adapté (cohérent avec l'app)
    ============================================================================ */
 .mdsh-preview .hljs {
-	color: #abb2bf;
+	color: var(--color-fg);
 	background: transparent;
 }
 .mdsh-preview .hljs-comment,
 .mdsh-preview .hljs-quote {
-	color: #5c6370;
+	color: var(--syntax-comment);
 	font-style: italic;
 }
 .mdsh-preview .hljs-doctag,
 .mdsh-preview .hljs-keyword,
 .mdsh-preview .hljs-formula {
-	color: #c678dd;
+	color: var(--syntax-keyword);
 }
 .mdsh-preview .hljs-section,
 .mdsh-preview .hljs-name,
 .mdsh-preview .hljs-selector-tag,
 .mdsh-preview .hljs-deletion,
 .mdsh-preview .hljs-subst {
-	color: #e06c75;
+	color: var(--syntax-name);
 }
 .mdsh-preview .hljs-literal {
-	color: #56b6c2;
+	color: var(--syntax-literal);
 }
 .mdsh-preview .hljs-string,
 .mdsh-preview .hljs-regexp,
 .mdsh-preview .hljs-addition,
 .mdsh-preview .hljs-attribute,
 .mdsh-preview .hljs-meta .hljs-string {
-	color: #98c379;
+	color: var(--syntax-string);
 }
 .mdsh-preview .hljs-attr,
 .mdsh-preview .hljs-variable,
@@ -267,7 +267,7 @@
 .mdsh-preview .hljs-selector-attr,
 .mdsh-preview .hljs-selector-pseudo,
 .mdsh-preview .hljs-number {
-	color: #d19a66;
+	color: var(--syntax-number);
 }
 .mdsh-preview .hljs-symbol,
 .mdsh-preview .hljs-bullet,
@@ -275,12 +275,12 @@
 .mdsh-preview .hljs-meta,
 .mdsh-preview .hljs-selector-id,
 .mdsh-preview .hljs-title {
-	color: #61afef;
+	color: var(--syntax-title);
 }
 .mdsh-preview .hljs-built_in,
 .mdsh-preview .hljs-title.class_,
 .mdsh-preview .hljs-class .hljs-title {
-	color: #e6c07b;
+	color: var(--syntax-built-in);
 }
 .mdsh-preview .hljs-emphasis {
 	font-style: italic;

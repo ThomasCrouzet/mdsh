@@ -9,13 +9,15 @@
 // automatically rejects the previous one (resolving `null`/`false`).
 
 export interface PromptConfig {
-	mode: 'prompt' | 'confirm';
+	mode: 'prompt' | 'confirm' | 'choice';
 	title: string;
 	message?: string;
 	defaultValue?: string;
 	placeholder?: string;
 	confirmLabel?: string;
 	cancelLabel?: string;
+	alternateLabel?: string;
+	inputType?: 'text' | 'password';
 	danger?: boolean;
 }
 
@@ -45,6 +47,22 @@ class PromptStore {
 			this.config = { mode: 'confirm', ...opts };
 			this.open = true;
 			this.resolver = (v) => resolve(v === true);
+		});
+	}
+
+	/** Opens a three-way decision. Closing always returns `null`. */
+	choose(
+		opts: Omit<PromptConfig, 'mode' | 'defaultValue' | 'placeholder' | 'alternateLabel'> & {
+			alternateLabel: string;
+		}
+	): Promise<'primary' | 'alternate' | null> {
+		return new Promise((resolve) => {
+			this.cancel();
+			this.config = { mode: 'choice', ...opts };
+			this.open = true;
+			this.resolver = (value) => {
+				resolve(value === 'primary' || value === 'alternate' ? value : null);
+			};
 		});
 	}
 

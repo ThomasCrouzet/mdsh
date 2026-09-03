@@ -35,7 +35,7 @@ const config = {
 				'font-src': ['self', 'data:'],
 				'img-src': ['self', 'data:', 'blob:', 'https:'],
 				'media-src': ['self', 'blob:'],
-				'connect-src': ['self'],
+				'connect-src': ['self', 'https:'],
 				'worker-src': ['self', 'blob:'],
 				'base-uri': ['self'],
 				'form-action': ['none'],

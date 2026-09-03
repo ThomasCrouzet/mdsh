@@ -3,6 +3,8 @@
 	import { browser } from '$app/environment';
 	import { t, i18n } from '$lib/i18n';
 	import SourceEditor from '$lib/components/SourceEditor.svelte';
+	import { keyboardStore } from '$lib/ui/keyboard.svelte';
+	import ImportProgress from '$lib/components/ImportProgress.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import Toolbar from '$lib/components/Toolbar.svelte';
 	import StatusBar from '$lib/components/StatusBar.svelte';
@@ -33,6 +35,23 @@
 	import { initDesktopShell, type DesktopMenuAction } from '$lib/desktop-shell';
 
 	let mode = $state<EditMode>('wysiwyg');
+	async function requestMode(nextMode: EditMode): Promise<void> {
+		const activeId = filesStore.activeId;
+		if (nextMode !== 'source' && activeId && filesStore.requiresRenderConfirmation(activeId)) {
+			const accepted = await promptStore.confirm({
+				title: t('page.largeDocumentTitle'),
+				message: t('page.largeDocumentMessage'),
+				confirmLabel: t('page.renderDocument')
+			});
+			if (!accepted || filesStore.activeId !== activeId) return;
+			filesStore.allowDocumentRendering(activeId);
+		}
+		mode = nextMode;
+	}
+	$effect(() => {
+		const activeId = filesStore.activeId;
+		if (activeId && filesStore.requiresRenderConfirmation(activeId)) mode = 'source';
+	});
 	// §B1.10 / B2.2 - Text announced to SRs on each mode switch + one-off
 	// contextual announcement (e.g. "⌘F switched to source mode for search").
 	// `contextAnnounce` is cleared after 2 s to free the live region (otherwise a
@@ -55,6 +74,13 @@
 		}, 2000);
 	}
 	let sidebarOpen = $state(false);
+	let viewportWidth = $state(1024);
+	let previousMobile = false;
+	$effect(() => {
+		const mobile = viewportWidth < 768;
+		if (mobile && !previousMobile) sidebarOpen = false;
+		previousMobile = mobile;
+	});
 	let dragOver = $state(false);
 	let fileInput: HTMLInputElement | null = $state(null);
 	let hydrated = $state(false);
@@ -99,7 +125,7 @@
 	// memoized loaders and the open state live here.
 	const modals = createModals({
 		getMode: () => mode,
-		setMode: (m) => (mode = m),
+		setMode: (m) => void requestMode(m),
 		getFilesStoreActive: () => filesStore.active,
 		getFilesStoreSetActive: () => filesStore.setActive.bind(filesStore),
 		getSourceEditorRef: () => sourceEditorRef,
@@ -119,6 +145,7 @@
 	});
 
 	onMount(() => {
+		keyboardStore.load();
 		if (!browser) return;
 		let disposeDesktop: (() => void) | undefined;
 		let disposed = false;
@@ -167,14 +194,16 @@
 				onMenuAction: handleDesktopMenuAction,
 				onOpenPaths: async (paths) => {
 					try {
-						await filesStore.openPathsFromDesktop(paths);
+						return await filesStore.openPathsFromDesktop(paths);
 					} catch (err) {
 						reportError('ouverture depuis le shell desktop', err, {
 							notifyUser: t('page.openFromDiskError')
 						});
+						throw err;
 					}
 				},
-				labels: {
+				onBeforeClose: () => filesStore.flushPendingAwait(),
+				getLabels: () => ({
 					file: t('desktopMenu.file'),
 					edit: t('desktopMenu.edit'),
 					newFile: t('desktopMenu.new'),
@@ -185,7 +214,7 @@
 					exportHtml: t('desktopMenu.exportHtml'),
 					exportZip: t('desktopMenu.exportZip'),
 					settings: t('desktopMenu.settings')
-				}
+				})
 			});
 			if (disposed) dispose();
 			else disposeDesktop = dispose;
@@ -209,6 +238,7 @@
 
 	function handleNew() {
 		filesStore.createNew();
+		if (window.innerWidth < 768) sidebarOpen = false;
 	}
 
 	function handleDemo() {
@@ -225,6 +255,7 @@
 			try {
 				const created = await filesStore.openFromDisk();
 				createdCount = created.length;
+				if (createdCount > 0 && window.innerWidth < 768) sidebarOpen = false;
 			} catch (err) {
 				// User cancellation (AbortError) is already absorbed in fsa/disk-tauri;
 				// here it is a real failure (permission, security, read).
@@ -236,7 +267,7 @@
 		}
 		// Desktop (incl. Chromium WebView on Windows): never fall through to
 		// <input type="file"> - that path skips path-based disk links.
-		// Browser: FSA cancel falls through to the hidden file input.
+		// Cancellation ends the action; only an unavailable API uses the HTML picker.
 		if (
 			!shouldFallThroughToFileInput({
 				diskLinkingAvailable,
@@ -283,6 +314,7 @@
 		const input = e.currentTarget as HTMLInputElement;
 		if (!input.files || input.files.length === 0) return;
 		const { created, skipped, failed } = await filesStore.importFiles(input.files);
+		if (created.length > 0 && window.innerWidth < 768) sidebarOpen = false;
 		// §#6 - User feedback on the import result: an unreadable file (read
 		// rejected) is reported as an error, and the total absence of recognized
 		// markdown (only .pdf/.docx/binaries) is notified so it does not look like
@@ -417,7 +449,7 @@
 		onExportPDF: handleExportPDF,
 		onSaveToDisk: handleSaveToDisk,
 		getMode: () => mode,
-		setMode: (m) => (mode = m),
+		setMode: (m) => void requestMode(m),
 		onToggleSidebar: toggleSidebar,
 		onOpenPalette: modals.openPalette,
 		onOpenSearch: modals.openSearch,
@@ -437,6 +469,7 @@
 </script>
 
 <svelte:window
+	bind:innerWidth={viewportWidth}
 	onkeydown={handleKeydown}
 	ondrop={handleDrop}
 	ondragover={handleDragOver}
@@ -455,19 +488,27 @@
 	</div>
 {/if}
 
-<div class="mdsh-shell flex h-[100dvh] w-full overflow-hidden bg-bg text-fg">
+<div
+	inert={modals.anyOpen || promptStore.open}
+	class="mdsh-shell flex h-[100dvh] w-full overflow-hidden bg-bg text-fg"
+>
 	<Sidebar
 		open={sidebarOpen}
+		focusMode={prefs.focusMode}
 		onClose={() => (sidebarOpen = false)}
 		onNew={handleNew}
 		onImport={handleImport}
 	/>
 
-	<div class="mdsh-workspace flex min-w-0 flex-1 flex-col">
+	<div
+		inert={sidebarOpen && viewportWidth < 768}
+		class="mdsh-workspace flex min-w-0 flex-1 flex-col"
+	>
 		<Toolbar
 			{mode}
+			{sidebarOpen}
 			onToggleSidebar={toggleSidebar}
-			onSetMode={(m) => (mode = m)}
+			onSetMode={(m) => void requestMode(m)}
 			onExport={handleExport}
 			onExportPDF={handleExportPDF}
 			onOpenPalette={modals.openPalette}
@@ -506,6 +547,19 @@
 		<StatusBar />
 	</div>
 </div>
+
+{#if prefs.focusMode}
+	<button
+		inert={modals.anyOpen || promptStore.open}
+		type="button"
+		class="fixed top-2 right-2 z-[75] min-h-10 rounded border border-accent bg-bg-1 px-3 text-xs font-medium text-accent shadow-lg"
+		onclick={prefs.toggleFocusMode}
+	>
+		{t('page.exitFocusMode')}
+	</button>
+{/if}
+
+<ImportProgress blocked={modals.anyOpen || promptStore.open} />
 
 <!-- Live regions to announce mode switches to screen readers
 	 (WCAG 4.1.3 Status Messages). A distinct region per mode so announcements
@@ -546,6 +600,8 @@
 		placeholder={promptStore.config.placeholder}
 		confirmLabel={promptStore.config.confirmLabel}
 		cancelLabel={promptStore.config.cancelLabel}
+		alternateLabel={promptStore.config.alternateLabel}
+		inputType={promptStore.config.inputType}
 		danger={promptStore.config.danger}
 		onResolve={(v) => promptStore.resolve(v)}
 	/>
@@ -564,8 +620,9 @@
 	onExportHTML={handleExportHTML}
 	onExportPDF={handleExportPDF}
 	onExportAll={handleExportAll}
+	onSaveToDisk={handleSaveToDisk}
 	onToggleSidebar={toggleSidebar}
-	onSetMode={(m) => (mode = m)}
+	onSetMode={(m) => void requestMode(m)}
 	onOpenInFileSearch={openInFileSearch}
 />
 

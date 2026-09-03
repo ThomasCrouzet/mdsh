@@ -449,7 +449,7 @@ describe('exportHTML', () => {
 
 	it('rend le markdown, construit le doc standalone et déclenche le download', async () => {
 		await exportHTML(makeFile({ name: 'note.md', content: '# Salut' }));
-		expect(renderMarkdownDetailed).toHaveBeenCalledWith('# Salut');
+		expect(renderMarkdownDetailed).toHaveBeenCalledWith('# Salut', { allowRemoteImages: false });
 		expect(buildStandaloneHtmlDocument).toHaveBeenCalledOnce();
 		expect(dl.clickSpy).toHaveBeenCalledOnce();
 		// download = <fallback>.html (nom sans extension + .html)
@@ -495,7 +495,10 @@ describe('exportPDF', () => {
 
 	it('rend le markdown, construit le print doc et ouvre le print iframe', async () => {
 		await exportPDF(makeFile({ name: 'doc.md', content: '# Hello' }));
-		expect(renderMarkdownDetailed).toHaveBeenCalledWith('# Hello', { showFrontmatter: false });
+		expect(renderMarkdownDetailed).toHaveBeenCalledWith('# Hello', {
+			showFrontmatter: false,
+			allowRemoteImages: false
+		});
 		expect(buildPrintDocument).toHaveBeenCalledOnce();
 		const opts = buildPrintDocument.mock.calls[0]![0];
 		expect(opts.title).toBe('doc');

@@ -54,6 +54,7 @@ test.describe('Axe accessibility scan', () => {
 			await page.reload();
 			await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 			await expect(page.locator('.cm-content')).toHaveAttribute('aria-label');
+			await expectNoBlockingViolations(new AxeBuilder({ page }).include('#main'));
 			await openPalette(page);
 			await expect(page.locator('.mdsh-dialog-panel')).toHaveCSS('opacity', '1');
 			await expectNoBlockingViolations(new AxeBuilder({ page }).include('.mdsh-dialog-panel'));
@@ -95,10 +96,10 @@ test.describe('Axe accessibility scan', () => {
 			);
 			await page.reload();
 			await expectNoBlockingViolations(new AxeBuilder({ page }));
+			await page.locator('main [data-testid="welcome-new"]').click();
+			await expect(page.locator('.cm-content')).toBeVisible();
+			await expect(page.locator('.cm-content')).toHaveAttribute('aria-label');
+			await expectNoBlockingViolations(new AxeBuilder({ page }).include('#main'));
 		}
-		await page.locator('main [data-testid="welcome-new"]').click();
-		await expect(page.locator('.cm-content')).toBeVisible();
-		await expect(page.locator('.cm-content')).toHaveAttribute('aria-label');
-		await expectNoBlockingViolations(new AxeBuilder({ page }).include('#main'));
 	});
 });

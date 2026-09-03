@@ -13,6 +13,7 @@
 	import { tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import { t } from '$lib/i18n';
+	import { keyboardStore } from '$lib/ui/keyboard.svelte';
 	import { filesStore } from '$lib/files.svelte';
 	import { notify } from '$lib/notify.svelte';
 	import { listDiskLinks, checkHandle } from '$lib/fsa';
@@ -209,7 +210,7 @@
 					<p class="px-4 py-6 text-center text-xs text-fg-dim">{t('diskLinks.loading')}</p>
 				{:else if entries.length === 0}
 					<p class="px-4 py-6 text-center text-xs text-fg-dim">
-						{t('diskLinks.empty')}
+						{t('diskLinks.empty', { shortcut: keyboardStore.label('save-disk') ?? '' })}
 					</p>
 				{:else}
 					<ul class="divide-y divide-border" aria-label={t('diskLinks.listLabel')}>

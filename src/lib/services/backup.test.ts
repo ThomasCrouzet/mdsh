@@ -1,3 +1,4 @@
+import * as cryptoHelpers from '../crypto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const desktopMocks = vi.hoisted(() => ({
@@ -48,7 +49,8 @@ async function clearAll() {
 		db.drafts.clear(),
 		db.workspaces.clear(),
 		db.templates.clear(),
-		db.versions.clear()
+		db.versions.clear(),
+		db.trashed.clear()
 	]);
 }
 
@@ -154,28 +156,57 @@ describe('parseBackup - validation', () => {
 		}
 	});
 
-	it('tolère les tableaux manquants (défaut [])', () => {
+	it('rejette les tableaux manquants au lieu de les convertir en sauvegarde vide', () => {
 		const json = JSON.stringify({ format: BACKUP_FORMAT, schemaVersion: 1 });
-		const parsed = parseBackup(json);
-		expect(parsed.drafts).toEqual([]);
-		expect(parsed.workspaces).toEqual([]);
-		expect(parsed.templates).toEqual([]);
+		expect(() => parseBackup(json)).toThrow(BackupParseError);
 	});
 
-	it('filtre les rows drafts corrompus, garde les valides', () => {
+	it('rejette une collection contenant un draft corrompu', () => {
 		const good = draft({ id: 'g', name: 'ok.md' });
 		const json = JSON.stringify({
 			format: BACKUP_FORMAT,
 			schemaVersion: 1,
 			drafts: [good, { id: 'bad' /* manque les autres champs */ }, null, 42]
 		});
-		const parsed = parseBackup(json);
-		expect(parsed.drafts).toHaveLength(1);
-		expect(parsed.drafts[0]?.id).toBe('g');
+		expect(() => parseBackup(json)).toThrow(BackupParseError);
 	});
 });
 
 describe('applyBackup - replace', () => {
+	it('refuse une enveloppe corrompue sans effacer les documents ni leur historique', async () => {
+		await db.drafts.put(draft({ id: 'local', content: 'à conserver' }));
+		await db.versions.put({
+			id: 'version',
+			draftId: 'local',
+			name: 'doc.md',
+			content: 'avant',
+			createdAt: 1
+		});
+		const malformed = JSON.stringify({
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			drafts: {},
+			workspaces: null
+		});
+		await expect(restoreFromText(malformed, 'replace')).rejects.toBeInstanceOf(BackupParseError);
+		expect((await db.drafts.get('local'))?.content).toBe('à conserver');
+		expect(await db.versions.get('version')).toBeDefined();
+	});
+
+	it('refuse des identifiants dupliqués avant toute mutation', async () => {
+		await db.drafts.put(draft({ id: 'local' }));
+		const backup = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ id: 'same', content: 'a' }), draft({ id: 'same', content: 'b' })],
+			workspaces: [],
+			templates: []
+		} satisfies BackupFile;
+		await expect(applyBackup(backup, 'replace')).rejects.toBeInstanceOf(BackupParseError);
+		expect(await db.drafts.get('local')).toBeDefined();
+	});
+
 	it('remplace intégralement l’état existant', async () => {
 		await db.drafts.put(draft({ id: 'old', name: 'old.md' }));
 		const backup: BackupFile = {
@@ -192,7 +223,8 @@ describe('applyBackup - replace', () => {
 		expect(all.map((d) => d.id)).toEqual(['new']); // 'old' a disparu
 	});
 
-	it('efface aussi l’historique de versions (pas de snapshots orphelins)', async () => {
+	it('conserve le document remplacé et son historique dans la récupération durable', async () => {
+		await db.drafts.put(draft({ id: 'old', name: 'old.md', content: 'courant' }));
 		await db.versions.put({
 			id: newId(),
 			draftId: 'old',
@@ -210,9 +242,8 @@ describe('applyBackup - replace', () => {
 			templates: []
 		};
 		await applyBackup(backup, 'replace');
-		// La sauvegarde ne porte pas de versions : `replace` doit vider la table,
-		// sinon le snapshot de 'old' (draft disparu) reste orphelin.
-		expect(await db.versions.count()).toBe(0);
+		expect(await db.versions.count()).toBe(1);
+		expect((await db.trashed.get('old'))?.file.content).toBe('courant');
 	});
 });
 
@@ -251,6 +282,29 @@ describe('§2.8 - sauvegarde chiffrée', () => {
 });
 
 describe('applyBackup - merge', () => {
+	it('conserve les deux contenus et remappe les workspaces sans duplication au second import', async () => {
+		await db.drafts.put(draft({ id: 'a', content: 'local récent', createdAt: 1, updatedAt: 2000 }));
+		const backup = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 1000,
+			drafts: [draft({ id: 'a', content: 'ancien importé', createdAt: 1, updatedAt: 1000 })],
+			workspaces: [
+				workspace({ id: 'w', fileIds: ['a'], activeId: 'a', createdAt: 1, updatedAt: 1000 })
+			],
+			templates: []
+		} satisfies BackupFile;
+		await applyBackup(backup, 'merge');
+		const variant = (await db.drafts.toArray()).find((row) => row.id !== 'a');
+		expect((await db.drafts.get('a'))?.content).toBe('local récent');
+		expect(variant?.content).toBe('ancien importé');
+		expect((await db.workspaces.get('w'))?.fileIds).toEqual([variant?.id]);
+		expect((await db.workspaces.get('w'))?.activeId).toBe(variant?.id);
+		await applyBackup(backup, 'merge');
+		expect(await db.drafts.count()).toBe(2);
+		expect(await db.workspaces.count()).toBe(1);
+	});
+
 	it('conserve l’existant et ajoute les nouveaux drafts à la fin', async () => {
 		await db.drafts.bulkPut([
 			draft({ id: 'a', name: 'a.md', order: 0 }),
@@ -271,7 +325,7 @@ describe('applyBackup - merge', () => {
 		expect(all.find((d) => d.id === 'c')?.order).toBe(2);
 	});
 
-	it('écrase le contenu d’un id existant en préservant son order', async () => {
+	it('conserve le contenu local et importe une variante sans toucher son ordre', async () => {
 		await db.drafts.put(draft({ id: 'a', name: 'a.md', content: 'avant', order: 5 }));
 		const backup: BackupFile = {
 			format: BACKUP_FORMAT,
@@ -283,8 +337,11 @@ describe('applyBackup - merge', () => {
 		};
 		await applyBackup(backup, 'merge');
 		const a = await db.drafts.get('a');
-		expect(a?.content).toBe('après');
+		expect(a?.content).toBe('avant');
 		expect(a?.order).toBe(5); // order courant préservé
+		const imported = (await db.drafts.toArray()).find((row) => row.id !== 'a');
+		expect(imported?.content).toBe('après');
+		expect(imported?.order).toBe(6);
 	});
 
 	it('fusionne workspaces et templates par id', async () => {
@@ -299,8 +356,8 @@ describe('applyBackup - merge', () => {
 		};
 		await applyBackup(backup, 'merge');
 		expect(await db.workspaces.count()).toBe(1);
-		expect((await db.templates.get('t1'))?.name).toBe('après');
-		expect(await db.templates.count()).toBe(2);
+		expect((await db.templates.get('t1'))?.name).toBe('avant');
+		expect(await db.templates.count()).toBe(3);
 	});
 
 	it('merge : ajoute plusieurs nouveaux drafts avec des order strictement croissants', async () => {
@@ -344,7 +401,7 @@ describe('applyBackup - merge', () => {
 		expect(all.find((d) => d.id === 'q')?.order).toBe(1);
 	});
 
-	it('propage le compte de rows ignorées (skipped) dans le résultat', async () => {
+	it('refuse une restauration partielle non explicitement acceptée', async () => {
 		const backup: BackupFile = {
 			format: BACKUP_FORMAT,
 			schemaVersion: 1,
@@ -353,9 +410,8 @@ describe('applyBackup - merge', () => {
 			workspaces: [],
 			templates: []
 		};
-		const counts = await applyBackup(backup, 'merge', 3);
-		expect(counts.skipped).toBe(3);
-		expect(counts.drafts).toBe(1);
+		await expect(applyBackup(backup, 'merge', 3)).rejects.toBeInstanceOf(BackupParseError);
+		expect(await db.drafts.count()).toBe(0);
 	});
 });
 
@@ -423,7 +479,7 @@ describe('restoreFromText - texte clair', () => {
 		expect(await db.drafts.get('old')).toBeUndefined();
 	});
 
-	it('remonte le total des rows ignorées à travers restoreFromText', async () => {
+	it('refuse une restauration partielle avant toute mutation', async () => {
 		const json = JSON.stringify({
 			format: BACKUP_FORMAT,
 			schemaVersion: 1,
@@ -431,10 +487,8 @@ describe('restoreFromText - texte clair', () => {
 			workspaces: [{ id: 'w-bad' }],
 			templates: [{ id: 't-bad' }]
 		});
-		const counts = await restoreFromText(json, 'replace');
-		expect(counts.drafts).toBe(1);
-		// 1 draft + 1 workspace + 1 template invalides
-		expect(counts.skipped).toBe(3);
+		await expect(restoreFromText(json, 'replace')).rejects.toBeInstanceOf(BackupParseError);
+		expect(await db.drafts.count()).toBe(0);
 	});
 
 	it('enveloppe chiffrée + mauvaise passphrase → rejette via restoreFromText', async () => {
@@ -475,9 +529,16 @@ describe('restoreFromFile', () => {
 });
 
 describe('parseBackup - validateurs (chaque champ corrompu rejeté)', () => {
-	const base = { format: BACKUP_FORMAT, schemaVersion: 1 };
+	const base = {
+		format: BACKUP_FORMAT,
+		schemaVersion: 1,
+		exportedAt: 0,
+		drafts: [],
+		workspaces: [],
+		templates: []
+	};
 
-	it('rejette chaque variante de workspace invalide, garde le valide', () => {
+	it('rejette chaque variante de workspace invalide', () => {
 		const valid = workspace({ id: 'w-ok' });
 		const corrupted = [
 			{ ...valid, id: 42 }, // id non string
@@ -491,10 +552,10 @@ describe('parseBackup - validateurs (chaque champ corrompu rejeté)', () => {
 			[],
 			'texte'
 		];
-		const json = JSON.stringify({ ...base, workspaces: [valid, ...corrupted] });
-		const parsed = parseBackup(json);
-		expect(parsed.workspaces).toHaveLength(1);
-		expect(parsed.workspaces[0]?.id).toBe('w-ok');
+		for (const invalid of corrupted) {
+			const json = JSON.stringify({ ...base, workspaces: [valid, invalid] });
+			expect(() => parseBackup(json)).toThrow(BackupParseError);
+		}
 	});
 
 	it('accepte un workspace dont activeId est explicitement null', () => {
@@ -505,7 +566,7 @@ describe('parseBackup - validateurs (chaque champ corrompu rejeté)', () => {
 		expect(parseBackup(json).workspaces).toHaveLength(1);
 	});
 
-	it('rejette chaque variante de template invalide, garde le valide', () => {
+	it('rejette chaque variante de template invalide', () => {
 		const valid = template({ id: 't-ok' });
 		const corrupted = [
 			{ ...valid, id: 0 }, // id non string
@@ -516,13 +577,13 @@ describe('parseBackup - validateurs (chaque champ corrompu rejeté)', () => {
 			{ ...valid, updatedAt: '0' }, // updatedAt non number
 			undefined
 		];
-		const json = JSON.stringify({ ...base, templates: [valid, ...corrupted] });
-		const parsed = parseBackup(json);
-		expect(parsed.templates).toHaveLength(1);
-		expect(parsed.templates[0]?.id).toBe('t-ok');
+		for (const invalid of corrupted) {
+			const json = JSON.stringify({ ...base, templates: [valid, invalid] });
+			expect(() => parseBackup(json)).toThrow(BackupParseError);
+		}
 	});
 
-	it('rejette chaque variante de draft invalide, garde le valide', () => {
+	it('rejette chaque variante de draft invalide', () => {
 		const valid = draft({ id: 'd-ok' });
 		const corrupted = [
 			{ ...valid, id: 1 },
@@ -532,10 +593,10 @@ describe('parseBackup - validateurs (chaque champ corrompu rejeté)', () => {
 			{ ...valid, updatedAt: '0' },
 			{ ...valid, order: 'premier' }
 		];
-		const json = JSON.stringify({ ...base, drafts: [valid, ...corrupted] });
-		const parsed = parseBackup(json);
-		expect(parsed.drafts).toHaveLength(1);
-		expect(parsed.drafts[0]?.id).toBe('d-ok');
+		for (const invalid of corrupted) {
+			const json = JSON.stringify({ ...base, drafts: [valid, invalid] });
+			expect(() => parseBackup(json)).toThrow(BackupParseError);
+		}
 	});
 });
 
@@ -643,6 +704,35 @@ describe('downloadBackup - orchestration DOM', () => {
 		expect(parseBackup(clear).drafts.map((x) => x.id)).toEqual(['d']);
 	});
 
+	it('refuse le téléchargement lorsque le document dépasse la limite de restauration', async () => {
+		await db.drafts.put(draft({ content: 'x'.repeat(16 * 1024 * 1024 + 1) }));
+		await expect(downloadBackup()).rejects.toThrow(BackupParseError);
+		expect(createdAnchor.click).not.toHaveBeenCalled();
+		expect(createObjectURL).not.toHaveBeenCalled();
+	});
+
+	it('refuse une enveloppe chiffrée dépassant 64 Mio avant téléchargement', async () => {
+		const envelope = await encryptString('{}', 'password');
+		const encrypt = vi
+			.spyOn(cryptoHelpers, 'encryptString')
+			.mockResolvedValue({ ...envelope, ct: 'a'.repeat(64 * 1024 * 1024) });
+		try {
+			await expect(downloadBackup('password')).rejects.toThrow(BackupParseError);
+			expect(createdAnchor.click).not.toHaveBeenCalled();
+			expect(createObjectURL).not.toHaveBeenCalled();
+		} finally {
+			encrypt.mockRestore();
+		}
+	});
+
+	it('sauvegarde plus de 300 documents issus de plusieurs lots sans troncation', async () => {
+		await db.drafts.bulkPut(
+			Array.from({ length: 301 }, (_, index) => draft({ id: `document-${index}` }))
+		);
+		expect(await downloadBackup()).toBe(true);
+		expect(parseBackup(await blobText(capturedBlobs[0]!)).drafts).toHaveLength(301);
+	});
+
 	it('retourne false si le dialogue desktop est annulé (pas de succès implicite)', async () => {
 		desktopMocks.isDesktop.mockReturnValue(true);
 		desktopMocks.tauriSaveExportBlob.mockResolvedValue(false);
@@ -653,5 +743,149 @@ describe('downloadBackup - orchestration DOM', () => {
 		// No browser blob fallback on cancel.
 		expect(createObjectURL).not.toHaveBeenCalled();
 		expect(createdAnchor.click).not.toHaveBeenCalled();
+	});
+
+	it('propage une erreur native sans lancer de téléchargement navigateur', async () => {
+		desktopMocks.isDesktop.mockReturnValue(true);
+		desktopMocks.tauriSaveExportBlob.mockRejectedValueOnce(new Error('disk conflict'));
+		await expect(downloadBackup()).rejects.toThrow('disk conflict');
+		expect(createObjectURL).not.toHaveBeenCalled();
+		expect(createdAnchor.click).not.toHaveBeenCalled();
+	});
+});
+
+describe('limites de restauration avant lecture et mutation', () => {
+	it('refuse une sauvegarde de plus de 64 Mio sans lire le fichier', async () => {
+		const file = {
+			size: 64 * 1024 * 1024 + 1,
+			arrayBuffer: vi.fn(),
+			text: vi.fn()
+		} as unknown as File;
+		await expect(restoreFromFile(file, 'replace')).rejects.toThrow(BackupParseError);
+		expect(file.arrayBuffer).not.toHaveBeenCalled();
+		expect(file.text).not.toHaveBeenCalled();
+	});
+	it('refuse des octets UTF-8 invalides avant toute mutation', async () => {
+		await db.drafts.put(draft({ id: 'safe' }));
+		await expect(
+			restoreFromFile(new File([new Uint8Array([0xc3, 0x28])], 'backup.json'), 'replace')
+		).rejects.toThrow(BackupParseError);
+		expect(await db.drafts.get('safe')).toBeDefined();
+	});
+	it('refuse plus de 3000 documents et les contenus binaires', () => {
+		const backup = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: Array.from({ length: 3001 }, (_, index) => draft({ id: String(index) })),
+			workspaces: [],
+			templates: []
+		};
+		expect(() => parseBackup(JSON.stringify(backup))).toThrow(BackupParseError);
+		backup.drafts = [draft({ id: 'binary', content: '\0' })];
+		expect(() => parseBackup(JSON.stringify(backup))).toThrow(BackupParseError);
+	});
+	it('refuse un document individuel de plus de 16 Mio', () => {
+		const backup = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ content: 'x'.repeat(16 * 1024 * 1024 + 1) })],
+			workspaces: [],
+			templates: []
+		};
+		expect(() => parseBackup(JSON.stringify(backup))).toThrow(BackupParseError);
+	});
+});
+
+describe('validation stricte de chaque champ sauvegardé', () => {
+	it.each([
+		['drafts', 'id', ''],
+		['drafts', 'name', 42],
+		['drafts', 'content', false],
+		['drafts', 'createdAt', 'hier'],
+		['drafts', 'updatedAt', null],
+		['drafts', 'order', '1'],
+		['drafts', 'open', 'false'],
+		['workspaces', 'id', ''],
+		['workspaces', 'name', null],
+		['workspaces', 'fileIds', {}],
+		['workspaces', 'fileIds', [42]],
+		['workspaces', 'activeId', 42],
+		['workspaces', 'createdAt', null],
+		['workspaces', 'updatedAt', false],
+		['templates', 'id', ''],
+		['templates', 'name', 42],
+		['templates', 'content', null],
+		['templates', 'builtin', 1],
+		['templates', 'createdAt', false],
+		['templates', 'updatedAt', null]
+	])('refuse %s.%s invalide', (collection, field, value) => {
+		const backup: Record<string, unknown> = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [],
+			workspaces: [],
+			templates: []
+		};
+		const original =
+			collection === 'drafts' ? draft() : collection === 'workspaces' ? workspace() : template();
+		backup[String(collection)] = [{ ...original, [String(field)]: value }];
+		expect(() => parseBackup(JSON.stringify(backup))).toThrow(BackupParseError);
+	});
+	it.each(['drafts', 'workspaces', 'templates'])(
+		'refuse une entrée non objet dans %s',
+		(collection) => {
+			const backup = {
+				format: BACKUP_FORMAT,
+				schemaVersion: 1,
+				exportedAt: 0,
+				drafts: [],
+				workspaces: [],
+				templates: [],
+				[collection]: [null]
+			};
+			expect(() => parseBackup(JSON.stringify(backup))).toThrow(BackupParseError);
+		}
+	);
+});
+
+describe('références des espaces sauvegardés', () => {
+	it.each([
+		workspace({ fileIds: ['a', 'a'], activeId: 'a' }),
+		workspace({ fileIds: ['a'], activeId: 'absent' }),
+		workspace({ fileIds: [''] }),
+		workspace({ fileIds: Array.from({ length: 301 }, (_, index) => String(index)) })
+	])('refuse doublons, référence vide, sélection incohérente et espace trop grand', (invalid) => {
+		expect(() =>
+			parseBackup(
+				JSON.stringify({
+					format: BACKUP_FORMAT,
+					schemaVersion: 1,
+					exportedAt: 0,
+					drafts: [],
+					workspaces: [invalid],
+					templates: []
+				})
+			)
+		).toThrow(BackupParseError);
+	});
+	it('borne aussi le nombre total de références entre espaces', () => {
+		const workspaces = Array.from({ length: 11 }, (_, index) =>
+			workspace({ id: String(index), fileIds: Array.from({ length: 300 }, (_, id) => String(id)) })
+		);
+		expect(() =>
+			parseBackup(
+				JSON.stringify({
+					format: BACKUP_FORMAT,
+					schemaVersion: 1,
+					exportedAt: 0,
+					drafts: [],
+					workspaces,
+					templates: []
+				})
+			)
+		).toThrow(BackupParseError);
 	});
 });

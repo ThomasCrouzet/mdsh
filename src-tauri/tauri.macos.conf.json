@@ -2,6 +2,7 @@
 	"$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
 	"bundle": {
 		"macOS": {
+			"minimumSystemVersion": "14.0",
 			"signingIdentity": "-"
 		}
 	}

@@ -17,6 +17,10 @@
 import type { FileItem } from '$lib/types';
 import { stripMdExtension, untitledBasename, untitledFilename } from '$lib/file-utils';
 
+export interface MediaExportOptions {
+	allowNetworkImages?: boolean;
+}
+
 /**
  * Sanitizes a filename for export: replaces characters forbidden on common
  * filesystems (`/ \ : * ? " < > |`) with `_`, to avoid a name like `a/b.md`
@@ -46,15 +50,11 @@ export function sanitizeFilename(name: string): string {
  * cancelled the desktop save dialog (callers must NOT clear dirty or toast success).
  */
 async function triggerDownload(blob: Blob, filename: string): Promise<boolean> {
-	try {
-		const { isDesktop } = await import('../desktop');
-		if (isDesktop()) {
-			const { tauriSaveExportBlob } = await import('../disk-tauri');
-			// Cancel is an intentional no-op - do not fall through to blob download.
-			return await tauriSaveExportBlob(blob, filename);
-		}
-	} catch {
-		// Desktop path failed - fall through to browser download when possible.
+	const { isDesktop } = await import('../desktop');
+	if (isDesktop()) {
+		const { tauriSaveExportBlob } = await import('../disk-tauri');
+		// A native cancellation or I/O error must never turn into a web download.
+		return tauriSaveExportBlob(blob, filename);
 	}
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');
@@ -87,13 +87,29 @@ export async function exportMarkdown(file: FileItem): Promise<boolean> {
  * the filename) - consistent with the sidebar UI and the PDF export.
  */
 /** @returns `false` if the desktop save dialog was cancelled. */
-export async function exportHTML(file: FileItem): Promise<boolean> {
+export async function exportHTML(
+	file: FileItem,
+	options: MediaExportOptions = {}
+): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
-	const [{ renderMarkdownDetailed }, { buildStandaloneHtmlDocument }, { i18n }] = await Promise.all(
-		[import('../render/markdown'), import('../render/print'), import('$lib/i18n')]
-	);
+	const [
+		{ renderMarkdownDetailed },
+		{ buildStandaloneHtmlDocument },
+		{ prepareHtmlMediaOrThrow },
+		{ i18n }
+	] = await Promise.all([
+		import('../render/markdown'),
+		import('../render/print'),
+		import('../render/image-media'),
+		import('$lib/i18n')
+	]);
 	const fallback = stripMdExtension(file.name);
-	const { html: bodyHtml, title } = await renderMarkdownDetailed(file.content);
+	const { html: renderedHtml, title } = await renderMarkdownDetailed(file.content, {
+		allowRemoteImages: options.allowNetworkImages === true
+	});
+	const bodyHtml = await prepareHtmlMediaOrThrow(renderedHtml, {
+		allowNetwork: options.allowNetworkImages === true
+	});
 	const docTitle = title || fallback;
 	const html = await buildStandaloneHtmlDocument(docTitle, bodyHtml, file.content, i18n.locale);
 	const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
@@ -110,17 +126,26 @@ export async function exportHTML(file: FileItem): Promise<boolean> {
  * exactly the rendered Markdown content, without generated branding, title,
  * filename or front matter.
  */
-export async function exportPDF(file: FileItem): Promise<void> {
+export async function exportPDF(file: FileItem, options: MediaExportOptions = {}): Promise<void> {
 	if (typeof document === 'undefined') return;
-	const [{ renderMarkdownDetailed }, { buildPrintDocument, printInIframe }, { i18n }] =
-		await Promise.all([
-			import('../render/markdown'),
-			import('../render/print'),
-			import('$lib/i18n')
-		]);
+	const [
+		{ renderMarkdownDetailed },
+		{ buildPrintDocument, printInIframe },
+		{ prepareHtmlMediaOrThrow },
+		{ i18n }
+	] = await Promise.all([
+		import('../render/markdown'),
+		import('../render/print'),
+		import('../render/image-media'),
+		import('$lib/i18n')
+	]);
 	const fallback = stripMdExtension(file.name);
-	const { html: bodyHtml, title } = await renderMarkdownDetailed(file.content, {
-		showFrontmatter: false
+	const { html: renderedHtml, title } = await renderMarkdownDetailed(file.content, {
+		showFrontmatter: false,
+		allowRemoteImages: options.allowNetworkImages === true
+	});
+	const bodyHtml = await prepareHtmlMediaOrThrow(renderedHtml, {
+		allowNetwork: options.allowNetworkImages === true
 	});
 	const docTitle = title || fallback;
 	const html = buildPrintDocument({

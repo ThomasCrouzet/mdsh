@@ -24,6 +24,7 @@
 		onExportHTML: () => void;
 		onExportPDF: () => void;
 		onExportAll: () => void;
+		onSaveToDisk: () => void;
 		onToggleSidebar: () => void;
 		onSetMode: (m: EditMode) => void;
 		onOpenInFileSearch: () => void;
@@ -39,6 +40,7 @@
 		onExportHTML,
 		onExportPDF,
 		onExportAll,
+		onSaveToDisk,
 		onToggleSidebar,
 		onSetMode,
 		onOpenInFileSearch
@@ -62,9 +64,10 @@
 			onExportHtml={onExportHTML}
 			onExportPdf={onExportPDF}
 			{onExportAll}
+			{onSaveToDisk}
 			{onToggleSidebar}
 			{onSetMode}
-			onOpenSearch={() => (modals.searchOpen = true)}
+			onOpenSearch={modals.openSearch}
 			{onOpenInFileSearch}
 			onSetEditorWidth={editorWidth.setEditorWidth}
 			onResetEditorWidth={editorWidth.resetEditorWidth}
@@ -74,12 +77,12 @@
 			onToggleTypewriter={prefs.toggleTypewriterMode}
 			tocVisible={prefs.tocVisible}
 			onToggleToc={prefs.toggleToc}
-			onOpenDiskLinks={() => (modals.diskLinksOpen = true)}
-			onOpenWorkspaces={() => (modals.workspacesOpen = true)}
-			onOpenSettings={() => (modals.settingsOpen = true)}
-			onOpenHistory={() => (modals.historyOpen = true)}
-			onOpenGraph={() => (modals.graphOpen = true)}
-			onOpenPresentation={() => (modals.presentationOpen = true)}
+			onOpenDiskLinks={modals.openDiskLinks}
+			onOpenWorkspaces={modals.openWorkspaces}
+			onOpenSettings={modals.openSettings}
+			onOpenHistory={modals.openHistory}
+			onOpenGraph={modals.openGraph}
+			onOpenPresentation={modals.openPresentation}
 		/>
 	{:catch}
 		<!-- Load failure handled by the loader (toast + close). -->

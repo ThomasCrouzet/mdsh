@@ -1,5 +1,47 @@
 import { describe, it, expect, vi, afterEach, beforeEach, type Mock } from 'vitest';
-import { buildPrintDocument, buildStandaloneHtmlDocument, printInIframe } from './print';
+import {
+	buildPrintDocument,
+	buildStandaloneHtmlDocument,
+	printInIframe,
+	PrintImageError,
+	waitForPrintImages
+} from './print';
+
+describe('décodage des images avant impression', () => {
+	it('attend les vrais pixels de l’image', async () => {
+		const doc = document.implementation.createHTMLDocument();
+		const image = doc.createElement('img');
+		image.src = 'data:image/png;base64,AAAA';
+		doc.body.appendChild(image);
+		const decode = vi.fn(async () => {
+			Object.defineProperty(image, 'naturalWidth', { value: 192 });
+			Object.defineProperty(image, 'naturalHeight', { value: 192 });
+		});
+		image.decode = decode;
+		await expect(waitForPrintImages(doc)).resolves.toBeUndefined();
+		expect(decode).toHaveBeenCalledOnce();
+	});
+
+	it('rejette une image illisible au lieu d’ouvrir un PDF incomplet', async () => {
+		const doc = document.implementation.createHTMLDocument();
+		doc.body.innerHTML = '<img src="data:image/png;base64,AAAA" alt="Figure">';
+		const image = doc.querySelector('img')!;
+		image.decode = vi.fn(async () => {
+			throw new Error('decode failed');
+		});
+		await expect(waitForPrintImages(doc)).rejects.toBeInstanceOf(PrintImageError);
+	});
+
+	it('respecte une annulation pendant le décodage', async () => {
+		const doc = document.implementation.createHTMLDocument();
+		doc.body.innerHTML = '<img src="data:image/png;base64,AAAA">';
+		doc.querySelector('img')!.decode = () => new Promise(() => {});
+		const controller = new AbortController();
+		const pending = waitForPrintImages(doc, { signal: controller.signal });
+		controller.abort();
+		await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+	});
+});
 
 describe('buildPrintDocument - structure', () => {
 	it('produit un doctype HTML5 avec lang par défaut (en)', () => {
@@ -509,5 +551,73 @@ describe('print.ts en contexte non-browser (SSR)', () => {
 		// base='' en test → href="/print/print.css" (pas d'URL absolue window.location).
 		expect(html).toContain('href="/print/print.css"');
 		expect(html).not.toContain('http://localhost');
+	});
+});
+
+describe('préparation d’impression bornée', () => {
+	afterEach(() => vi.useRealTimers());
+
+	it('refuse une préparation déjà annulée même sans image', async () => {
+		const controller = new AbortController();
+		controller.abort();
+		await expect(
+			waitForPrintImages(document.implementation.createHTMLDocument(), {
+				signal: controller.signal
+			})
+		).rejects.toMatchObject({ name: 'AbortError' });
+	});
+
+	it('diagnostique une source absente et une image décodée sans hauteur', async () => {
+		const doc = document.implementation.createHTMLDocument();
+		doc.body.innerHTML = '<img alt="Source absente"><img data-mdsh-remote-src="remote.png">';
+		const image = doc.images[1]!;
+		image.decode = vi.fn(async () => {});
+		Object.defineProperty(image, 'naturalWidth', { value: 192 });
+		await expect(waitForPrintImages(doc)).rejects.toMatchObject({
+			sources: ['Source absente', 'remote.png']
+		});
+	});
+
+	it('réutilise seulement une image complète avec deux dimensions positives', async () => {
+		const doc = document.implementation.createHTMLDocument();
+		doc.body.innerHTML = '<img src="cached.png">';
+		const image = doc.images[0]!;
+		Object.defineProperties(image, {
+			complete: { value: true },
+			naturalWidth: { value: 192 },
+			naturalHeight: { value: 192 }
+		});
+		image.decode = vi.fn();
+		await waitForPrintImages(doc);
+		expect(image.decode).not.toHaveBeenCalled();
+	});
+
+	it.each(['load', 'error'])(
+		'traite un navigateur sans decode avec événement %s',
+		async (event) => {
+			const doc = document.implementation.createHTMLDocument();
+			doc.body.innerHTML = '<img src="image.png">';
+			const image = doc.images[0]!;
+			Object.defineProperties(image, {
+				naturalWidth: { value: 192 },
+				naturalHeight: { value: 192 }
+			});
+			const pending = waitForPrintImages(doc);
+			image.dispatchEvent(new Event(event));
+			if (event === 'load') await expect(pending).resolves.toBeUndefined();
+			else await expect(pending).rejects.toBeInstanceOf(PrintImageError);
+		}
+	);
+
+	it('arrête l’attente d’une image qui ne se décode jamais', async () => {
+		vi.useFakeTimers();
+		const doc = document.implementation.createHTMLDocument();
+		doc.body.innerHTML = '<img src="stalled.png">';
+		doc.images[0]!.decode = () => new Promise(() => {});
+		const assertion = expect(waitForPrintImages(doc, { timeoutMs: 30 })).rejects.toMatchObject({
+			sources: ['stalled.png']
+		});
+		await vi.advanceTimersByTimeAsync(30);
+		await assertion;
 	});
 });

@@ -69,7 +69,7 @@ export function createUiPrefs(opts: UiPrefsOptions) {
 		document.body.classList.toggle('focus-mode', focusMode);
 		localStorage.setItem('mdsh:focus', focusMode ? '1' : '0');
 		const periph = document.querySelectorAll<HTMLElement>(
-			'body > div header, body > div aside, body > div footer'
+			'#app-toolbar, #app-statusbar, .mdsh-toc-col'
 		);
 		for (const el of periph) {
 			if (focusMode) el.setAttribute('inert', '');

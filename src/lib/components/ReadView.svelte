@@ -11,6 +11,8 @@
 	import { t } from '$lib/i18n';
 	import { mermaidThemeFromDataTheme } from '$lib/theme';
 	import { themeStore } from '$lib/ui/theme.svelte';
+	import { notify } from '$lib/notify.svelte';
+	import { reportError } from '$lib/report';
 
 	interface Props {
 		fileId: string;
@@ -87,12 +89,12 @@
 	// enough to avoid disrupting a fast workflow.
 	let loading = $state(false);
 	let err = $state<string | null>(null);
-	let allowRemoteImages = $state(false);
 	let hasBlockedRemoteImages = $state(false);
+	let mediaBusy = $state(false);
+	let retryVersion = $state(0);
 	let renderSeq = 0;
-	let remoteImagesFileId = '';
 
-	async function doRender(md: string, fid: string, allowNetworkImages: boolean) {
+	async function doRender(md: string, fid: string) {
 		const seq = ++renderSeq;
 		err = null;
 		const loadingTimer = setTimeout(() => {
@@ -107,12 +109,12 @@
 			const out = await renderMarkdown(md, {
 				mermaidTheme,
 				headingPermalinks: true,
-				allowRemoteImages: allowNetworkImages
+				allowRemoteImages: false
 			});
 			if (seq !== renderSeq) return; // a more recent render has started
 			if (fid !== fileId) return; // the file changed in the meantime
 			html = out;
-			hasBlockedRemoteImages = out.includes('data-mdsh-remote-src');
+			hasBlockedRemoteImages = out.includes('data-mdsh-remote-');
 		} catch (e) {
 			if (seq !== renderSeq) return;
 			err = e instanceof Error ? e.message : String(e);
@@ -122,18 +124,64 @@
 		}
 	}
 
+	async function incorporateImages(options: { files?: readonly File[]; allowNetwork?: boolean }) {
+		if (mediaBusy) return;
+		const snapshot = content;
+		const id = fileId;
+		mediaBusy = true;
+		try {
+			const { incorporateDocumentImages } = await import('../render/document-media');
+			const result = await incorporateDocumentImages(snapshot, options);
+			const current = filesStore.files.find((file) => file.id === id);
+			if (!current || current.content !== snapshot) {
+				notify.error(t('read.imageContentChanged'));
+				return;
+			}
+			if (result.embedded > 0) {
+				filesStore.updateContent(id, result.markdown);
+				notify.success(t('read.imagesEmbedded', { n: result.embedded }));
+			}
+			if (result.issues.length > 0) {
+				notify.error(
+					t('export.mediaFailed', {
+						n: result.issues.length,
+						sources: result.issues
+							.map((issue) => issue.source)
+							.slice(0, 3)
+							.join(', ')
+					})
+				);
+			}
+		} catch (error) {
+			reportError('document image import', error, {
+				notifyUser: t('imageDrop.unreadable', { n: 1 })
+			});
+		} finally {
+			mediaBusy = false;
+		}
+	}
+
+	function chooseImageFiles(directory: boolean) {
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.multiple = true;
+		input.accept = 'image/*';
+		if (directory) input.setAttribute('webkitdirectory', '');
+		input.onchange = () => {
+			const selected = Array.from(input.files ?? []);
+			if (selected.length > 0) void incorporateImages({ files: selected });
+		};
+		input.click();
+	}
+
 	// Re-render when content, file, or UI theme changes (Mermaid palette).
 	$effect(() => {
 		const c = content;
 		const f = fileId;
-		if (f !== remoteImagesFileId) {
-			remoteImagesFileId = f;
-			allowRemoteImages = false;
-		}
-		const allowNetworkImages = allowRemoteImages;
+		void retryVersion;
 		// Subscribe to theme pref so light/dark toggles re-run Mermaid.
 		void themeStore.pref;
-		void doRender(c, f, allowNetworkImages);
+		void doRender(c, f);
 	});
 </script>
 
@@ -143,13 +191,24 @@
 			<div class="mdsh-read-error" role="alert">
 				<strong>{t('read.renderError')}</strong>
 				<pre>{err}</pre>
+				<button type="button" onclick={() => retryVersion++}>{t('source.retry')}</button>
 			</div>
 		{:else}
-			{#if hasBlockedRemoteImages && !allowRemoteImages}
+			{#if hasBlockedRemoteImages}
 				<div class="mdsh-remote-images-notice" role="status">
 					<span>{t('read.remoteImagesBlocked')}</span>
-					<button type="button" onclick={() => (allowRemoteImages = true)}>
+					<button
+						type="button"
+						disabled={mediaBusy}
+						onclick={() => void incorporateImages({ allowNetwork: true })}
+					>
 						{t('read.loadRemoteImages')}
+					</button>
+					<button type="button" disabled={mediaBusy} onclick={() => chooseImageFiles(false)}>
+						{t('read.importImageFiles')}
+					</button>
+					<button type="button" disabled={mediaBusy} onclick={() => chooseImageFiles(true)}>
+						{t('read.importImageFolder')}
 					</button>
 				</div>
 			{/if}
@@ -204,6 +263,7 @@
 	}
 	.mdsh-remote-images-notice {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
@@ -229,7 +289,7 @@
 		max-width: 720px;
 		margin: 2rem auto;
 		padding: 1rem 1.2rem;
-		color: #ff9b9b;
+		color: var(--color-danger);
 		background: rgba(255, 80, 80, 0.08);
 		border: 1px solid rgba(255, 80, 80, 0.25);
 		border-radius: var(--radius-md);

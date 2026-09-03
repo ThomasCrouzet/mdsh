@@ -6,7 +6,7 @@
 	import { promptStore } from '$lib/prompt.svelte';
 	import { notify } from '$lib/notify.svelte';
 	import { reportError } from '$lib/report';
-	import { replaceInFiles } from '$lib/replace';
+	import { replaceInFilesAsync } from '$lib/replace-worker';
 	import type { Hit } from '$lib/types';
 	import type { SearchRequest, SearchResponse } from '$lib/workers/search.worker';
 	import { corpusFingerprint } from '$lib/search-core';
@@ -57,14 +57,23 @@
 	 *  structured-clone when the snapshot is unchanged (id + updatedAt). */
 	let lastCorpusFingerprint = '';
 
-	onMount(() => {
-		if (!browser) return;
+	let searchTimeout: ReturnType<typeof setTimeout> | null = null;
+	function stopWorker(): void {
+		if (searchTimeout) clearTimeout(searchTimeout);
+		searchTimeout = null;
+		worker?.terminate();
+		worker = null;
+		lastCorpusFingerprint = '';
+	}
+	function createWorker(): void {
 		worker = new Worker(new URL('$lib/workers/search.worker.ts', import.meta.url), {
 			type: 'module'
 		});
 		worker.addEventListener('message', (e: MessageEvent<SearchResponse>) => {
 			// Ignore stale responses (the user typed in the meantime).
 			if (e.data.id !== lastSentQueryId) return;
+			if (searchTimeout) clearTimeout(searchTimeout);
+			searchTimeout = null;
 			hits = e.data.hits;
 			regexError = e.data.regexError;
 		});
@@ -73,10 +82,17 @@
 		worker.addEventListener('error', (e) => {
 			reportError('search-worker', e.message ?? String(e));
 			notify.error(t('search.unavailable'));
+			stopWorker();
+			hits = [];
+			regexError = t('search.unavailable');
 		});
+	}
+	onMount(() => {
+		if (!browser) return;
+		createWorker();
 		return () => {
-			worker?.terminate();
-			worker = null;
+			stopWorker();
+			if (debounceTimer) clearTimeout(debounceTimer);
 		};
 	});
 
@@ -107,10 +123,13 @@
 		void _opts;
 		if (!open) return;
 		if (q.length < 2) {
+			if (searchTimeout) stopWorker();
 			hits = [];
 			regexError = null;
 			return;
 		}
+		if (searchTimeout) stopWorker();
+		if (!worker) createWorker();
 		if (!worker) return;
 		const id = ++nextQueryId;
 		lastSentQueryId = id;
@@ -147,6 +166,11 @@
 				: {})
 		};
 		worker.postMessage(req);
+		searchTimeout = setTimeout(() => {
+			stopWorker();
+			hits = [];
+			regexError = t('search.timeout');
+		}, 1000);
 	});
 
 	$effect(() => {
@@ -160,6 +184,17 @@
 		const _ = query;
 		void _;
 		selected = 0;
+	});
+
+	$effect(() => {
+		const hit = hits[selected];
+		const index = selected;
+		if (!hit) return;
+		tick().then(() => {
+			document
+				.getElementById(`search-hit-${hit.fileId}-${hit.line}-${index}`)
+				?.scrollIntoView({ block: 'nearest' });
+		});
 	});
 
 	function openHit(h: Hit) {
@@ -182,7 +217,7 @@
 		if (q.length < 2) return;
 		const opts = { caseSensitive, wholeWord, useRegex };
 		const slices = filesStore.files.map((f) => ({ id: f.id, name: f.name, content: f.content }));
-		const preview = replaceInFiles(slices, q, replacement, opts);
+		const preview = await replaceInFilesAsync(slices, q, replacement, opts);
 		if (preview.regexError) {
 			regexError = preview.regexError;
 			return;
@@ -201,12 +236,13 @@
 			danger: true
 		});
 		if (!ok) return;
-		const res = filesStore.replaceInAll(q, replacement, opts);
+		const res = await filesStore.replaceInAll(q, replacement, opts);
 		notify.success(t('search.replacedSummary', { n: res.occurrences, files: res.files }));
 		onClose();
 	}
 
 	function handleKey(e: KeyboardEvent) {
+		if (e.isComposing || e.defaultPrevented || promptStore.open) return;
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			onClose();
@@ -239,6 +275,8 @@
 		role="dialog"
 		aria-modal="true"
 		aria-label={t('search.dialogLabel')}
+		inert={promptStore.open}
+		aria-hidden={promptStore.open ? 'true' : undefined}
 		tabindex="-1"
 		use:focusTrap
 	>
@@ -247,7 +285,9 @@
 			       bg-bg-1 shadow-2xl animate-fade-in"
 		>
 			<!-- §B1.5 - ARIA combobox + listbox pattern identical to CommandPalette. -->
-			<div class="flex items-center gap-2 border-b border-border px-3 py-2">
+			<div
+				class="search-input-row flex flex-wrap items-center gap-2 border-b border-border px-3 py-2"
+			>
 				<Search size={16} class="text-fg-dim" />
 				<input
 					bind:this={inputEl}

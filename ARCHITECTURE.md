@@ -10,13 +10,13 @@ a repo a visitor skims for sixty seconds.
 mdsh has no server. Every document lives in the browser: drafts in IndexedDB via
 Dexie, in-place disk editing through the File System Access API, exports as plain
 files. That constraint is the whole point of the project (see the README), but it
-also means the PWA has to be *actually* offline-capable on day one, not "offline
+also means the PWA has to be _actually_ offline-capable on day one, not "offline
 after you've visited once."
 
 That guarantee broke silently during the pre-1.0 hardening pass. The precache
 manifest transform (`vite.config.ts`) rewrites Workbox's build-output URLs into
 the URLs the browser actually requests, and the SPA fallback entry was keyed to
-the base path *without* a trailing slash (`/mdsh` instead of `/mdsh/`). A fresh
+the base path _without_ a trailing slash (`/mdsh` instead of `/mdsh/`). A fresh
 install's navigation request for `/mdsh/` never matched that precache key, so
 `navigateFallback` found nothing and the app served a blank shell offline - and
 on an empty base path, the broken transform produced an empty precache outright.
@@ -38,26 +38,22 @@ highlighting with `highlight.js`, diagrams with Mermaid, exports through
 `jszip`, and parses YAML front-matter with `js-yaml`. None of that can be in
 the boot graph and stay under budget.
 
-The rule that makes this hold: every one of those libraries is imported only
-from a module that is itself always reached through a dynamic `import()` -
-`render/markdown.ts`, `services/export.ts`, `frontmatter.ts`. A static import
-anywhere in the boot graph (`+page.svelte`, a store, a component mounted eagerly)
-would pull the dependency into the initial chunk and out of the PWA precache's
-lightweight tier. That invariant is easy to violate by accident during a
-refactor - a single `import katex from 'katex'` at the top of the wrong file
-regresses the budget without any visible symptom until CI fails - so it is
-enforced structurally: an ESLint `no-restricted-imports` rule blocks static
-imports of the heavy libraries everywhere except the handful of files that are
-themselves lazy-loaded (`eslint.config.js`). The lint rule and the bundle budget
-check the same invariant from two directions; either one catching a regression
-is the system working as intended.
+La règle conserve chaque moteur derrière un `import()` dynamique depuis
+`render/markdown.ts`, `services/export.ts` ou `frontmatter.ts`. Le cache PWA
+contient pourtant tous ces chunks révisionnés: le démarrage hors ligne peut donc
+charger le moteur demandé sans le réseau, tout en laissant le graphe initial
+léger. Un import statique depuis `+page.svelte`, un store ou un composant monté au
+démarrage augmenterait le coût initial. ESLint bloque cette fuite et
+`scripts/bundle-graph.mjs` mesure les fermetures transitives des graphes de
+démarrage, lecture, source et WYSIWYG. Le budget vérifie ainsi ce que charge
+chaque parcours, sans compter plusieurs fois un chunk partagé.
 
 ## A facade store over pure, testable modules
 
 `files.svelte.ts` is the file store the rest of the app talks to, and Svelte 5's
 rules require the `$state` it holds to live in a single class - runes cannot be
 extracted into a plain module and re-imported. That constraint pushes toward
-putting *all* logic in that one file, which does not scale: by the time mdsh had
+putting _all_ logic in that one file, which does not scale: by the time mdsh had
 exports, disk sync, tagging, search indexing, a save queue, and a trash bin, a
 monolithic store would mean no unit could be tested without booting the whole
 class and mocking `$state`.
@@ -101,6 +97,13 @@ The Desktop Beta does not accept JavaScript paths for file commands. A Rust-owne
 
 Native writes stage data in the target directory, synchronize it, compare a SHA-256 content revision immediately before replacement, preserve permissions, and then use the platform replacement primitive. This prevents a same-size, same-timestamp external edit from being overwritten silently and keeps the original intact if staging fails.
 
-## Measured corpus budget
+## Budget de corpus mesuré
 
-`performance-budget.test.ts` constructs representative corpora of 50, 200, and 300 documents, builds metadata and backlinks, and performs a cross-file search. Each case has a deliberately generous 1.5 second release budget to remain stable on shared CI runners. The target corpus stays within that gate, so the current in-memory model remains intentional and lazy hydration is deferred. The budget is a regression alarm, not a universal device benchmark.
+Les tests de logique construisent des corpus de 50, 200 et 300 documents, puis
+mesurent l'index de métadonnées et la recherche. Une mesure navigateur séparée,
+réalisée sur Mac mini M4 avec Chromium et un document de 50 000 caractères,
+observe 183 à 205 ms pour la recherche sur 200 et 300 notes, 119 ms pour le
+premier passage en WYSIWYG, puis 85 à 88 ms. La frappe mesure 25 ms en médiane et
+34 ms au 95e centile. Ces chiffres servent de référence sur cette machine. Les
+budgets CI, volontairement plus larges, restent des alarmes de régression et ne
+constituent pas une promesse pour tous les appareils.

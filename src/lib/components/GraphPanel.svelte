@@ -178,6 +178,22 @@
 						{/each}
 					</svg>
 				</div>
+				<details class="max-h-48 overflow-y-auto border-t border-border p-3 text-sm">
+					<summary class="cursor-pointer">{t('graph.textView')}</summary>
+					<ul>
+						{#each positions as node (node.id)}
+							<li class="py-1">
+								<button class="underline" onclick={() => openNode(node.id)}>{node.label}</button>
+								{#each edges.filter((edge) => edge.source === node.id) as edge (edge.target)}
+									<span> / {t('graph.linksTo')} </span><button
+										class="underline"
+										onclick={() => openNode(edge.target)}>{posById.get(edge.target)?.label}</button
+									>
+								{/each}
+							</li>
+						{/each}
+					</ul>
+				</details>
 				<footer class="border-t border-border px-3 py-1.5 text-[11px] text-fg-dim">
 					{t('graph.help')}
 					<code>[[…]]</code>.

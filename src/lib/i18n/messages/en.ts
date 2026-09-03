@@ -8,6 +8,8 @@
 
 export const en = {
 	// backup
+	'backup.tooLarge':
+		'The backup exceeds the limits: 64 MiB total, 3,000 documents and 16 MiB per document.',
 	'backup.encryptedInvalidJson': 'Unreadable encrypted file: this is not valid JSON.',
 	'backup.futureVersion':
 		'Backup created by a newer version of mdsh (schema v{version}). Update the app.',
@@ -18,7 +20,128 @@ export const en = {
 	'backup.passphraseRequired': 'Encrypted backup: passphrase required.',
 
 	// common
+	'import.depth': 'Maximum folder depth reached',
+	'import.read': 'File could not be read',
+	'import.binary': 'Binary file ignored',
+	'import.encoding': 'Unsupported or invalid text encoding',
+	'import.fileCount': 'File count limit reached',
+	'import.batchSize': 'Total import size limit exceeded',
+	'import.fileSize': 'File size limit exceeded',
+	'import.dismiss': 'Close import report',
+	'import.cancel': 'Cancel import',
+	'import.details': 'Details by file',
+	'import.summary':
+		'{processed} processed, {imported} imported, {skipped} skipped, {failed} failed.',
+	'import.complete': 'Import complete',
+	'import.cancelled': 'Import cancelled. Imported documents are kept.',
+	'import.running': 'Import in progress',
+	'import.title': 'Import report',
+	'page.renderDocument': 'Render document',
+	'page.largeDocumentMessage':
+		'This document opens in Source mode to keep the app responsive. Visual editing or reading may take longer. Continue?',
+	'page.largeDocumentTitle': 'Render this large document?',
+	'palette.unavailable':
+		'This command is unavailable in the current context. Wait for ongoing work or use another export format.',
+	'editor.linkPlaceholder': 'Paste link...',
+	'editor.strikethrough': 'Strikethrough',
+	'editor.link': 'Link',
+	'editor.italic': 'Italic',
+	'editor.bold': 'Bold',
+	'editor.math': 'Math',
+	'editor.table': 'Table',
+	'editor.codeBlock': 'Code',
+	'editor.image': 'Image',
+	'editor.advanced': 'Advanced',
+	'editor.taskList': 'Task list',
+	'editor.orderedList': 'Numbered list',
+	'editor.bulletList': 'Bullet list',
+	'editor.lists': 'Lists',
+	'editor.divider': 'Divider',
+	'editor.quote': 'Quote',
+	'editor.heading': 'Heading {n}',
+	'editor.text': 'Text',
+	'editor.loadErrorTitle':
+		'Unable to load the visual editor. Your document is still available in Source mode.',
+	'settings.disableShortcutFor': 'Disable shortcut for {command}',
+	'settings.shortcutFor': 'Shortcut for {command}',
+	'settings.shortcutDisable': 'Disable',
+	'settings.shortcutDisabled': 'Disabled',
+	'settings.shortcutReset': 'Restore all default shortcuts',
+	'settings.shortcutSaved': 'Shortcut settings saved locally.',
+	'settings.shortcutStorage':
+		'The shortcut could not be saved. Your previous settings are unchanged.',
+	'settings.shortcutDuplicate':
+		'Another command already uses this shortcut. Disable it first or choose another.',
+	'settings.shortcutReserved':
+		'This combination is reserved by the browser, system or text editor. Choose another.',
+	'settings.shortcutInvalid': 'Use Ctrl or Cmd with a letter, digit or punctuation, without Alt.',
+	'settings.shortcutInstructions':
+		'Focus a shortcut field, then press Ctrl (Cmd on Mac), optionally Shift, and a letter or punctuation key. Browser and editing shortcuts are reserved. Changes apply locally.',
+	'settings.shortcutsDesktop':
+		'Desktop: the native menus also provide these actions. Text fields, composition and open dialogs take priority over application shortcuts.',
+	'settings.shortcutsWeb':
+		'Web browser: some shortcuts may be reserved by the browser or keyboard layout. Use the Commands button for every action. Text fields, composition and open dialogs take priority.',
+	'settings.shortcuts': 'Keyboard shortcuts',
+	'welcome.persistence':
+		'Drafts are saved locally in this browser. Export a backup to protect against storage loss.',
+	'sidebar.purgeMessage': 'This also deletes its version history. This action cannot be undone.',
+	'sidebar.purgeConfirm': 'Permanently delete this document?',
+	'sidebar.purge': 'Permanently delete {name}',
+	'toast.deleted': 'Moved to trash',
+	'toolbar.modeRead': 'Read',
+	'toolbar.modeSource': 'Source',
+	'toolbar.modeEdit': 'Edit',
+	'graph.textView': 'Documents and links',
+	'graph.linksTo': 'links to',
+	'read.imagesEmbedded': '{n} image(s) included in the document.',
+	'read.imageContentChanged':
+		'The document changed while images were loading. Retry to keep your latest edits.',
+	'read.importImageFolder': 'Select image folder',
+	'read.importImageFiles': 'Select image files',
+	'desktop.linkFailed':
+		'This link could not be opened. Only HTTP and HTTPS links open in your browser.',
+	'desktop.closeFailed':
+		'The window stays open because the latest changes could not be saved. Retry or export a copy.',
+	'editor.imageCaption': 'Image caption',
+	'editor.imageLinkPlaceholder': 'Image link (blocked until consent)',
+	'editor.imageUpload': 'Upload image',
+	'export.remoteImagesTitle': 'Include external images?',
 	'common.skipToContent': 'Skip to content',
+	'toolbar.commands': 'Commands',
+	'search.timeout': 'Search timed out. Simplify the regular expression and try again.',
+	'settings.confirmPassphrase': 'Confirm the passphrase',
+	'settings.passphraseMismatch': 'The passphrases do not match. No backup was created.',
+	'page.exitFocusMode': 'Exit focus mode',
+	'palette.commandIndex': 'Commands',
+	'palette.availableCount': '{n} available',
+	'palette.requiresDocument': 'Open a document to use this command.',
+	'palette.settingsKeywords': 'settings preferences options',
+	'palette.exportMarkdownKeywords': 'save download markdown',
+	'palette.exportPdfKeywords': 'print printer pdf',
+	'palette.saveToDisk': 'Save to disk',
+	'palette.saveToDiskKeywords': 'save disk file backup',
+	'palette.renameFile': 'Rename document',
+	'palette.renameFileKeywords': 'rename name title document',
+	'palette.renameFilePrompt': 'Document name',
+	'palette.closeFile': 'Close document tab',
+	'palette.deleteFile': 'Move document to trash',
+	'palette.reopenFile': 'Reopen: {name}',
+	'sidebar.closedFiles': 'Saved documents',
+	'sidebar.fileActions': 'Document actions',
+	'sidebar.moveUp': 'Move document up',
+	'sidebar.moveDown': 'Move document down',
+	'sidebar.deleteConfirm': 'Move this document to trash?',
+	'sidebar.deleteMessage': 'You can restore it from the trash.',
+	'sidebar.trash': 'Trash',
+	'sidebar.restore': 'Restore {name}',
+	'statusBar.saveFailed': 'Not saved locally',
+	'statusBar.retrySave': 'Retry saving',
+	'export.remoteImagesPrompt':
+		'{n} external image(s) will be downloaded. Their hosts will receive a request.',
+	'export.remoteImagesConfirm': 'Allow and export',
+	'export.mediaMissing': 'Some images are unavailable. Relink or remove them before exporting.',
+	'export.mediaFailed': '{n} image(s) could not be prepared: {sources}. The export was cancelled.',
+	'export.printDialogOpened': 'Print dialog opened. Choose Save as PDF to create the file.',
 
 	// crypto
 	'crypto.emptyPassphrase': 'Empty passphrase.',
@@ -56,7 +179,7 @@ export const en = {
 	'diskLinks.close': 'Close',
 	'diskLinks.count': '{n} link(s)',
 	'diskLinks.empty':
-		'No file linked to disk. Open a file via "Save to disk" (⌘⇧S) to create a link.',
+		'No file linked to disk. Open a file via "Save to disk" ({shortcut}) to create a link.',
 	'diskLinks.legendBroken': 'broken',
 	'diskLinks.legendOk': 'ok',
 	'diskLinks.legendPermission': 'permission',
@@ -415,9 +538,9 @@ export const en = {
 	'storage.genericFailed': 'A local storage operation failed.',
 	'storage.loadFailed': 'Failed to read local storage - try again.',
 	'storage.pressureWarning':
-		'Local storage almost full ({pct} %). Consider exporting then closing files to avoid any loss.',
+		'Local storage almost full ({pct} %). Export a backup, then permanently delete documents you no longer need.',
 	'storage.quotaFull':
-		'Storage full: cannot save. Export your files then close a few of them to free up space.',
+		'Storage full: cannot save. Export a backup, then permanently delete unneeded documents from the trash. Closing tabs does not free space.',
 	'storage.saveFailed': 'Local save failed - your latest changes may not have been saved.',
 
 	// templates

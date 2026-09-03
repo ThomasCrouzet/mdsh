@@ -5,9 +5,10 @@
 // The `$state` mutations (`hasPendingSave`, `lastSavedAt`) are
 // delegated via injected callbacks - SaveQueue does not import Svelte.
 
-import { db } from './db';
+import { db, newId } from './db';
 import type { DraftRow } from './db';
 import { TIMERS } from './config';
+import { uniqueName } from './file-utils';
 
 /** Callbacks to the store's `$state` - injected at construction. */
 export interface SaveQueueCallbacks {
@@ -27,6 +28,10 @@ export interface SaveQueueCallbacks {
 	 * (BroadcastChannel) to avoid silent last-writer-wins.
 	 */
 	onDraftSaved?: (id: string, updatedAt: number) => void;
+	/** Called when a concurrent durable branch was copied to version history. */
+	onConflictPreserved?: (id: string, variant: DraftRow) => void;
+	/** Persistent per-document errors for a reactive status surface. */
+	onFailuresChange?: (ids: string[]) => void;
 }
 
 export interface SaveQueueFailure {
@@ -75,6 +80,8 @@ export class SaveQueue {
 	private putPromises = new Set<Promise<void>>();
 	/** Latest unresolved durability failure per live draft. Cleared only by a successful put. */
 	private durabilityFailures = new Map<string, unknown>();
+	/** Last durable content observed by this tab, used for optimistic conflict detection. */
+	private persistedRows = new Map<string, Pick<DraftRow, 'name' | 'content' | 'updatedAt'>>();
 	/** Per-id serial chain so puts never race each other on the same draft. */
 	private chains = new Map<string, Promise<void>>();
 	/**
@@ -96,13 +103,78 @@ export class SaveQueue {
 	 */
 	private invalidatedIds = new Set<string>();
 	private cb: SaveQueueCallbacks;
+	private writeRow: ((row: DraftRow) => Promise<unknown>) | undefined;
 
-	constructor(cb: SaveQueueCallbacks) {
+	constructor(cb: SaveQueueCallbacks, writeRow?: (row: DraftRow) => Promise<unknown>) {
 		this.cb = cb;
+		this.writeRow = writeRow;
 	}
 
 	private updateFlag(): void {
-		this.cb.onPendingChange(this.timers.size > 0 || this.pendingWrites > 0);
+		this.cb.onFailuresChange?.([...this.durabilityFailures.keys()]);
+		this.cb.onPendingChange(
+			this.timers.size > 0 || this.pendingWrites > 0 || this.durabilityFailures.size > 0
+		);
+	}
+
+	/** Registers the durable baseline read at startup or after a remote sync. */
+	trackPersisted(row: DraftRow): void {
+		this.persistedRows.set(row.id, {
+			name: row.name,
+			content: row.content,
+			updatedAt: row.updatedAt
+		});
+	}
+
+	private isActivelySaving(id: string): boolean {
+		return this.timers.has(id) || (this.writingIds.get(id) ?? 0) > 0;
+	}
+
+	private async putPreservingConflict(row: DraftRow): Promise<void> {
+		if (this.writeRow) {
+			await this.writeRow(row);
+			this.trackPersisted(row);
+			return;
+		}
+		let preserved: DraftRow | undefined;
+		await db.transaction('rw', db.drafts, db.versions, async () => {
+			const current = await db.drafts.get(row.id);
+			const baseline = this.persistedRows.get(row.id);
+			const changedSinceRead = current
+				? !baseline ||
+					current.name !== baseline.name ||
+					current.content !== baseline.content ||
+					current.updatedAt !== baseline.updatedAt
+				: false;
+			if (
+				current &&
+				changedSinceRead &&
+				(current.name !== row.name || current.content !== row.content)
+			) {
+				const documents = await db.drafts.toArray();
+				preserved = {
+					...current,
+					id: newId(),
+					name: uniqueName(
+						documents.map((document) => document.name),
+						current.name
+					),
+					order: documents.reduce((max, document) => Math.max(max, document.order), -1) + 1,
+					open: false
+				};
+				await db.drafts.put(preserved);
+				await db.versions.put({
+					id: newId(),
+					draftId: current.id,
+					name: current.name,
+					content: current.content,
+					createdAt: Date.now()
+				});
+			}
+			await db.drafts.put(row);
+		});
+		this.trackPersisted(row);
+		if (preserved) this.cb.onConflictPreserved?.(row.id, preserved);
 	}
 
 	private bumpGeneration(id: string): number {
@@ -143,17 +215,9 @@ export class SaveQueue {
 		const execute = async (): Promise<void> => {
 			// Superseded by a newer enqueue, invalidate, or discard - skip write.
 			if (this.generations.get(id) !== gen) return;
-			if (this.invalidatedIds.has(id)) return;
-			if (this.discardedIds.has(id)) {
-				try {
-					await db.drafts.delete(id);
-				} catch (err) {
-					this.cb.onError(err);
-				}
-				return;
-			}
+
 			try {
-				await db.drafts.put(row);
+				await this.putPreservingConflict(row);
 			} catch (err) {
 				// Only surface errors for the still-current live generation.
 				if (
@@ -224,6 +288,13 @@ export class SaveQueue {
 		);
 	}
 
+	/** Queues an immediate durable row on the same per-document serial chain. */
+	persist(row: DraftRow): void {
+		this.cancel(row.id);
+		this.enqueuePut(row);
+		this.updateFlag();
+	}
+
 	/**
 	 * Cancels a pending timer without writing. Used when detaching a tab that
 	 * should not flush (prefer `discard` when the Dexie row must not resurface).
@@ -247,6 +318,7 @@ export class SaveQueue {
 		this.invalidatedIds.delete(id);
 		this.discardedIds.add(id);
 		this.durabilityFailures.delete(id);
+		this.persistedRows.delete(id);
 		// Bump generation so any chain link still holding a stale row skips put.
 		this.bumpGeneration(id);
 		this.updateFlag();
@@ -348,7 +420,12 @@ export class SaveQueue {
 	 * the write window after the timer fires.
 	 */
 	has(id: string): boolean {
-		return this.timers.has(id) || (this.writingIds.get(id) ?? 0) > 0;
+		return this.isActivelySaving(id) || this.durabilityFailures.has(id);
+	}
+
+	/** True when the latest content is known to exist only in memory. */
+	hasDurabilityFailure(id: string): boolean {
+		return this.durabilityFailures.has(id);
 	}
 
 	/**
@@ -357,9 +434,11 @@ export class SaveQueue {
 	 * IDB transactions are preserved by Chrome/Firefox even if the page unloads
 	 * just after.
 	 */
-	flush(getRow: (id: string) => DraftRow | null): void {
-		if (this.timers.size === 0) return;
-		const ids = Array.from(this.timers.keys());
+	flush(getRow: (id: string) => DraftRow | null, retryFailed = true): void {
+		const ids = new Set([
+			...this.timers.keys(),
+			...(retryFailed ? this.durabilityFailures.keys() : [])
+		]);
 		for (const id of ids) {
 			const t = this.timers.get(id);
 			if (t) clearTimeout(t);
@@ -387,13 +466,13 @@ export class SaveQueue {
 		// Retry rows that failed previously even if no new edit re-armed a timer.
 		// This lets a temporary quota/IDB outage recover without another keystroke.
 		for (const id of [...this.durabilityFailures.keys()]) {
-			if (this.has(id)) continue;
+			if (this.isActivelySaving(id)) continue;
 			const row = getRow(id);
 			if (row) this.enqueuePut(row);
 		}
 		// Bound the loop so a pathological continuous schedule cannot hang forever.
 		for (let i = 0; i < 8; i++) {
-			this.flush(getRow);
+			this.flush(getRow, false);
 			if (this.putPromises.size === 0 && this.timers.size === 0) break;
 			if (this.putPromises.size > 0) {
 				await Promise.all([...this.putPromises]);
@@ -402,7 +481,7 @@ export class SaveQueue {
 		}
 		// Final flush of anything still armed. A continuous producer is reported
 		// as non-durable instead of being presented as a successful barrier.
-		this.flush(getRow);
+		this.flush(getRow, false);
 		if (this.putPromises.size > 0) await Promise.all([...this.putPromises]);
 		const failures = [...this.durabilityFailures].map(([id, error]) => ({ id, error }));
 		if (this.timers.size > 0) {

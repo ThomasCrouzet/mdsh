@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+import { createFirstFile, openPalette, writeSourceContent } from './helpers';
 import { expect, test } from '@playwright/test';
 
 /**
@@ -58,7 +61,11 @@ test.describe('PWA - manifest', () => {
  * dans le projet WebKit/golden-path).
  */
 test.describe('PWA - boot offline depuis le précache', () => {
-	test('démarre et reste interactif hors-ligne via le seul précache', async ({ page, context }) => {
+	test('démarre et reste interactif hors-ligne via le seul précache', async ({
+		page,
+		context,
+		browser
+	}, testInfo) => {
 		// 1) Premier chargement EN LIGNE : enregistre le SW et peuple le précache.
 		await page.goto('/');
 
@@ -90,6 +97,181 @@ test.describe('PWA - boot offline depuis le précache', () => {
 			{ timeout: 15_000 }
 		);
 
+		await createFirstFile(page);
+		await page.locator('button[data-mode="wysiwyg"]').click();
+		await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 20_000 });
+		const png = (await readFile('static/pwa-192x192.png')).toString('base64');
+		await writeSourceContent(
+			page,
+			`# Hors ligne\n\n$e^{i\\pi}+1=0$\n\n![Image locale](data:image/png;base64,${png})`
+		);
+		await page.locator('button[data-mode="read"]').click();
+		await expect(page.locator('.mdsh-preview math')).toBeAttached();
+		await expect
+			.poll(() =>
+				page
+					.locator('.mdsh-preview img')
+					.evaluate((element) => (element as HTMLImageElement).naturalWidth)
+			)
+			.toBe(192);
+		await openPalette(page);
+		await page.getByRole('combobox').fill('Exporter en HTML');
+		const downloading = page.waitForEvent('download');
+		await page.keyboard.press('Enter');
+		const download = await downloading;
+		const output = testInfo.outputPath('first-visit-offline.html');
+		await download.saveAs(output);
+		const html = await readFile(output, 'utf8');
+		expect(html).toContain('data:image/png;base64,');
+		expect(html).toContain('data:font/woff2;base64,');
+		const exportedContext = await browser.newContext({ offline: true });
+		try {
+			const exportedPage = await exportedContext.newPage();
+			await exportedPage.goto(pathToFileURL(output).href);
+			await expect(exportedPage.locator('math')).toBeAttached();
+			await expect
+				.poll(() =>
+					exportedPage
+						.locator('img')
+						.evaluate((element) => (element as HTMLImageElement).naturalWidth)
+				)
+				.toBe(192);
+		} finally {
+			await exportedContext.close();
+		}
 		await context.setOffline(false);
 	});
+});
+
+// Le serveur expose deux releases HTML/SW réelles du même bundle applicatif.
+// Pas de mock registerSW : installation, waiting et activation sont celles du navigateur.
+test('mise à jour réelle : deux clients sales, refus de persistance et reprise sans perte', async ({
+	browser
+}) => {
+	const { resolve } = await import('node:path');
+	const { createPwaUpdateServer } = await import('./pwa-update-server');
+	const server = await createPwaUpdateServer(resolve('build'));
+	const context = await browser.newContext({ locale: 'fr-FR' });
+	await context.addInitScript(() => {
+		localStorage.setItem('mdsh:locale', 'fr');
+		localStorage.setItem('mdsh:mode', 'source');
+	});
+	try {
+		const first = await context.newPage();
+		await first.goto(server.origin);
+		await first.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+		await first.reload();
+		await expect.poll(() => first.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+		await createFirstFile(first);
+		await writeSourceContent(first, '# Premier, état durable');
+		const second = await context.newPage();
+		await second.goto(server.origin);
+		await second.locator('aside button[aria-label^="Nouveau fichier"]').click();
+		await writeSourceContent(second, '# Second, état durable');
+
+		async function contents() {
+			return first.evaluate(
+				() =>
+					new Promise<string[]>((resolve, reject) => {
+						const request = indexedDB.open('mdsh');
+						request.onerror = () => reject(request.error);
+						request.onsuccess = () => {
+							const database = request.result;
+							const rows = database.transaction('drafts').objectStore('drafts').getAll();
+							rows.onsuccess = () => {
+								database.close();
+								resolve(rows.result.map((row: { content: string }) => row.content).sort());
+							};
+							rows.onerror = () => {
+								database.close();
+								reject(rows.error);
+							};
+						};
+					})
+			);
+		}
+		await expect.poll(contents).toEqual(['# Premier, état durable', '# Second, état durable']);
+		await first.evaluate(() => {
+			const original = IDBObjectStore.prototype.put;
+			IDBObjectStore.prototype.put = function (...args: Parameters<typeof original>) {
+				if (this.name === 'drafts')
+					throw new DOMException('Stockage indisponible pour le test', 'QuotaExceededError');
+				return original.apply(this, args);
+			};
+			(window as Window & { restoreDraftWrites?: () => void }).restoreDraftWrites = () => {
+				IDBObjectStore.prototype.put = original;
+			};
+		});
+		await first.locator('.cm-content').fill('# Premier, dernière frappe non enregistrée');
+		await expect(first.getByRole('alert').first()).toBeVisible();
+		server.publishNextVersion();
+		await first.evaluate(async () => (await navigator.serviceWorker.ready).update());
+		const reloadFirst = first.getByRole('button', { name: 'Recharger', exact: true });
+		const reloadSecond = second.getByRole('button', { name: 'Recharger', exact: true });
+		await expect(reloadFirst).toBeVisible({ timeout: 15000 });
+		await expect(reloadSecond).toBeVisible({ timeout: 15000 });
+		await expect(first.locator('meta[name="pwa-test-release"]')).toHaveAttribute('content', '1');
+		await expect(second.locator('meta[name="pwa-test-release"]')).toHaveAttribute('content', '1');
+		await reloadFirst.click();
+		await expect(
+			first
+				.getByRole('alert')
+				.filter({ hasText: /enregistr|sauvegarde|stockage/i })
+				.first()
+		).toBeVisible();
+		await expect
+			.poll(() => first.evaluate(async () => !!(await navigator.serviceWorker.ready).waiting))
+			.toBe(true);
+		await expect(first.locator('.cm-content')).toHaveText(
+			'# Premier, dernière frappe non enregistrée'
+		);
+		await expect.poll(contents).toEqual(['# Premier, état durable', '# Second, état durable']);
+
+		// Le deuxième client active la version suivante. Le premier refuse son reload
+		// tant que sa propre barrière de durabilité échoue.
+		await second.locator('.cm-content').fill('# Second, dernière frappe avant activation');
+		await reloadSecond.click();
+		await expect(second.locator('meta[name="pwa-test-release"]')).toHaveAttribute('content', '2', {
+			timeout: 15000
+		});
+		await expect(second.locator('.cm-content')).toHaveText(
+			'# Second, dernière frappe avant activation'
+		);
+		await expect(first.locator('meta[name="pwa-test-release"]')).toHaveAttribute('content', '1');
+		await expect(first.locator('.cm-content')).toHaveText(
+			'# Premier, dernière frappe non enregistrée'
+		);
+		await expect
+			.poll(() =>
+				first.evaluate(async () => {
+					const worker = navigator.serviceWorker.controller;
+					if (!worker) return 0;
+					return new Promise<number>((resolve) => {
+						const channel = new MessageChannel();
+						channel.port1.onmessage = (event) => resolve(event.data as number);
+						worker.postMessage({ type: 'PWA_TEST_VERSION' }, [channel.port2]);
+					});
+				})
+			)
+			.toBe(2);
+		await expect
+			.poll(contents)
+			.toEqual(['# Premier, état durable', '# Second, dernière frappe avant activation']);
+		await first.evaluate(() =>
+			(window as Window & { restoreDraftWrites?: () => void }).restoreDraftWrites?.()
+		);
+		// La frappe suivante réessaie la sauvegarde; le reload manuel devient sûr.
+		await first.locator('.cm-content').fill('# Premier, reprise enregistrée');
+		await expect
+			.poll(contents)
+			.toEqual(['# Premier, reprise enregistrée', '# Second, dernière frappe avant activation']);
+		await first.reload();
+		await expect(first.locator('meta[name="pwa-test-release"]')).toHaveAttribute('content', '2');
+		await expect
+			.poll(contents)
+			.toEqual(['# Premier, reprise enregistrée', '# Second, dernière frappe avant activation']);
+	} finally {
+		await context.close();
+		await server.close();
+	}
 });
