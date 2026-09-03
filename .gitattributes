@@ -1,0 +1,3 @@
+# Préserver les octets des sources amont et du patch sur toutes les plateformes.
+src-tauri/vendor/glib/** -text
+patches/glib/variant-str-iter.patch -text
