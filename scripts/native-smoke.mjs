@@ -30,13 +30,18 @@ let app;
 /** @type {import('node:child_process').ChildProcess | undefined} */
 let secondary;
 let session = '';
+/** @type {{ pid?: number, startedAt: string, exitCode: number | null, signal: string | null, exitedAt?: string, error?: string } | undefined} */
+let currentProcess;
+/** @type {NonNullable<typeof currentProcess>[]} */
+const processes = [];
 /** @type {Record<string, unknown>} */
 const results = {
 	platform: process.platform,
 	arch: process.arch,
 	binary,
 	source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-	checks: []
+	checks: [],
+	processes
 };
 /** @param {string} name */
 const passed = (name) => {
@@ -50,8 +55,25 @@ async function request(path, body, method = 'POST') {
 		headers: { 'content-type': 'application/json' },
 		...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		signal: AbortSignal.timeout(30_000)
+	}).catch((error) => {
+		results.lastDriverResponse = {
+			path,
+			method,
+			at: new Date().toISOString(),
+			error: String(error),
+			cause: String(error.cause ?? '')
+		};
+		throw error;
 	});
 	const data = await response.json();
+	results.lastDriverResponse = {
+		path,
+		method,
+		at: new Date().toISOString(),
+		status: response.status,
+		...(data.value?.error ? { error: data.value.error, message: data.value.message } : {}),
+		...(path === '/status' ? { value: data.value } : {})
+	};
 	if (!response.ok || data.value?.error) {
 		throw Object.assign(new Error(JSON.stringify(data)), { webdriverError: data.value?.error });
 	}
@@ -82,6 +104,12 @@ async function until(check, label, timeout = 30_000) {
 	const deadline = Date.now() + timeout;
 	let last;
 	while (Date.now() < deadline) {
+		// Une sortie du processus est fatale, pas une indisponibilité temporaire du pilote.
+		if (currentProcess?.error || currentProcess?.exitedAt) {
+			throw new Error(
+				`Native process unavailable during ${label}: ${JSON.stringify(currentProcess)}`
+			);
+		}
 		try {
 			const value = await check();
 			if (value) return value;
@@ -110,7 +138,21 @@ function launch() {
 		stdio: ['ignore', log, log],
 		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) }
 	});
-	app.on('error', (error) => console.error(error));
+	const state = { startedAt: new Date().toISOString(), exitCode: null, signal: null };
+	currentProcess = state;
+	processes.push(currentProcess);
+	const launched = currentProcess;
+	app.once('spawn', () => {
+		if (app?.pid !== undefined) launched.pid = app.pid;
+	});
+	app.once('error', (error) => {
+		launched.error = String(error);
+	});
+	app.once('exit', (code, signal) => {
+		launched.exitCode = code;
+		launched.signal = signal;
+		launched.exitedAt = new Date().toISOString();
+	});
 }
 async function connect() {
 	await until(
