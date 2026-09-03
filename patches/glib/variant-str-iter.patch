@@ -1,8 +1,7 @@
 diff --git a/src/variant_iter.rs b/src/variant_iter.rs
 --- a/src/variant_iter.rs
 +++ b/src/variant_iter.rs
-@@ -117,13 +117,13 @@ impl<'a> VariantStrIter<'a> {
- 
+@@ -118,12 +118,12 @@ impl<'a> VariantStrIter<'a> {
      fn impl_get(&self, i: usize) -> &'a str {
          unsafe {
 -            let p: *mut libc::c_char = std::ptr::null_mut();
