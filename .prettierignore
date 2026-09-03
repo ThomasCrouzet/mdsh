@@ -3,6 +3,8 @@ coverage
 .svelte-kit
 package-lock.json
 node_modules
+# Sources amont vérifiées et régénérées par scripts/vendor-glib.mjs.
+src-tauri/vendor
 *.md
 # Local agent / editor tooling (gitignored); must not break `npm run lint`.
 .codex
