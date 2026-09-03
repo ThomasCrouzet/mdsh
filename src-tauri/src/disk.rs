@@ -236,13 +236,24 @@ fn revision_for(path: &Path) -> Result<String, String> {
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(format!("sha256:{:x}", hasher.finalize()))
+    Ok(format_revision(&hasher.finalize()))
 }
 
 fn revision_for_bytes(contents: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(contents);
-    format!("sha256:{:x}", hasher.finalize())
+    format_revision(&hasher.finalize())
+}
+
+fn format_revision(digest: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut revision = String::with_capacity(7 + digest.len() * 2);
+    revision.push_str("sha256:");
+    for byte in digest {
+        revision.push(char::from(HEX[usize::from(byte >> 4)]));
+        revision.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    revision
 }
 
 fn disk_stat_from_metadata(metadata: &fs::Metadata, revision: String) -> Result<DiskStat, String> {
@@ -810,6 +821,31 @@ mod tests {
             std::process::id(),
             Uuid::new_v4()
         ))
+    }
+
+    #[test]
+    fn sha256_revisions_keep_the_persisted_format_for_known_vectors() {
+        let path = temp_path("md");
+        for (contents, expected) in [
+            (
+                Vec::new(),
+                "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                b"abc".to_vec(),
+                "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                vec![b'a'; 1_000_000],
+                "sha256:cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
+            ),
+        ] {
+            assert_eq!(revision_for_bytes(&contents), expected);
+            fs::write(&path, &contents).unwrap();
+            assert_eq!(revision_for(&path).unwrap(), expected);
+            assert!(ensure_expected_revision(&path, Some(expected), false).is_ok());
+        }
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

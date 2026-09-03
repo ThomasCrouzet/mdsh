@@ -2,7 +2,7 @@
 
 This file records notices for third-party code and assets redistributed directly with mdsh editor. The generated dependency SBOM provides the complete package inventory.
 
-## KaTeX 0.18.1 and bundled fonts
+## KaTeX 0.18.5 and bundled fonts
 
 Source: https://github.com/KaTeX/KaTeX
 
@@ -32,7 +32,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Lucide for Svelte 1.31.0
+## Lucide for Svelte 1.38.0
 
 Source: https://github.com/lucide-icons/lucide
 

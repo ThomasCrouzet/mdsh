@@ -52,7 +52,9 @@ async function request(path, body, method = 'POST') {
 		signal: AbortSignal.timeout(30_000)
 	});
 	const data = await response.json();
-	if (!response.ok || data.value?.error) throw new Error(JSON.stringify(data));
+	if (!response.ok || data.value?.error) {
+		throw Object.assign(new Error(JSON.stringify(data)), { webdriverError: data.value?.error });
+	}
 	return data.value;
 }
 /** @param {string} script @param {unknown[]} [args] */
@@ -111,7 +113,10 @@ function launch() {
 	app.on('error', (error) => console.error(error));
 }
 async function connect() {
-	await until(() => request('/status', undefined, 'GET'), 'WebDriver startup');
+	await until(
+		async () => (await request('/status', undefined, 'GET')).ready === true,
+		'WebDriver window ready'
+	);
 	const created = await request('/session', {
 		capabilities: { alwaysMatch: { 'wdio:tauriServiceOptions': { windowLabel: 'main' } } }
 	});
@@ -130,6 +135,29 @@ async function connect() {
 		() => execute('return !!document.querySelector("button[data-mode=source]")'),
 		'document opened'
 	);
+}
+async function reload() {
+	await execute('window.__mdshBeforeReload = true;');
+	const timeouts = await request(`/session/${session}/timeouts`, undefined, 'GET');
+	// Une navigation peut effacer le résultat intermédiaire d'une commande du pilote.
+	// Les sondes courtes peuvent alors reprendre dans le nouveau document.
+	await request(`/session/${session}/timeouts`, { script: 2_000 });
+	try {
+		await request(`/session/${session}/refresh`, {}).catch((error) => {
+			if (!['script timeout', 'javascript error'].includes(error.webdriverError)) throw error;
+		});
+		await until(
+			() =>
+				execute(
+					'return window.__mdshBeforeReload !== true && document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false" && !document.querySelector(".mdsh-shell")?.hasAttribute("inert") && !!document.querySelector("button[data-mode=source]") && [...document.querySelectorAll("input")].some(node => node.value.includes(arguments[0]));',
+					[title]
+				),
+			'reload into a ready document'
+		);
+	} finally {
+		await request(`/session/${session}/timeouts`, { script: timeouts.script });
+	}
+	passed('native reload restores the durable document');
 }
 async function drafts() {
 	return executeAsync(
@@ -170,11 +198,7 @@ try {
 		'opened file durably stored'
 	);
 	await execute("localStorage.setItem('mdsh:locale', 'fr');");
-	await request(`/session/${session}/refresh`, {}).catch(() => {});
-	await until(
-		() => execute('return !!document.querySelector("button[data-mode=source]")'),
-		'reload'
-	);
+	await reload();
 	await click('button[data-mode="source"]');
 	await until(
 		() =>

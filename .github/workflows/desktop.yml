@@ -84,7 +84,7 @@ jobs:
           toolchain: 1.97.1
           components: rustfmt, clippy
       - name: Rust cache
-        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: src-tauri -> target
       - name: Format
@@ -122,7 +122,7 @@ jobs:
         with:
           toolchain: 1.97.1
       - name: Rust cache
-        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: src-tauri -> target
       - name: Install frontend dependencies
@@ -141,7 +141,7 @@ jobs:
         run: node scripts/native-smoke.mjs
       - name: Upload native evidence
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-smoke-${{ matrix.platform }}
           path: native-test-results/
@@ -185,7 +185,7 @@ jobs:
           toolchain: 1.97.1
           targets: ${{ runner.os == 'macOS' && (contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || '' }}
       - name: Rust cache
-        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: src-tauri -> target
       - name: Install frontend dependencies
@@ -239,7 +239,7 @@ jobs:
           writeFileSync('desktop-source.json', JSON.stringify({ sha: process.env.SOURCE_SHA, tag: process.env.RELEASE_TAG, version }, null, 2));
           JS
       - name: Upload SBOMs
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-sboms
           path: |
@@ -295,15 +295,15 @@ jobs:
           if gh release view "$DESKTOP_TAG" >/dev/null 2>&1; then
             gh release view "$DESKTOP_TAG" --json targetCommitish,assets,isPrerelease,tagName > existing-release.json
             node --input-type=module <<'JS'
-            import { readFileSync, readdirSync } from 'node:fs';
-            const release = JSON.parse(readFileSync('existing-release.json', 'utf8'));
-            if (release.tagName !== process.env.DESKTOP_TAG || release.isPrerelease !== true) {
-              throw new Error('La release Desktop existante ne correspond pas au canal bêta attendu');
-            }
-            const expected = new Set(readdirSync('release-assets'));
-            const unexpected = release.assets.map(({ name }) => name).filter(name => !expected.has(name));
-            if (unexpected.length) throw new Error(`Artefacts inattendus dans la release existante: ${unexpected.join(', ')}`);
-            JS
+          import { readFileSync, readdirSync } from 'node:fs';
+          const release = JSON.parse(readFileSync('existing-release.json', 'utf8'));
+          if (release.tagName !== process.env.DESKTOP_TAG || release.isPrerelease !== true) {
+            throw new Error('La release Desktop existante ne correspond pas au canal bêta attendu');
+          }
+          const expected = new Set(readdirSync('release-assets'));
+          const unexpected = release.assets.map(({ name }) => name).filter(name => !expected.has(name));
+          if (unexpected.length) throw new Error(`Artefacts inattendus dans la release existante: ${unexpected.join(', ')}`);
+          JS
             release_target=$(jq -r '.targetCommitish' existing-release.json)
             release_target_sha=$(gh api "repos/$GH_REPO/commits/$release_target" --jq '.sha')
             test "$release_target_sha" = "$SOURCE_SHA"
