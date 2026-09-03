@@ -295,15 +295,15 @@ jobs:
           if gh release view "$DESKTOP_TAG" >/dev/null 2>&1; then
             gh release view "$DESKTOP_TAG" --json targetCommitish,assets,isPrerelease,tagName > existing-release.json
             node --input-type=module <<'JS'
-            import { readFileSync, readdirSync } from 'node:fs';
-            const release = JSON.parse(readFileSync('existing-release.json', 'utf8'));
-            if (release.tagName !== process.env.DESKTOP_TAG || release.isPrerelease !== true) {
-              throw new Error('La release Desktop existante ne correspond pas au canal bêta attendu');
-            }
-            const expected = new Set(readdirSync('release-assets'));
-            const unexpected = release.assets.map(({ name }) => name).filter(name => !expected.has(name));
-            if (unexpected.length) throw new Error(`Artefacts inattendus dans la release existante: ${unexpected.join(', ')}`);
-            JS
+          import { readFileSync, readdirSync } from 'node:fs';
+          const release = JSON.parse(readFileSync('existing-release.json', 'utf8'));
+          if (release.tagName !== process.env.DESKTOP_TAG || release.isPrerelease !== true) {
+            throw new Error('La release Desktop existante ne correspond pas au canal bêta attendu');
+          }
+          const expected = new Set(readdirSync('release-assets'));
+          const unexpected = release.assets.map(({ name }) => name).filter(name => !expected.has(name));
+          if (unexpected.length) throw new Error(`Artefacts inattendus dans la release existante: ${unexpected.join(', ')}`);
+          JS
             release_target=$(jq -r '.targetCommitish' existing-release.json)
             release_target_sha=$(gh api "repos/$GH_REPO/commits/$release_target" --jq '.sha')
             test "$release_target_sha" = "$SOURCE_SHA"
