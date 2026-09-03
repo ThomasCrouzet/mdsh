@@ -4,6 +4,16 @@ mod shell;
 use disk::{collect_argv_paths, collect_paths_from_directory, CapabilityStore, PendingOpenPaths};
 use tauri::{Emitter, Manager};
 
+#[cfg(feature = "native-smoke")]
+fn smoke_startup_phase(started: std::time::Instant, phase: &str) {
+    eprintln!(
+        "[mdsh-native-startup] pid={} elapsed_ms={} phase={}",
+        std::process::id(),
+        started.elapsed().as_millis(),
+        phase
+    );
+}
+
 fn queue_open_paths(app: &tauri::AppHandle, paths: Vec<String>) {
     let paths = collect_paths_from_directory(paths, None);
     if paths.is_empty() {
@@ -20,6 +30,8 @@ fn queue_open_paths(app: &tauri::AppHandle, paths: Vec<String>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(feature = "native-smoke")]
+    let started = std::time::Instant::now();
     let pending = PendingOpenPaths::default();
     let argv = collect_argv_paths();
     pending.push_many(argv);
@@ -42,7 +54,7 @@ pub fn run() {
     #[cfg(feature = "native-smoke")]
     let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
 
-    builder
+    let builder = builder
         .manage(pending)
         .manage(CapabilityStore::default())
         .manage(shell::CloseState::default())
@@ -69,33 +81,57 @@ pub fn run() {
             shell::desktop_ack_close_request,
             shell::desktop_complete_close,
             shell::desktop_smoke_request_close,
-        ])
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            match &event {
-                tauri::RunEvent::WindowEvent {
-                    label,
-                    event: tauri::WindowEvent::CloseRequested { api, .. },
-                    ..
-                } if label == "main" => {
-                    if shell::request_close(app_handle) {
-                        api.prevent_close();
-                    }
-                }
-                tauri::RunEvent::ExitRequested { api, .. } if shell::request_close(app_handle) => {
-                    api.prevent_exit();
-                }
-                _ => {}
-            }
-            #[cfg(any(target_os = "macos", target_os = "ios"))]
-            if let tauri::RunEvent::Opened { urls } = event {
-                let paths: Vec<String> = urls
-                    .into_iter()
-                    .filter_map(|u| u.to_file_path().ok())
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .collect();
-                queue_open_paths(app_handle, paths);
-            }
+        ]);
+
+    #[cfg(feature = "native-smoke")]
+    let builder = builder
+        .setup(move |_| {
+            // Tauri crée les fenêtres configurées avant ce callback utilisateur.
+            smoke_startup_phase(started, "user-setup");
+            Ok(())
+        })
+        .on_page_load(move |webview, payload| {
+            smoke_startup_phase(
+                started,
+                &format!("page-load:{:?} window={}", payload.event(), webview.label()),
+            );
         });
+
+    #[cfg(feature = "native-smoke")]
+    smoke_startup_phase(started, "before-build");
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+    #[cfg(feature = "native-smoke")]
+    smoke_startup_phase(started, "after-build");
+    app.run(move |app_handle, event| {
+        #[cfg(feature = "native-smoke")]
+        if matches!(&event, tauri::RunEvent::Ready) {
+            smoke_startup_phase(started, "run-ready");
+        }
+        match &event {
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
+                if shell::request_close(app_handle) {
+                    api.prevent_close();
+                }
+            }
+            tauri::RunEvent::ExitRequested { api, .. } if shell::request_close(app_handle) => {
+                api.prevent_exit();
+            }
+            _ => {}
+        }
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        if let tauri::RunEvent::Opened { urls } = event {
+            let paths: Vec<String> = urls
+                .into_iter()
+                .filter_map(|u| u.to_file_path().ok())
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
+            queue_open_paths(app_handle, paths);
+        }
+    });
 }
