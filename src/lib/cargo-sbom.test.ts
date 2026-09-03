@@ -122,7 +122,9 @@ describe('Provenance CycloneDX du correctif glib', () => {
 	it('préserve un autre correctif et ses références existantes', () => {
 		const input = fixture();
 		const otherPatch = { type: 'backport', diff: { text: { content: 'correctif existant' } } };
-		Object.assign(input.components[0]!.pedigree!, { patches: [otherPatch] });
+		Object.assign(input.components[0]!, {
+			pedigree: { ...component().pedigree, patches: [otherPatch] }
+		});
 		const target = annotatedComponent(annotateCargoSbom(input, patch, sourceSha));
 		expect((target.pedigree as { patches: unknown[] }).patches).toHaveLength(2);
 		expect((target.pedigree as { patches: unknown[] }).patches[0]).toEqual(otherPatch);
