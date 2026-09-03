@@ -47,4 +47,8 @@ External backups include drafts, workspaces, and custom templates. They exclude 
 
 CI audits the complete npm tree and Cargo lockfile, reviews dependency changes, scans TypeScript and Rust with CodeQL, scans Git history for secrets, verifies third-party notices, and enforces tests and bundle budgets. Release builds run without write credentials. A separate final job publishes Desktop Beta artifacts with SHA-256 checksums, npm and Cargo SBOMs, and GitHub build provenance.
 
+La chaîne GTK3 de Tauri Linux exige encore `glib 0.18.5`. Le projet applique le correctif officiel de `GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429` dans une copie locale, sans changer sa version ni ses licences. [La provenance et le patch](patches/glib/README.md) sont versionnés. La CI et la publication Desktop comparent chaque octet de cette copie à l'archive officielle vérifiée par SHA256, après application du patch canonique. Six tests Linux en mode optimisé couvrent les itérateurs concernés ; la version non corrigée provoque des SIGSEGV sur les parcours non vides. Le SBOM Cargo conserve la version réelle et décrit le backport ainsi que son origine.
+
+`cargo audit --deny unsound` bloque également les avis de comportement indéfini. Cargo Audit ne contrôle pas les dépendances locales comme les paquets du registre : son silence ne prouve pas que le backport est correct. La vérification de provenance et les tests optimisés sont donc des contrôles bloquants distincts. Les avis de maintenance restent visibles. Le backport sera retiré lorsque la chaîne GTK acceptera une version officiellement corrigée.
+
 Security controls and scanners reduce risk; they are not a guarantee that every vulnerability has been found.

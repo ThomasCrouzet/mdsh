@@ -1,5 +1,7 @@
+// Le backslash appartient uniquement à la branche échappement : les branches
+// disjointes évitent le backtracking exponentiel des alternatives et légendes.
 const IMAGE_LINE =
-	/^!\[((?:\\.|[^\]])*)\]\((<[^>]+>|\S+?)(?:\s+(?:"((?:\\.|[^"])*)"|'((?:\\.|[^'])*)'|\(((?:\\.|[^)])*)\)))?\)\s*$/;
+	/^!\[((?:\\.|[^\]\\])*)\]\((<[^>]+>|\S+?)(?:\s+(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|\(((?:\\.|[^)\\])*)\)))?\)\s*$/;
 const IMAGE_META_LINE = /^<!-- mdsh:image ratio=([0-9]+(?:\.[0-9]+)?) -->$/;
 
 interface ParsedImageLine {

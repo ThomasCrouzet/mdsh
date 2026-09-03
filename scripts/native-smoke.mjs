@@ -30,13 +30,18 @@ let app;
 /** @type {import('node:child_process').ChildProcess | undefined} */
 let secondary;
 let session = '';
+/** @type {{ pid?: number, startedAt: string, exitCode: number | null, signal: string | null, exitedAt?: string, error?: string } | undefined} */
+let currentProcess;
+/** @type {NonNullable<typeof currentProcess>[]} */
+const processes = [];
 /** @type {Record<string, unknown>} */
 const results = {
 	platform: process.platform,
 	arch: process.arch,
 	binary,
 	source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-	checks: []
+	checks: [],
+	processes
 };
 /** @param {string} name */
 const passed = (name) => {
@@ -50,8 +55,25 @@ async function request(path, body, method = 'POST') {
 		headers: { 'content-type': 'application/json' },
 		...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		signal: AbortSignal.timeout(30_000)
+	}).catch((error) => {
+		results.lastDriverResponse = {
+			path,
+			method,
+			at: new Date().toISOString(),
+			error: String(error),
+			cause: String(error.cause ?? '')
+		};
+		throw error;
 	});
 	const data = await response.json();
+	results.lastDriverResponse = {
+		path,
+		method,
+		at: new Date().toISOString(),
+		status: response.status,
+		...(data.value?.error ? { error: data.value.error, message: data.value.message } : {}),
+		...(path === '/status' ? { value: data.value } : {})
+	};
 	if (!response.ok || data.value?.error) {
 		throw Object.assign(new Error(JSON.stringify(data)), { webdriverError: data.value?.error });
 	}
@@ -82,15 +104,24 @@ async function until(check, label, timeout = 30_000) {
 	const deadline = Date.now() + timeout;
 	let last;
 	while (Date.now() < deadline) {
+		// Une sortie du processus est fatale, pas une indisponibilité temporaire du pilote.
+		if (currentProcess?.error || currentProcess?.exitedAt) {
+			throw new Error(
+				`Native process unavailable during ${label}: ${JSON.stringify(currentProcess)}`
+			);
+		}
 		try {
 			const value = await check();
 			if (value) return value;
+			last = undefined;
 		} catch (error) {
 			last = error;
 		}
 		await delay(150);
 	}
-	throw new Error(`Timeout ${label}: ${String(last ?? '')}`);
+	throw new Error(
+		`Timeout ${label}: ${last ? String(last) : JSON.stringify(results.lastDriverResponse ?? 'condition false')}`
+	);
 }
 /** @param {string} selector */
 async function click(selector) {
@@ -110,8 +141,59 @@ function launch() {
 		stdio: ['ignore', log, log],
 		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) }
 	});
-	app.on('error', (error) => console.error(error));
+	const state = { startedAt: new Date().toISOString(), exitCode: null, signal: null };
+	currentProcess = state;
+	processes.push(currentProcess);
+	const launched = currentProcess;
+	app.once('spawn', () => {
+		if (app?.pid !== undefined) launched.pid = app.pid;
+	});
+	app.once('error', (error) => {
+		launched.error = String(error);
+	});
+	app.once('exit', (code, signal) => {
+		launched.exitCode = code;
+		launched.signal = signal;
+		launched.exitedAt = new Date().toISOString();
+	});
 }
+function collectWindowsDiagnostics() {
+	if (process.platform !== 'win32' || !app?.pid) return;
+	results.windowsDiagnostics = {
+		pid: app.pid,
+		port,
+		cwd: process.cwd(),
+		fixture
+	};
+	try {
+		execFileSync(
+			'powershell.exe',
+			[
+				'-NoLogo',
+				'-NoProfile',
+				'-NonInteractive',
+				'-File',
+				resolve('scripts/native-windows-diagnostics.ps1'),
+				'-OutputDirectory',
+				output,
+				'-ApplicationPid',
+				String(app.pid),
+				'-DriverPort',
+				String(port)
+			],
+			{ encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024, windowsHide: true }
+		);
+	} catch (error) {
+		// Le diagnostic ne remplace jamais l'échec initial ni ne relance l'application.
+		results.windowsDiagnosticsError = String(error);
+		try {
+			writeFileSync(join(output, 'windows-diagnostics-error.log'), String(error));
+		} catch {
+			/* Le JSON principal conserve aussi l'erreur de collecte. */
+		}
+	}
+}
+
 async function connect() {
 	await until(
 		async () => (await request('/status', undefined, 'GET')).ready === true,
@@ -349,6 +431,7 @@ try {
 	results.passed = true;
 } catch (error) {
 	results.error = String(error);
+	collectWindowsDiagnostics();
 	if (session) {
 		try {
 			results.page = await execute(

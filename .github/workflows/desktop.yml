@@ -78,6 +78,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+      - name: Verify GLib source and security backport
+        run: node scripts/vendor-glib.mjs --check
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
@@ -93,6 +99,15 @@ jobs:
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
       - name: Tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - name: Test optimized GLib regression on Linux
+        if: runner.os == 'Linux'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --release --locked --test glib_variant_regression
+      - name: Install cargo-audit
+        if: runner.os == 'Linux'
+        run: cargo install cargo-audit --locked --version 0.22.2
+      - name: Audit Cargo.lock including unsound dependencies
+        if: runner.os == 'Linux'
+        run: cargo audit --file src-tauri/Cargo.lock --deny unsound
 
   native-smoke:
     needs: [resolve-source, validate-desktop]
@@ -229,6 +244,10 @@ jobs:
         run: cargo cyclonedx --manifest-path src-tauri/Cargo.toml --target all --format json --spec-version 1.5 --override-filename sbom-cargo
       - name: Collect Cargo SBOM
         run: cp src-tauri/sbom-cargo.json sbom-cargo.cdx.json
+      - name: Record GLib security backport in Cargo SBOM
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
+        run: node scripts/annotate-cargo-sbom.mjs sbom-cargo.cdx.json patches/glib/variant-str-iter.patch
       - name: Record source identity
         env:
           SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}

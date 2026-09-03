@@ -1,6 +1,6 @@
 /* ============================================================================
    mdsh - stylesheet d'impression / export PDF
-   Charte light, typographie serif pour la lecture, @page A4, pagination propre.
+   Charte light, polices de la vue lecture, @page A4, pagination propre.
    ============================================================================ */
 
 :root {
@@ -14,6 +14,11 @@
 	--accent: #1a6f4a;
 	--code-bg: #f6f8fa;
 	--code-border: #d0d7de;
+	/* Même ordre de repli que --font-prose et --font-mono dans app.css. */
+	--font-prose:
+		-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, ui-sans-serif, system-ui,
+		sans-serif;
+	--font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
 * {
@@ -30,14 +35,7 @@ body {
 	margin: 0 auto;
 	padding: 2cm 1.8cm 2.5cm;
 	max-width: 21cm;
-	font:
-		11.5pt/1.6 'Iowan Old Style',
-		'Apple Garamond',
-		'Palatino Linotype',
-		Baskerville,
-		'Times New Roman',
-		Georgia,
-		serif;
+	font: 11.5pt/1.6 var(--font-prose);
 	text-rendering: optimizeLegibility;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
@@ -51,8 +49,7 @@ h3,
 h4,
 h5,
 h6 {
-	font-family:
-		-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, ui-sans-serif, sans-serif;
+	font-family: var(--font-prose);
 	color: var(--text);
 	letter-spacing: -0.01em;
 	line-height: 1.25;
@@ -103,6 +100,13 @@ a {
 	text-underline-offset: 2px;
 	text-decoration-thickness: 0.06em;
 }
+/* Ne pas ajouter de tiret aux URL et références tabulaires lors du retour à la ligne. */
+a,
+th,
+td {
+	hyphens: none;
+	overflow-wrap: anywhere;
+}
 
 /* --- Listes -------------------------------------------------------------- */
 ul,
@@ -151,7 +155,7 @@ hr {
 
 /* --- Code ---------------------------------------------------------------- */
 code {
-	font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', ui-monospace, monospace;
+	font-family: var(--font-mono);
 	font-size: 0.88em;
 	background: var(--code-bg);
 	border: 1px solid var(--code-border);
@@ -160,7 +164,7 @@ code {
 	word-break: break-word;
 }
 pre {
-	font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', ui-monospace, monospace;
+	font-family: var(--font-mono);
 	font-size: 9.5pt;
 	line-height: 1.55;
 	background: var(--code-bg);
@@ -212,9 +216,10 @@ tr:nth-child(even) td {
 img {
 	max-width: 100%;
 	height: auto;
+	display: block;
 	break-inside: avoid;
 	page-break-inside: avoid;
-	margin: 0.8em 0;
+	margin: 0.8em auto;
 }
 
 /* --- Mermaid diagrams ---------------------------------------------------- */
@@ -274,7 +279,7 @@ img {
 	border: 1px solid #f5d6d6;
 	padding: 0.1em 0.4em;
 	border-radius: 3px;
-	font-family: 'SF Mono', Menlo, Consolas, monospace;
+	font-family: var(--font-mono);
 	font-size: 0.88em;
 }
 .math-error-display {
@@ -374,7 +379,7 @@ img {
 	background: var(--bg-alt);
 	border: 1px solid var(--border);
 	border-radius: 4px;
-	font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+	font-family: var(--font-prose);
 	font-size: 9pt;
 	color: var(--text-muted);
 	font-style: italic;
@@ -411,7 +416,7 @@ img {
 	border: 1px solid var(--border);
 	color: var(--text-muted);
 	font-style: normal;
-	font-family: 'SF Mono', Menlo, Consolas, ui-monospace, monospace;
+	font-family: var(--font-mono);
 	font-size: 0.85em;
 }
 
