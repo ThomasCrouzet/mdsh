@@ -74,8 +74,10 @@ try {
 	await writeFile(downloadedPath, archive);
 	run('tar', ['-xzf', downloadedPath, '-C', temporaryDir], temporaryDir);
 	const extractedDir = join(temporaryDir, `glib-${version}`);
-	run('git', ['apply', '--check', patchPath], extractedDir);
-	run('git', ['apply', patchPath], extractedDir);
+	// Le répertoire temporaire n'hérite pas des attributs Git du dépôt.
+	const applyArgs = ['-c', 'core.autocrlf=false', '-c', 'core.eol=lf', 'apply'];
+	run('git', [...applyArgs, '--check', patchPath], extractedDir);
+	run('git', [...applyArgs, patchPath], extractedDir);
 	if (mode === '--write') {
 		await mkdir(dirname(targetDir), { recursive: true });
 		const previousDir = join(temporaryDir, 'previous');
