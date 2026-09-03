@@ -392,6 +392,8 @@ export const fr: Record<MessageKey, string> = {
 	'read.codeBlockLang': 'Code {lang}',
 	'read.frontmatterMeta': 'Métadonnées du document',
 	'read.mermaidError': 'Erreur Mermaid',
+	'read.mermaidUnsafeMedia':
+		'Les images intégrées et les styles réseau Mermaid ne sont pas pris en charge. Insérez les images dans le Markdown.',
 	'read.renderError': 'Erreur de rendu',
 	'read.rendering': 'Rendu…',
 	'read.remoteImagesBlocked': 'Les images distantes sont bloquées pour protéger ta vie privée.',

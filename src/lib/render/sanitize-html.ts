@@ -1,3 +1,5 @@
+import { t } from '$lib/i18n';
+
 // Shared DOMPurify helpers for markdown HTML (reading / export / print)
 // and the WYSIWYG Mermaid preview. Both paths must neutralize remote
 // `style="... url(https://...)"` beacons (SECURITY.md).
@@ -180,12 +182,193 @@ export interface SanitizeHtmlConfig {
 	FORBID_ATTR?: string[];
 }
 
-/** DOMPurify config for the WYSIWYG Mermaid preview (SVG + foreignObject). */
+// Seules les propriétés locales de dessin et de texte du SVG généré sont reprises.
+const MERMAID_PAINT_PROPERTIES = new Set([
+	'fill',
+	'fill-opacity',
+	'fill-rule',
+	'stroke',
+	'stroke-width',
+	'stroke-opacity',
+	'stroke-dasharray',
+	'stroke-dashoffset',
+	'stroke-linecap',
+	'stroke-linejoin',
+	'opacity',
+	'color',
+	'font-family',
+	'font-size',
+	'font-weight',
+	'font-style',
+	'text-anchor',
+	'dominant-baseline',
+	'alignment-baseline',
+	'text-decoration',
+	'paint-order',
+	'marker-start',
+	'marker-mid',
+	'marker-end',
+	'visibility',
+	'display'
+]);
+
+/** Convertit uniquement le CSS du SVG généré, sans jamais l'appliquer à la page. */
+export function inlineMermaidStyles(html: string): string {
+	const isolated = document.implementation.createHTMLDocument('');
+	const template = isolated.createElement('template');
+	template.innerHTML = html;
+	for (const svg of template.content.querySelectorAll('svg')) {
+		const original = new Map<Element, Set<string>>();
+		const ranks = new Map<Element, Map<string, number>>();
+		for (const node of [svg, ...svg.querySelectorAll<SVGElement>('*')]) {
+			original.set(node, new Set(Array.from(node.style ?? [])));
+		}
+		for (const source of Array.from(svg.querySelectorAll('style'))) {
+			const style = isolated.createElement('style');
+			style.textContent = source.textContent;
+			isolated.head.append(style);
+			// Le document détaché n'a ni contexte de navigation ni chargeur réseau.
+			for (const rule of Array.from(style.sheet?.cssRules ?? [])) {
+				if (rule.type !== 1) continue; // Ignore @import, @font-face et règles imbriquées.
+				const css = rule as CSSStyleRule;
+				for (const selector of css.selectorText.split(',')) {
+					// Les sélecteurs Mermaid sont simples; les pseudo-classes complexes
+					// ne sont pas interprétées pour éviter une fausse spécificité.
+					if (!/^[\w\s.#>+~*-]+$/.test(selector)) continue;
+					const specificity =
+						(selector.match(/#/g)?.length ?? 0) * 10_000 +
+						(selector.match(/\./g)?.length ?? 0) * 100 +
+						(selector.match(/(?:^|[\s>+~])\w/g)?.length ?? 0);
+					let nodes: Element[];
+					try {
+						nodes = [...(svg.matches(selector) ? [svg] : []), ...svg.querySelectorAll(selector)];
+					} catch {
+						continue;
+					}
+					for (const property of Array.from(css.style)) {
+						if (!MERMAID_PAINT_PROPERTIES.has(property)) continue;
+						const value = css.style.getPropertyValue(property);
+						if (!stripRemoteStyleUrls(value)) continue;
+						const priority = css.style.getPropertyPriority(property);
+						const rank = specificity + (priority === 'important' ? 1_000_000 : 0);
+						for (const node of nodes) {
+							if (!(node instanceof SVGElement)) continue;
+							// Les styles explicites du diagramme priment sur son thème.
+							if (original.get(node)?.has(property)) continue;
+							const applied = ranks.get(node) ?? new Map<string, number>();
+							if ((applied.get(property) ?? -1) > rank) continue;
+							node.style.setProperty(property, value, priority);
+							applied.set(property, rank);
+							ranks.set(node, applied);
+						}
+					}
+				}
+			}
+			style.remove();
+			source.remove();
+		}
+	}
+	return template.innerHTML;
+}
+
+/** Refuse les médias avant que Mermaid ne crée ses nœuds temporaires connectés. */
+export async function assertMermaidMediaSafe(code: string): Promise<void> {
+	const reject = () => {
+		throw new Error(t('read.mermaidUnsafeMedia'));
+	};
+	const source = code.replace(/^[ \t]*%%(?!\{)[^\n]*/gm, '');
+	if (code.length > 50_000 || stripRemoteStyleUrls(source) === '') reject();
+	for (const match of source.matchAll(/@\s*\{/g)) {
+		const start = match.index + match[0].length;
+		let depth = 1;
+		let quote = '';
+		let end = start;
+		for (; end < source.length; end++) {
+			const character = source[end];
+			if (quote) {
+				if (character === '\\' && quote === '"') {
+					end++;
+					continue;
+				}
+				if (character === quote) {
+					if (quote === "'" && source[end + 1] === "'") {
+						end++;
+						continue;
+					}
+					quote = '';
+				}
+				continue;
+			}
+			if (character === '"' || character === "'") {
+				let previous = end - 1;
+				while (previous >= start && /[ \t]/.test(source[previous] ?? '')) previous--;
+				if (previous < start || /[:{,[\n]/.test(source[previous] ?? '')) quote = character;
+			} else if (character === '{') depth++;
+			else if (character === '}' && --depth === 0) break;
+		}
+		if (depth !== 0) reject();
+		const { load, JSON_SCHEMA } = await import('js-yaml');
+		const metadata = source.slice(start, end);
+		// Même schéma et emballage que FlowDB.addVertex de Mermaid.
+		const parsed: unknown = load(metadata.includes('\n') ? metadata + '\n' : '{' + metadata + '}', {
+			schema: JSON_SCHEMA
+		});
+		if (parsed && typeof parsed === 'object' && 'img' in parsed) reject();
+	}
+}
+
+// Les deux consommateurs partagent la même file et réinitialisent ensemble le
+// singleton, pour qu'un export clair ne change pas un aperçu sombre concurrent.
+let mermaidQueue: Promise<unknown> = Promise.resolve();
+export function renderMermaidSvg(
+	id: string,
+	code: string,
+	theme: 'default' | 'dark' | 'neutral' | 'forest'
+): Promise<string> {
+	const rendering = mermaidQueue.then(async () => {
+		await assertMermaidMediaSafe(code);
+		const { default: mermaid } = await import('mermaid');
+		mermaid.initialize({
+			startOnLoad: false,
+			securityLevel: 'strict',
+			theme,
+			htmlLabels: false,
+			flowchart: { htmlLabels: false },
+			secure: [
+				'securityLevel',
+				'startOnLoad',
+				'maxTextSize',
+				'maxEdges',
+				'htmlLabels',
+				'flowchart',
+				'themeCSS',
+				'themeVariables',
+				'fontFamily',
+				'altFontFamily'
+			],
+			fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+		});
+		const { svg } = await mermaid.render(id, code);
+		return inlineMermaidStyles(svg);
+	});
+	mermaidQueue = rendering.catch(() => undefined);
+	return rendering;
+}
+
+/** DOMPurify config for the WYSIWYG Mermaid preview (native SVG labels). */
 export const MERMAID_PREVIEW_PURIFY: SanitizeHtmlConfig = {
 	USE_PROFILES: { html: true, svg: true, svgFilters: true },
-	ADD_TAGS: ['foreignObject'],
 	ADD_ATTR: ['target'],
-	FORBID_TAGS: ['feImage', 'animate', 'set', 'animateMotion', 'animateTransform', 'mpath']
+	FORBID_TAGS: [
+		'style',
+		'foreignObject',
+		'feImage',
+		'animate',
+		'set',
+		'animateMotion',
+		'animateTransform',
+		'mpath'
+	]
 };
 
 /** DOMPurify config for marked → HTML (reading / export). */

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderMarkdown } from './markdown';
 import {
 	sanitizeMermaidPreviewHtml,
@@ -225,5 +225,131 @@ describe('read path vs WYSIWYG Mermaid preview sanitizer', () => {
 		});
 		expect(html).toContain('src="https://images.example/pixel.gif"');
 		expect(html).toContain('referrerpolicy="no-referrer"');
+	});
+});
+
+describe('styles du SVG Mermaid généré', () => {
+	// jsdom ne crée pas de CSSOM dans createHTMLDocument, contrairement aux
+	// navigateurs. La feuille temporaire est retirée par le helper testé.
+	beforeEach(() => {
+		vi.spyOn(document.implementation, 'createHTMLDocument').mockReturnValue(document);
+	});
+	afterEach(() => vi.restoreAllMocks());
+	it('conserve labels SVG, remplissages, spécificité et styles explicites après sanitation', async () => {
+		const { inlineMermaidStyles, sanitizeHtml, MARKDOWN_PURIFY } = await import('./sanitize-html');
+		const svg = `<svg id="diagram" xmlns="http://www.w3.org/2000/svg"><style>
+#diagram .node rect { fill: #ececff; stroke: #9370db; }
+#diagram rect { fill: black; }
+#diagram text { fill: #333; font-size: 16px; }
+#diagram .custom { fill: blue !important; }
+#diagram .custom { fill: green; }
+</style><g class="node"><rect width="70" height="54"/><text>A</text></g>
+<g class="node"><rect style="fill: red"/><text>B</text></g><circle class="custom"/></svg>`;
+		const html = await sanitizeHtml(inlineMermaidStyles(svg), MARKDOWN_PURIFY);
+		const container = document.createElement('div');
+		container.innerHTML = html;
+		expect([...container.querySelectorAll('text')].map((node) => node.textContent)).toEqual([
+			'A',
+			'B'
+		]);
+		expect(container.querySelector('rect')?.style.fill).toBe('#ececff');
+		expect(container.querySelectorAll('rect')[1]?.style.fill).toBe('red');
+		expect(container.querySelector('circle')?.style.fill).toBe('blue');
+		expect(container.querySelector('text')?.style.fill).toBe('#333');
+		expect(container.querySelector('style')).toBeNull();
+	});
+
+	it('ignore règles réseau et effets hors SVG tout en conservant les marqueurs internes', async () => {
+		const { inlineMermaidStyles, sanitizeHtml, MARKDOWN_PURIFY } = await import('./sanitize-html');
+		const svg = `<svg id="diagram"><style>
+@import url("https://tracker.invalid/import.css");
+@font-face { font-family: tracker; src: url("https://tracker.invalid/font.woff"); }
+body { color:red; }
+#diagram rect { fill:url(https://tracker.invalid/fill); background:url(https://tracker.invalid/pixel); position:fixed; }
+#diagram path { marker-end:url(#arrow); stroke:blue; }
+#diagram rect:hover { fill:green; }
+</style><rect/><path/><foreignObject><div>HTML</div></foreignObject></svg>`;
+		const html = await sanitizeHtml(inlineMermaidStyles(svg), MARKDOWN_PURIFY);
+		expect(html).not.toContain('tracker.invalid');
+		expect(html).not.toContain('foreignObject');
+		expect(html).not.toContain('position');
+		expect(html).not.toContain('<style');
+		expect(html).toContain('marker-end: url(#arrow)');
+	});
+
+	it('ne réautorise ni les styles ni les labels HTML dans les contenus utilisateur', async () => {
+		const { sanitizeHtml, MARKDOWN_PURIFY, sanitizeMermaidPreviewHtml } =
+			await import('./sanitize-html');
+		const hostile =
+			'<svg><style>body{background:url(https://tracker.invalid)}</style><foreignObject><p>label</p></foreignObject></svg>';
+		for (const html of [
+			await sanitizeHtml(hostile, MARKDOWN_PURIFY),
+			await sanitizeMermaidPreviewHtml(hostile)
+		]) {
+			expect(html).not.toContain('<style');
+			expect(html).not.toContain('foreignObject');
+			expect(html).not.toContain('tracker.invalid');
+		}
+	});
+});
+
+describe('précontrôle Mermaid avant création DOM', () => {
+	it.each([
+		'flowchart TD\nA@{ img: "https://tracker.invalid/image.png" }',
+		'flowchart TD\nA@{ "i\\u006dg": "./image.png" }',
+		'flowchart TD\nA@{\n"img": "data:image/png;base64,AAAA"\n}',
+		'flowchart TD\nA@{ img: "file:///image.png", label: "a } b" }',
+		'flowchart TD\nA@{ img: "./image.png"',
+		'flowchart TD\nclassDef bad fill:u\\72l(https://tracker.invalid/paint)',
+		"flowchart TD\nA@{ img: \"./image.png\", label: 'it''s a picture' }"
+	])('refuse avant rendu une image ou un CSS réseau: %s', async (code) => {
+		const { assertMermaidMediaSafe } = await import('./sanitize-html');
+		await expect(assertMermaidMediaSafe(code)).rejects.toThrow();
+	});
+
+	it('accepte formes récentes, couleurs explicites et fragments SVG locaux', async () => {
+		const { assertMermaidMediaSafe } = await import('./sanitize-html');
+		await expect(
+			assertMermaidMediaSafe(
+				'flowchart TD\nA@{ shape: rect, label: "A" } --> B\nstyle B fill:#fee2e2\nclassDef arrow marker-end:url(#arrow)'
+			)
+		).resolves.toBeUndefined();
+	});
+
+	it.each([
+		"flowchart TD\nA@{ label: Bob's shape, shape: rect }",
+		'flowchart TD\n%% comment @{ only prose\nA --> B',
+		'flowchart TD\nA@{ label: "a \\"quoted\\" label", shape: rect }'
+	])(
+		'accepte les commentaires et les apostrophes sans les confondre avec des images: %s',
+		async (code) => {
+			const { assertMermaidMediaSafe } = await import('./sanitize-html');
+			await expect(assertMermaidMediaSafe(code)).resolves.toBeUndefined();
+		}
+	);
+
+	it('sérialise les thèmes et reprend après un rendu rejeté', async () => {
+		const { renderMermaidSvg } = await import('./sanitize-html');
+		const { default: mermaid } = await import('mermaid');
+		const initialize = vi.spyOn(mermaid, 'initialize').mockImplementation(() => undefined);
+		const render = vi
+			.spyOn(mermaid, 'render')
+			.mockRejectedValueOnce(new Error('invalid'))
+			.mockResolvedValue({ svg: '<svg><text>A</text></svg>', diagramType: 'flowchart-v2' });
+		try {
+			const first = renderMermaidSvg('first', 'graph LR\nA-->B', 'dark');
+			const second = renderMermaidSvg('second', 'graph LR\nA-->B', 'default');
+			await expect(first).rejects.toThrow('invalid');
+			await expect(second).resolves.toContain('<text>A</text>');
+			expect(initialize.mock.calls.map(([config]) => config?.theme)).toEqual(['dark', 'default']);
+			expect(initialize.mock.calls[1]?.[0]).toMatchObject({
+				htmlLabels: false,
+				flowchart: { htmlLabels: false },
+				secure: expect.arrayContaining(['themeCSS', 'themeVariables', 'htmlLabels', 'flowchart'])
+			});
+		} finally {
+			render.mockRestore();
+			initialize.mockRestore();
+		}
 	});
 });

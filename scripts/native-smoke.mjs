@@ -59,6 +59,20 @@ const execute = (script, args = []) =>
 /** @param {string} script @param {unknown[]} [args] */
 const executeAsync = (script, args = []) =>
 	request(`/session/${session}/execute/async`, { script, args });
+/** @param {boolean} printing */
+const diagramIsReadable = (printing) =>
+	execute(
+		`const root = arguments[0] ? document.getElementById('mdsh-native-print')?.shadowRoot : document.querySelector('.mdsh-preview');
+		const nodes = Array.from(root?.querySelectorAll('svg .node') ?? []);
+		return nodes.map(node => node.textContent.trim()).sort().join('|') === 'A|B' && nodes.every(node => {
+			const label = node.querySelector('text');
+			const rect = node.querySelector('rect');
+			if (!label || !rect || label.getBBox().width <= 0) return false;
+			const fill = getComputedStyle(rect).fill;
+			return fill !== 'rgb(0, 0, 0)' && fill !== 'none' && getComputedStyle(label).fill !== 'none';
+		});`,
+		[printing]
+	);
 /** @param {() => Promise<unknown>} check @param {string} label @param {number} [timeout] */
 async function until(check, label, timeout = 30_000) {
 	const deadline = Date.now() + timeout;
@@ -190,6 +204,8 @@ try {
 		45_000
 	);
 	passed('native read images math diagram');
+	await until(() => diagramIsReadable(false), 'readable Mermaid labels and colours', 45_000);
+	passed('native Mermaid labels and node colours');
 	const screenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
 	writeFileSync(join(output, 'read.png'), Buffer.from(screenshot, 'base64'));
 	// La préparation réelle est conservée. Le dialogue OS est remplacé seulement
@@ -210,6 +226,8 @@ try {
 		192
 	);
 	passed('native print uses top window with decoded image');
+	await until(() => diagramIsReadable(true), 'printable Mermaid labels and colours', 45_000);
+	passed('native print preserves Mermaid labels and colours');
 	// WKPDFConfiguration capture l'écran plutôt que le média print. La feuille
 	// de tirage est activée pour cette capture, le contenu reste celui du produit.
 	await execute(

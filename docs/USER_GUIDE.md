@@ -28,6 +28,8 @@ Les images distantes sont bloquées par défaut. Le mode lecture propose de les 
 
 Un chemin d'image relatif peut être résolu en sélectionnant le fichier ou le dossier correspondant. L'image est alors incorporée pour que le document reste portable.
 
+Dans les diagrammes Mermaid, les images et les styles réseau sont refusés. Placez les images directement dans le Markdown.
+
 <a id="backups-and-storage-health"></a>
 
 ## Sauvegardes et stockage

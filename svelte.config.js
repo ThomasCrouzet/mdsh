@@ -33,7 +33,7 @@ const config = {
 				'script-src': ['self'],
 				'style-src': ['self', 'unsafe-inline'],
 				'font-src': ['self', 'data:'],
-				'img-src': ['self', 'data:', 'blob:', 'https:'],
+				'img-src': ['self', 'data:', 'blob:'],
 				'media-src': ['self', 'blob:'],
 				'connect-src': ['self', 'https:'],
 				'worker-src': ['self', 'blob:'],

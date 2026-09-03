@@ -16,48 +16,7 @@ import { browser } from '$app/environment';
 import { escapeHTML } from './file-utils';
 import { mermaidThemeFromDataTheme } from './theme';
 import { t } from '$lib/i18n';
-import { sanitizeMermaidPreviewHtml } from './render/sanitize-html';
-
-let mermaidPromise: Promise<typeof import('mermaid').default> | null = null;
-/** Last theme applied via mermaid.initialize - re-init when the UI theme flips. */
-let mermaidThemeApplied: string | null = null;
-
-function loadMermaid(): Promise<typeof import('mermaid').default> {
-	if (!mermaidPromise) {
-		mermaidPromise = (async () => {
-			const { default: mermaid } = await import('mermaid');
-			const theme = mermaidThemeFromDataTheme(
-				typeof document !== 'undefined'
-					? document.documentElement.getAttribute('data-theme')
-					: 'dark'
-			);
-			mermaid.initialize({
-				startOnLoad: false,
-				securityLevel: 'strict',
-				// Follow live UI theme (same helper as ReadView / PresentationView).
-				theme,
-				fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
-			});
-			mermaidThemeApplied = theme;
-			return mermaid;
-		})();
-	}
-	return mermaidPromise;
-}
-
-async function ensureMermaidTheme(mermaid: typeof import('mermaid').default): Promise<void> {
-	const theme = mermaidThemeFromDataTheme(
-		typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : 'dark'
-	);
-	if (theme === mermaidThemeApplied) return;
-	mermaid.initialize({
-		startOnLoad: false,
-		securityLevel: 'strict',
-		theme,
-		fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
-	});
-	mermaidThemeApplied = theme;
-}
+import { sanitizeMermaidPreviewHtml, renderMermaidSvg } from './render/sanitize-html';
 
 // Global counter to generate unique IDs on the Mermaid side. Mermaid stores
 // internal references by ID in the produced SVG; two SVGs coexisting in the DOM
@@ -127,11 +86,10 @@ export function renderMermaidPreview(
 export { sanitizeMermaidPreviewHtml as sanitizePreviewHtml } from './render/sanitize-html';
 
 async function renderToSvg(code: string): Promise<string> {
-	const mermaid = await loadMermaid();
-	await ensureMermaidTheme(mermaid);
 	try {
 		const id = `mdsh-wysiwyg-mermaid-${++counter}`;
-		const { svg } = await mermaid.render(id, code);
+		const theme = mermaidThemeFromDataTheme(document.documentElement.getAttribute('data-theme'));
+		const svg = await renderMermaidSvg(id, code, theme);
 		// We wrap the SVG in a container so we can style it and ensure an
 		// auto overflow on wide diagrams.
 		const wrapped = `<div class="mdsh-mermaid-svg">${svg}</div>`;

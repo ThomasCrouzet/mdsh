@@ -15,7 +15,12 @@ import { escapeHTML } from '../file-utils';
 import { getTags, getTitle, parseFrontmatter } from '../frontmatter';
 import { preprocessWikiLinks, slugify } from '../wiki-links';
 import { t } from '$lib/i18n';
-import { applyRemoteImagePolicy, MARKDOWN_PURIFY, sanitizeHtml } from './sanitize-html';
+import {
+	applyRemoteImagePolicy,
+	MARKDOWN_PURIFY,
+	sanitizeHtml,
+	renderMermaidSvg
+} from './sanitize-html';
 import { prepareHtmlMedia } from './image-media';
 import { applyImageMetadataToHtml } from './image-markdown';
 
@@ -222,26 +227,8 @@ function buildMarked(mermaidSink: string[], headingPermalinks: boolean): Marked 
 // singleton): a re-init is forced if the requested theme changes.
 // ---------------------------------------------------------------------------
 
-// Mermaid singleton cache: the theme is a global state of the lib (a single
-// active `initialize()`), so we avoid useless re-inits between calls.
-let _mermaidInitTheme: MermaidTheme | null = null;
-
 interface MermaidCounter {
 	current: number;
-}
-
-async function initMermaid(theme: MermaidTheme): Promise<typeof import('mermaid').default> {
-	const { default: mermaid } = await import('mermaid');
-	if (_mermaidInitTheme !== theme) {
-		mermaid.initialize({
-			startOnLoad: false,
-			securityLevel: 'strict',
-			theme,
-			fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
-		});
-		_mermaidInitTheme = theme;
-	}
-	return mermaid;
 }
 
 async function renderMermaidDiagram(
@@ -253,10 +240,8 @@ async function renderMermaidDiagram(
 		return `<pre class="mermaid-source"><code>${escapeHTML(code)}</code></pre>`;
 	}
 	try {
-		const mermaid = await initMermaid(theme);
 		const id = `mdsh-mermaid-${++counter.current}`;
-		const { svg } = await mermaid.render(id, code);
-		return svg;
+		return await renderMermaidSvg(id, code, theme);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		return `<div class="mermaid-error" role="alert">

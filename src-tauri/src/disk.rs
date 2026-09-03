@@ -364,10 +364,12 @@ fn atomic_write(
         file.write_all(contents)
             .map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
-        // This is the final operation before same-directory replacement.
+        let metadata = file.metadata().map_err(|error| error.to_string())?;
+        // Windows exige que le fichier de remplacement soit fermé.
+        drop(file);
+        // Le contrôle de révision reste la dernière étape avant le remplacement.
         ensure_expected_revision(path, expected_revision, force)?;
         replace_file(&temp, path)?;
-        let metadata = file.metadata().map_err(|error| error.to_string())?;
         disk_stat_from_metadata(&metadata, revision_for_bytes(contents))
     })();
     if result.is_err() {

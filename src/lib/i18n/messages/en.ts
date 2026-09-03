@@ -385,6 +385,8 @@ export const en = {
 	'read.codeBlockLang': 'Code {lang}',
 	'read.frontmatterMeta': 'Document metadata',
 	'read.mermaidError': 'Mermaid error',
+	'read.mermaidUnsafeMedia':
+		'Mermaid image nodes and network styles are not supported. Insert images in Markdown.',
 	'read.renderError': 'Render error',
 	'read.rendering': 'Rendering…',
 	'read.remoteImagesBlocked': 'Remote images are blocked to protect your privacy.',
