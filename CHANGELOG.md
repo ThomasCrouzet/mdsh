@@ -5,6 +5,30 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.5.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.4.0...v1.5.0) (2026-09-03)
+
+
+### Features
+
+* fiabiliser les documents, les exports et les clients ([bb03f2f](https://github.com/ThomasCrouzet/mdsh/commit/bb03f2f2bb12ab68cce65175d9ef62476cdfd773))
+
+
+### Bug Fixes
+
+* **ci:** corriger le heredoc de publication desktop ([a835861](https://github.com/ThomasCrouzet/mdsh/commit/a8358619b40578966a9a8db1e2ada4b947df0442))
+* **ci:** préserver les fins de ligne du patch glib sous Windows ([01119dd](https://github.com/ThomasCrouzet/mdsh/commit/01119dd640906e23e4e7b050a174fd4cb2706949))
+* conserver les demandes de fermeture pendant le rechargement ([800e8ee](https://github.com/ThomasCrouzet/mdsh/commit/800e8eefe7a247f91e0a91081b6702ffdec6a4bc))
+* **pdf:** conserver les polices et le centrage des images ([d2ab736](https://github.com/ThomasCrouzet/mdsh/commit/d2ab7360ceebf2939d95b042df13a3f9c6064b2e))
+* **pdf:** éviter les césures ambiguës dans les références ([ee93463](https://github.com/ThomasCrouzet/mdsh/commit/ee9346367c7fcfdc0ccef551c69322bdbe8ca457))
+* préserver les diagrammes et les écritures Windows ([76ad8b1](https://github.com/ThomasCrouzet/mdsh/commit/76ad8b1893fd23d45bd1cd9c84c72a5baaa7ebde))
+* préserver les PDF et corriger les alertes de sécurité ([f24b6da](https://github.com/ThomasCrouzet/mdsh/commit/f24b6dac5e1645550216afdf68c8edad7f9c0c20))
+* protéger le démarrage et fiabiliser les tests natifs ([c5c75d0](https://github.com/ThomasCrouzet/mdsh/commit/c5c75d07264dea285f155de64d7b7c5141c1407d))
+* **security:** backporter le correctif glib VariantStrIter ([75995d7](https://github.com/ThomasCrouzet/mdsh/commit/75995d7aa57e62eac641651a5dc684814f111560))
+* **security:** borner les échappements des images Markdown ([0188fa0](https://github.com/ThomasCrouzet/mdsh/commit/0188fa03da85ea162b55b041c500d4bda536c6e3))
+* **security:** documenter le backport glib dans le SBOM Cargo ([2738455](https://github.com/ThomasCrouzet/mdsh/commit/273845599b670e99502a6b7c31b715c8d32647a1))
+* **test:** attendre la disponibilité de la fenêtre native ([c898890](https://github.com/ThomasCrouzet/mdsh/commit/c898890c0087077ab393fdea6415fce91d33e888))
+* **test:** synchroniser les commandes après un rechargement natif ([1ee717d](https://github.com/ThomasCrouzet/mdsh/commit/1ee717d845d1ab64878aed355eb0e7f5fe122afb))
+
 ## [1.4.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.3.1...v1.4.0) (2026-08-21)
 
 
