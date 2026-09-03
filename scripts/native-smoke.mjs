@@ -111,7 +111,10 @@ function launch() {
 	app.on('error', (error) => console.error(error));
 }
 async function connect() {
-	await until(() => request('/status', undefined, 'GET'), 'WebDriver startup');
+	await until(
+		async () => (await request('/status', undefined, 'GET')).ready === true,
+		'WebDriver window ready'
+	);
 	const created = await request('/session', {
 		capabilities: { alwaysMatch: { 'wdio:tauriServiceOptions': { windowLabel: 'main' } } }
 	});
