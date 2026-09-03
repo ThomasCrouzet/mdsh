@@ -113,12 +113,15 @@ async function until(check, label, timeout = 30_000) {
 		try {
 			const value = await check();
 			if (value) return value;
+			last = undefined;
 		} catch (error) {
 			last = error;
 		}
 		await delay(150);
 	}
-	throw new Error(`Timeout ${label}: ${String(last ?? '')}`);
+	throw new Error(
+		`Timeout ${label}: ${last ? String(last) : JSON.stringify(results.lastDriverResponse ?? 'condition false')}`
+	);
 }
 /** @param {string} selector */
 async function click(selector) {
@@ -154,6 +157,43 @@ function launch() {
 		launched.exitedAt = new Date().toISOString();
 	});
 }
+function collectWindowsDiagnostics() {
+	if (process.platform !== 'win32' || !app?.pid) return;
+	results.windowsDiagnostics = {
+		pid: app.pid,
+		port,
+		cwd: process.cwd(),
+		fixture
+	};
+	try {
+		execFileSync(
+			'powershell.exe',
+			[
+				'-NoLogo',
+				'-NoProfile',
+				'-NonInteractive',
+				'-File',
+				resolve('scripts/native-windows-diagnostics.ps1'),
+				'-OutputDirectory',
+				output,
+				'-ApplicationPid',
+				String(app.pid),
+				'-DriverPort',
+				String(port)
+			],
+			{ encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024, windowsHide: true }
+		);
+	} catch (error) {
+		// Le diagnostic ne remplace jamais l'échec initial ni ne relance l'application.
+		results.windowsDiagnosticsError = String(error);
+		try {
+			writeFileSync(join(output, 'windows-diagnostics-error.log'), String(error));
+		} catch {
+			/* Le JSON principal conserve aussi l'erreur de collecte. */
+		}
+	}
+}
+
 async function connect() {
 	await until(
 		async () => (await request('/status', undefined, 'GET')).ready === true,
@@ -391,6 +431,7 @@ try {
 	results.passed = true;
 } catch (error) {
 	results.error = String(error);
+	collectWindowsDiagnostics();
 	if (session) {
 		try {
 			results.page = await execute(
