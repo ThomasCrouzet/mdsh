@@ -84,6 +84,7 @@
 	let dragOver = $state(false);
 	let fileInput: HTMLInputElement | null = $state(null);
 	let hydrated = $state(false);
+	const canInteract = $derived(hydrated && !filesStore.loadError);
 	// §P2.3 - UI preferences (focus mode, typewriter, TOC) delegated to the ui/prefs module.
 	// The factory is called top-level (Svelte 5 constraint: $effect in the init scope).
 	// tocEmpty stays local: it is a value pushed by Toc via onEmpty, not a pref.
@@ -237,16 +238,19 @@
 	}
 
 	function handleNew() {
+		if (!canInteract) return;
 		filesStore.createNew();
 		if (window.innerWidth < 768) sidebarOpen = false;
 	}
 
 	function handleDemo() {
+		if (!canInteract) return;
 		filesStore.loadDemo();
 		sidebarOpen = true;
 	}
 
 	async function handleImport() {
+		if (!canInteract) return;
 		const diskLinkingAvailable = isDiskLinkingAvailable();
 		const desktop = isDesktop();
 		let createdCount = 0;
@@ -282,6 +286,7 @@
 	}
 
 	async function handleDesktopMenuAction(action: DesktopMenuAction) {
+		if (!canInteract) return;
 		switch (action) {
 			case 'new':
 				handleNew();
@@ -312,6 +317,10 @@
 
 	async function handleFileInput(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
+		if (!canInteract) {
+			input.value = '';
+			return;
+		}
 		if (!input.files || input.files.length === 0) return;
 		const { created, skipped, failed } = await filesStore.importFiles(input.files);
 		if (created.length > 0 && window.innerWidth < 768) sidebarOpen = false;
@@ -466,14 +475,38 @@
 		store: filesStore,
 		setDragOver: (v) => (dragOver = v)
 	});
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (!canInteract) {
+			if (
+				!event.isComposing &&
+				!event.altKey &&
+				event.metaKey !== event.ctrlKey &&
+				keyboardStore.match(event)
+			) {
+				event.preventDefault();
+			}
+			return;
+		}
+		handleKeydown(event);
+	}
+
+	function handleWindowDrag(event: DragEvent, handler: (event: DragEvent) => void | Promise<void>) {
+		if (!canInteract) {
+			// Un dépôt pendant le chargement ne doit ni importer ni ouvrir le fichier dans le navigateur.
+			event.preventDefault();
+			return;
+		}
+		void handler(event);
+	}
 </script>
 
 <svelte:window
 	bind:innerWidth={viewportWidth}
-	onkeydown={handleKeydown}
-	ondrop={handleDrop}
-	ondragover={handleDragOver}
-	ondragleave={handleDragLeave}
+	onkeydown={handleWindowKeydown}
+	ondrop={(event) => handleWindowDrag(event, handleDrop)}
+	ondragover={(event) => handleWindowDrag(event, handleDragOver)}
+	ondragleave={(event) => handleWindowDrag(event, handleDragLeave)}
 />
 
 <!-- §J1 - Blocking banner if IndexedDB is inaccessible at startup (private mode,
@@ -489,7 +522,8 @@
 {/if}
 
 <div
-	inert={modals.anyOpen || promptStore.open}
+	inert={!canInteract || modals.anyOpen || promptStore.open}
+	aria-busy={!hydrated}
 	class="mdsh-shell flex h-[100dvh] w-full overflow-hidden bg-bg text-fg"
 >
 	<Sidebar

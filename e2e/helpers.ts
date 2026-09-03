@@ -11,31 +11,45 @@ export async function resetAppState(
 	opts: { mode?: 'wysiwyg' | 'source' | 'read' } = {}
 ) {
 	const mode = opts.mode ?? 'source';
-	await page.goto('/');
-	await page.evaluate(async (forcedMode) => {
-		await Promise.all(
-			['mdsh', 'mdsh-fs'].map(
-				(name) =>
-					new Promise<void>((resolve) => {
-						const req = indexedDB.deleteDatabase(name);
-						req.onsuccess = () => resolve();
-						req.onerror = () => resolve();
-						req.onblocked = () => resolve();
-					})
-			)
-		);
-		localStorage.clear();
-		localStorage.setItem('mdsh:mode', forcedMode);
-		// Pin FR independently of Playwright's browser locale option so helpers
-		// that assert French labels stay stable if navigator.language changes.
-		localStorage.setItem('mdsh:locale', 'fr');
-	}, mode);
-	await page.reload();
-	// Prefer stable testid; keep FR text fallback for older builds mid-migration.
-	await page.waitForSelector(
-		'header, [data-testid="welcome-new"], button:has-text("Nouveau fichier")',
-		{ timeout: 15_000 }
+	// /api est exclu du fallback du service worker: même un contexte déjà
+	// contrôlé doit naviguer vers ce document neutre sans exécuter l'app.
+	const resetPath = '/api/__mdsh_e2e_reset__';
+	const resetRoute = '**' + resetPath;
+	await page.route(resetRoute, (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: 'text/html',
+			body: '<!doctype html><html><head><title>Reset</title></head><body></body></html>'
+		})
 	);
+	try {
+		await page.goto(resetPath);
+		await page.evaluate(async (forcedMode) => {
+			await Promise.all(
+				['mdsh', 'mdsh-fs'].map(
+					(name) =>
+						new Promise<void>((resolve, reject) => {
+							const request = indexedDB.deleteDatabase(name);
+							request.onsuccess = () => resolve();
+							request.onerror = () =>
+								reject(request.error ?? new Error(`Deletion failed: ${name}`));
+							request.onblocked = () =>
+								reject(new Error(`Deletion blocked by an open connection: ${name}`));
+						})
+				)
+			);
+			localStorage.clear();
+			localStorage.setItem('mdsh:mode', forcedMode);
+			localStorage.setItem('mdsh:locale', 'fr');
+		}, mode);
+	} finally {
+		await page.unroute(resetRoute);
+	}
+	await page.goto('/');
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
 }
 
 /**

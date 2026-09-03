@@ -27,6 +27,8 @@ writeFileSync(
 const log = openSync(join(output, 'application.log'), 'w');
 /** @type {import('node:child_process').ChildProcess | undefined} */
 let app;
+/** @type {import('node:child_process').ChildProcess | undefined} */
+let secondary;
 let session = '';
 /** @type {Record<string, unknown>} */
 const results = {
@@ -143,6 +145,23 @@ try {
 	);
 	assert.equal(identifier, 'io.github.thomascrouzet.mdsh.smoke');
 	passed('isolated native profile and cold file association');
+	if (process.platform === 'linux') {
+		assert.ok(process.env.DBUS_SESSION_BUS_ADDRESS, 'Shared D-Bus session is required');
+		const reply = execFileSync(
+			'dbus-send',
+			[
+				'--session',
+				'--print-reply',
+				'--dest=org.freedesktop.DBus',
+				'/org/freedesktop/DBus',
+				'org.freedesktop.DBus.NameHasOwner',
+				`string:${identifier}.SingleInstance`
+			],
+			{ encoding: 'utf8', timeout: 5_000 }
+		);
+		assert.match(reply, /boolean true/);
+		passed('single instance owns the shared D-Bus service');
+	}
 	await until(
 		async () =>
 			(await drafts()).some((/** @type {{content: string}} */ item) =>
@@ -174,12 +193,14 @@ try {
 		stdio: ['ignore', log, log],
 		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) }
 	});
+	secondary = second;
 	await Promise.race([
 		once(second, 'exit'),
 		delay(10_000).then(() => {
 			throw new Error('Second instance did not exit');
 		})
 	]);
+	secondary = undefined;
 	await delay(500);
 	assert.equal(
 		(await drafts()).filter((/** @type {{ content: string }} */ d) => d.content.includes(title))
@@ -211,7 +232,7 @@ try {
 	// La préparation réelle est conservée. Le dialogue OS est remplacé seulement
 	// au dernier appel pour permettre au pilote de produire le PDF automatiquement.
 	await execute(
-		'window.__nativePrintCalled = false; window.print = () => { window.__nativePrintCalled = true; };'
+		'window.__nativePrintCalled = false; window.__nativeOriginalPrint = window.print; window.print = () => { window.__nativePrintCalled = true; };'
 	);
 	await click('button[aria-label="Exporter en PDF"]');
 	await until(
@@ -231,7 +252,7 @@ try {
 	// WKPDFConfiguration capture l'écran plutôt que le média print. La feuille
 	// de tirage est activée pour cette capture, le contenu reste celui du produit.
 	await execute(
-		`const style = document.createElement('style'); style.textContent = 'body > :not(#mdsh-native-print){display:none!important} #mdsh-native-print{position:static!important;width:auto!important} html,body{height:auto!important;overflow:visible!important}'; document.head.append(style);`
+		`const style = document.createElement('style'); style.id = 'native-smoke-capture-style'; style.textContent = 'body > :not(#mdsh-native-print){display:none!important} #mdsh-native-print{position:static!important;width:auto!important} html,body{height:auto!important;overflow:visible!important}'; document.head.append(style);`
 	);
 	const pdf = await request(`/session/${session}/print`, { background: true });
 	const bytes = Buffer.from(pdf, 'base64');
@@ -242,11 +263,19 @@ try {
 	assert.ok((pdfStructure.match(/\/Subtype\s*\/Image\b/g) ?? []).length >= 1);
 	writeFileSync(join(output, 'native.pdf'), bytes);
 	passed('native WebView render capture contains the image');
-	await request(`/session/${session}/refresh`, {}).catch(() => {});
-	await until(
-		() => execute('return !!document.querySelector("button[data-mode=source]")'),
-		'reload after print'
+	// Le dialogue remplacé ne produit pas afterprint : terminer son cycle puis
+	// retirer uniquement la feuille de capture et rendre la main à l'éditeur.
+	await execute(
+		`document.getElementById('native-smoke-capture-style')?.remove(); window.print = window.__nativeOriginalPrint; delete window.__nativeOriginalPrint; window.dispatchEvent(new Event('afterprint'));`
 	);
+	await until(
+		() =>
+			execute(
+				'return !document.getElementById("mdsh-native-print") && !Array.from(document.head.querySelectorAll("style")).some(style => style.textContent.includes("#mdsh-native-print")) && !!document.querySelector("button[data-mode=source]")?.getClientRects().length'
+			),
+		'editor restored after print'
+	);
+	passed('native print cleanup restores the editor');
 	await click('button[data-mode="wysiwyg"]');
 	await until(
 		() => execute('return !!document.querySelector(".milkdown .ProseMirror")'),
@@ -308,6 +337,7 @@ try {
 	try {
 		writeFileSync(join(output, 'results.json'), JSON.stringify(results, null, 2));
 	} finally {
+		if (secondary?.pid) secondary.kill();
 		if (app?.pid) app.kill();
 	}
 }
