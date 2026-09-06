@@ -147,7 +147,7 @@ async function main() {
 	const [sbomPath, patchPath, extra] = process.argv.slice(2);
 	if (!sbomPath || !patchPath || extra !== undefined) {
 		throw new Error(
-			'Usage: SOURCE_SHA=<sha> node scripts/annotate-cargo-sbom.mjs <sbom.json> <correctif.patch>'
+			'Usage: SOURCE_SHA=<sha> node scripts/annotate-cargo-sbom.mjs <sbom.json> <patch-file.patch>'
 		);
 	}
 	const sourceSha = process.env.SOURCE_SHA ?? '';
