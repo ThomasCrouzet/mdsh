@@ -5,6 +5,14 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.5.1](https://github.com/ThomasCrouzet/mdsh/compare/v1.5.0...v1.5.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* use English project text and social preview ([69b73f8](https://github.com/ThomasCrouzet/mdsh/commit/69b73f869dde6240f8ad65ddf6e228270284b7cd))
+* use English text in the social preview image ([3f346bf](https://github.com/ThomasCrouzet/mdsh/commit/3f346bff7397f4435ab7afca18e0f13e6f676d73))
+
 ## [1.5.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.4.0...v1.5.0) (2026-09-03)
 
 
