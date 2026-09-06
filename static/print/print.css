@@ -1,6 +1,6 @@
 /* ============================================================================
-   mdsh - stylesheet d'impression / export PDF
-   Charte light, polices de la vue lecture, @page A4, pagination propre.
+   mdsh print and PDF export stylesheet.
+   Use the light palette, reading-view fonts, A4 pages, and clean pagination.
    ============================================================================ */
 
 :root {
@@ -14,7 +14,7 @@
 	--accent: #1a6f4a;
 	--code-bg: #f6f8fa;
 	--code-border: #d0d7de;
-	/* Même ordre de repli que --font-prose et --font-mono dans app.css. */
+	/* Use the same fallback order as --font-prose and --font-mono in app.css. */
 	--font-prose:
 		-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, ui-sans-serif, system-ui,
 		sans-serif;
@@ -42,7 +42,7 @@ body {
 	hyphens: auto;
 }
 
-/* --- Hiérarchie des titres ----------------------------------------------- */
+/* Heading hierarchy */
 h1,
 h2,
 h3,
@@ -86,21 +86,21 @@ h6 {
 	color: var(--text-muted);
 }
 
-/* --- Paragraphes --------------------------------------------------------- */
+/* Paragraphs */
 p {
 	margin: 0 0 0.8em;
 	orphans: 3;
 	widows: 3;
 }
 
-/* --- Liens --------------------------------------------------------------- */
+/* Links */
 a {
 	color: var(--accent);
 	text-decoration: underline;
 	text-underline-offset: 2px;
 	text-decoration-thickness: 0.06em;
 }
-/* Ne pas ajouter de tiret aux URL et références tabulaires lors du retour à la ligne. */
+/* Do not hyphenate URLs or table references when they wrap. */
 a,
 th,
 td {
@@ -108,7 +108,7 @@ td {
 	overflow-wrap: anywhere;
 }
 
-/* --- Listes -------------------------------------------------------------- */
+/* Lists */
 ul,
 ol {
 	padding-left: 1.5em;
@@ -129,7 +129,7 @@ li.task-list-item > input[type='checkbox'] {
 	vertical-align: middle;
 }
 
-/* Les permaliens sont une interaction de la vue lecture, jamais du contenu imprimé. */
+/* Hide reading-view permalinks in printed content. */
 .mdsh-anchor {
 	display: none;
 }
@@ -146,7 +146,7 @@ blockquote > p {
 	margin: 0.3em 0;
 }
 
-/* --- Séparateur ---------------------------------------------------------- */
+/* Separator */
 hr {
 	border: none;
 	border-top: 1px solid var(--border);
@@ -289,7 +289,7 @@ img {
 }
 
 /* ============================================================================
-   Highlight.js - thème GitHub light, inline (pas de requête réseau)
+   Highlight.js - inline GitHub light theme with no network request
    ============================================================================ */
 .hljs {
 	color: #24292f;
@@ -371,7 +371,7 @@ img {
 }
 
 /* ============================================================================
-   §5.1 Front-matter - bloc métadonnées discret en tête du document
+   §5.1 Front-matter metadata block at the start of the document
    ============================================================================ */
 .mdsh-frontmatter {
 	margin: 0 0 1.2em;
@@ -420,8 +420,8 @@ img {
 	font-size: 0.85em;
 }
 
-/* §5.2 Wiki-links - ligne pointillée pour différencier des liens externes.
-   Pas de URL après en mode print (le lien est interne au workspace mdsh). */
+/* §5.2 Wiki links use a dashed line to differ from external links.
+   Do not print an internal mdsh workspace URL after the link. */
 .wiki-link {
 	color: var(--accent);
 	border-bottom: 1px dashed currentColor;
@@ -434,7 +434,7 @@ img {
 }
 
 /* ============================================================================
-   Règles d'impression
+   Print rules
    ============================================================================ */
 @media print {
 	html,
@@ -445,7 +445,7 @@ img {
 		padding: 0;
 		max-width: none;
 	}
-	/* Afficher les URLs après les liens externes dans le PDF */
+	/* Show URLs after external links in the PDF. */
 	a[href^='http']:after {
 		content: ' (' attr(href) ')';
 		font-size: 0.8em;
@@ -476,7 +476,7 @@ img {
 	}
 }
 
-/* Format de page : A4 standard avec marges typographiques */
+/* Use a standard A4 page with typographic margins. */
 @page {
 	size: A4;
 	margin: 1.8cm 1.6cm 2.2cm;

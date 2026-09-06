@@ -1,89 +1,74 @@
 # Architecture
 
-This is not an exhaustive module reference (see the module map in
-[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for that). It is a short case study of
-the decisions that shaped mdsh - the ones that would otherwise stay invisible in
-a repo a visitor skims for sixty seconds.
+This document explains the main design decisions in mdsh. For a module reference,
+see the map in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Offline-first without a backend
 
-mdsh has no server. Every document lives in the browser: drafts in IndexedDB via
-Dexie, in-place disk editing through the File System Access API, exports as plain
-files. That constraint is the whole point of the project (see the README), but it
-also means the PWA has to be _actually_ offline-capable on day one, not "offline
-after you've visited once."
+mdsh has no server. Dexie stores drafts in IndexedDB. The File System Access API
+edits disk files in place. Exports are plain files. The PWA must work offline on
+its first use, before a previous online visit can fill browser caches.
 
-That guarantee broke silently during the pre-1.0 hardening pass. The precache
-manifest transform (`vite.config.ts`) rewrites Workbox's build-output URLs into
-the URLs the browser actually requests, and the SPA fallback entry was keyed to
-the base path _without_ a trailing slash (`/mdsh` instead of `/mdsh/`). A fresh
-install's navigation request for `/mdsh/` never matched that precache key, so
-`navigateFallback` found nothing and the app served a blank shell offline - and
-on an empty base path, the broken transform produced an empty precache outright.
-The bug was invisible in the common case (the browser had already cached the
-page from a prior online visit) and only showed up on a true first-launch,
-never-online install. It surfaced when a dedicated e2e test (`e2e/pwa.spec.ts`)
-was written specifically to simulate that path: kill the network, load fresh,
-assert the shell renders. The fix was one line - align the fallback key with the
-served URL - but the lesson generalizes: for an offline-first app, "works when
-online" and "works offline" are different claims, and only the second one is
-testable by actually cutting the network in CI.
+The pre-1.0 hardening pass broke this guarantee. The precache transform in
+`vite.config.ts` converts Workbox build URLs to requested browser URLs. But
+the SPA fallback used `/mdsh` instead of the served `/mdsh/` path. A new install
+could not match its navigation request to the precache key. `navigateFallback`
+then returned a blank offline shell. With an empty base path, the same transform
+produced an empty precache.
+
+A previous online visit hid the defect because the browser already had the page.
+`e2e/pwa.spec.ts` found it by loading a new installation after network access was
+disabled. The fix aligned the fallback key with the served URL. An offline-first
+claim requires a CI test that disables the network before first use.
 
 ## The bundle budget as a design constraint
 
-The initial JS entry is capped at 12 KB gzipped, the boot page chunk at 60 KB,
-CSS at 120 KB (`.size-limit.json`) - enforced as a blocking CI gate, not a
-guideline. mdsh renders markdown with `marked`, math with KaTeX, syntax
-highlighting with `highlight.js`, diagrams with Mermaid, exports through
-`jszip`, and parses YAML front-matter with `js-yaml`. None of that can be in
-the boot graph and stay under budget.
+`.size-limit.json` limits the gzip JavaScript entry to 12 KB, the startup page
+chunk to 60 KB, and CSS to 120 KB. CI blocks a change that exceeds a limit.
+The application uses `marked` to render Markdown and KaTeX to render math.
+It uses `highlight.js` for syntax highlighting and Mermaid for diagrams.
+It uses `jszip` for exports and `js-yaml` to parse YAML front matter.
+The startup graph cannot include these engines and remain within the limits.
 
-La règle conserve chaque moteur derrière un `import()` dynamique depuis
-`render/markdown.ts`, `services/export.ts` ou `frontmatter.ts`. Le cache PWA
-contient pourtant tous ces chunks révisionnés: le démarrage hors ligne peut donc
-charger le moteur demandé sans le réseau, tout en laissant le graphe initial
-léger. Un import statique depuis `+page.svelte`, un store ou un composant monté au
-démarrage augmenterait le coût initial. ESLint bloque cette fuite et
-`scripts/bundle-graph.mjs` mesure les fermetures transitives des graphes de
-démarrage, lecture, source et WYSIWYG. Le budget vérifie ainsi ce que charge
-chaque parcours, sans compter plusieurs fois un chunk partagé.
+Each engine stays behind a dynamic `import()` from `render/markdown.ts`,
+`services/export.ts`, or `frontmatter.ts`. The PWA cache still contains all
+revisioned chunks. Offline startup can load the requested engine without a
+network and keep the initial graph small. A static import from `+page.svelte`, a
+store, or a component mounted at startup would increase the initial cost. ESLint
+blocks this leak. `scripts/bundle-graph.mjs` measures the transitive closures of
+the startup, reading, source, and WYSIWYG graphs. Thus, the budget checks what
+each path loads without counting a shared chunk more than once.
 
 ## A facade store over pure, testable modules
 
-`files.svelte.ts` is the file store the rest of the app talks to, and Svelte 5's
-rules require the `$state` it holds to live in a single class - runes cannot be
-extracted into a plain module and re-imported. That constraint pushes toward
-putting _all_ logic in that one file, which does not scale: by the time mdsh had
-exports, disk sync, tagging, search indexing, a save queue, and a trash bin, a
-monolithic store would mean no unit could be tested without booting the whole
-class and mocking `$state`.
+`files.svelte.ts` is the primary file store. Svelte 5 requires its `$state` to
+stay in one class. Runes cannot move to a plain module and then be imported.
+This restriction can put all file logic in one class. Such a class does not
+scale across exports, disk sync, tags, search, saves, and trash. Unit tests would
+need to start the full class and mock `$state`.
 
-The store is a thin facade instead. It owns the reactive state and wires
-together pure modules that hold the actual logic: `export-ops` for md/HTML/PDF/ZIP
-exports, `disk-sync` for the File System Access API, `meta-index` for the
-tag/backlink/title index, `save-queue` for the debounced Dexie writes, `trash`
-for the trash bin. Each module is a plain class or function set, constructed
-with callbacks back into the store rather than a reference to it - `meta-index`
-takes a `() => FileItem[]` accessor, `save-queue` takes `onSaved` / `onError`
-callbacks. The practical payoff: `save-queue.test.ts` and `meta-index.test.ts`
-exercise their logic directly, with no store, no DOM, no Svelte runtime - and an
-IndexedDB write failure surfaces through an explicit `onError` callback instead
-of disappearing into a silent `console.error` inside the store.
+The store is a thin facade. It owns reactive state and connects pure logic
+modules. `export-ops` controls Markdown, HTML, PDF, and ZIP exports. `disk-sync`
+controls the File System Access API. `meta-index` controls tags, backlinks, and
+titles. `save-queue` controls debounced Dexie writes. `trash` controls the trash.
+
+Each module is a plain class or function set. Callbacks connect it to the store.
+For example, `meta-index` receives a `() => FileItem[]` accessor. `save-queue`
+receives `onSaved` and `onError` callbacks. Thus, `save-queue.test.ts` and
+`meta-index.test.ts` test logic without the store, DOM, or Svelte runtime. An
+IndexedDB failure reaches `onError` instead of a silent store `console.error`.
 
 ## An in-house bilingual layer instead of a library
 
-mdsh ships two locales (English default, French auto-detected from the browser,
-switchable in Settings) through a small runes-based layer in `src/lib/i18n/`
-rather than an i18n library. The reasoning: `en.ts` is `satisfies Record<string, string>`
-and is the source of truth for the `MessageKey` type; `fr.ts` is typed against
-that same `MessageKey`, so a key present in one dictionary and missing in the
-other is a TypeScript error, not a runtime fallback to the wrong language. A
-dedicated test (`i18n.test.ts`) additionally checks key parity and the English
-default at the value level, which the type system alone cannot guarantee (it
-proves the keys line up, not that nobody left a key's value empty). For two
-locales with an app of this size, that was less code and a stricter guarantee
-than pulling in a general-purpose i18n library and configuring it to enforce
-the same thing.
+mdsh uses a small runes-based layer in `src/lib/i18n/`. It supports English and
+French without a general i18n library. English is the default. The app detects
+French in the browser, and Settings can change the locale.
+
+`en.ts` satisfies `Record<string, string>` and defines the `MessageKey` type.
+`fr.ts` uses the same type. A missing key is thus a TypeScript error instead
+of a runtime fallback. `i18n.test.ts` also checks key parity, nonempty values,
+and the English default. The type system alone cannot check these value rules.
+For two locales, this layer uses less code and gives strict guarantees.
 
 ## Durability is a state transition, not a timer
 
@@ -95,15 +80,14 @@ Visibility, page-hide, and before-unload events trigger an immediate flush to re
 
 The Desktop Beta does not accept JavaScript paths for file commands. A Rust-owned picker or operating-system open event canonicalizes the path and returns an opaque session token. The capability store retains the path and permissions; IndexedDB records cannot recreate a grant after restart.
 
-Native writes stage data in the target directory, synchronize it, compare a SHA-256 content revision immediately before replacement, preserve permissions, and then use the platform replacement primitive. This prevents a same-size, same-timestamp external edit from being overwritten silently and keeps the original intact if staging fails.
+Native writes stage data in the target directory and synchronize it. They then compare a SHA-256 revision immediately before replacement. The operation preserves permissions and uses the platform replacement function. It detects external edits with unchanged size and timestamp. A staging failure keeps the original file.
 
-## Budget de corpus mesuré
+## Measured corpus budget
 
-Les tests de logique construisent des corpus de 50, 200 et 300 documents, puis
-mesurent l'index de métadonnées et la recherche. Une mesure navigateur séparée,
-réalisée sur Mac mini M4 avec Chromium et un document de 50 000 caractères,
-observe 183 à 205 ms pour la recherche sur 200 et 300 notes, 119 ms pour le
-premier passage en WYSIWYG, puis 85 à 88 ms. La frappe mesure 25 ms en médiane et
-34 ms au 95e centile. Ces chiffres servent de référence sur cette machine. Les
-budgets CI, volontairement plus larges, restent des alarmes de régression et ne
-constituent pas une promesse pour tous les appareils.
+Logic tests build corpora of 50, 200, and 300 documents. They then measure the
+metadata index and search. A separate browser test uses a Mac mini M4, Chromium,
+and a 50,000-character document. Search takes 183 to 205 ms for 200 and 300
+notes. The first WYSIWYG pass takes 119 ms, then 85 to 88 ms. Typing takes a
+median of 25 ms and 34 ms at the 95th percentile. These values are references
+for this machine. The wider CI budgets are regression alarms. They are not a
+performance guarantee for all devices.

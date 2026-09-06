@@ -3,8 +3,8 @@ import { db, type WorkspaceRow } from './db';
 import { workspaceStore } from './workspaces.svelte';
 import { filesStore } from './files.svelte';
 
-// Tests du store workspaces (singleton runes) sous fake-indexeddb. Le store
-// orchestre l'ouverture/fermeture via filesStore ; les fichiers restent en base.
+// Test the workspace rune singleton with fake-indexeddb.
+// The store opens and closes files through filesStore while keeping them in the database.
 
 function wsRow(id: string, name: string, fileIds: string[] = [], updatedAt = 1000): WorkspaceRow {
 	return { id, name, fileIds, activeId: fileIds[0] ?? null, createdAt: 1000, updatedAt };
@@ -19,7 +19,7 @@ beforeEach(async () => {
 });
 
 describe('workspaceStore.save', () => {
-	it("enregistre l'état courant (fichiers ouverts + activeId)", async () => {
+	it('saves the current open files and activeId', async () => {
 		const a = filesStore.createNew('a.md', '');
 		const b = filesStore.createNew('b.md', '');
 		filesStore.setActive(b.id);
@@ -32,20 +32,20 @@ describe('workspaceStore.save', () => {
 		expect(await db.workspaces.get(ws!.id)).toBeTruthy();
 	});
 
-	it('nom vide -> nom de repli non vide', async () => {
+	it('uses a non-empty fallback for an empty name', async () => {
 		const ws = await workspaceStore.save('   ');
 		expect(ws!.name.trim().length).toBeGreaterThan(0);
 	});
 });
 
 describe('workspaceStore.load / reload', () => {
-	it('charge les workspaces, plus récents en tête', async () => {
+	it('loads the latest workspaces first', async () => {
 		await db.workspaces.bulkPut([wsRow('w1', 'Un', [], 1), wsRow('w2', 'Deux', [], 2)]);
 		await workspaceStore.load();
 		expect(workspaceStore.workspaces.map((w) => w.id)).toEqual(['w2', 'w1']);
 	});
 
-	it('reload force une relecture', async () => {
+	it('loads again after reload', async () => {
 		await workspaceStore.load();
 		await db.workspaces.put(wsRow('w3', 'Trois', [], 3));
 		await workspaceStore.reload();
@@ -54,7 +54,7 @@ describe('workspaceStore.load / reload', () => {
 });
 
 describe('workspaceStore.update / rename / delete', () => {
-	it("update reflète l'état courant", async () => {
+	it('updates the workspace with the current state', async () => {
 		filesStore.createNew('a.md', '');
 		const ws = await workspaceStore.save('WS');
 		const b = filesStore.createNew('b.md', '');
@@ -63,7 +63,7 @@ describe('workspaceStore.update / rename / delete', () => {
 		expect(updated!.fileIds).toContain(b.id);
 	});
 
-	it('rename change le nom; vide = no-op', async () => {
+	it('renames a workspace and ignores an empty name', async () => {
 		const ws = await workspaceStore.save('Old');
 		await workspaceStore.rename(ws!.id, 'New');
 		expect(workspaceStore.workspaces.find((w) => w.id === ws!.id)!.name).toBe('New');
@@ -71,14 +71,14 @@ describe('workspaceStore.update / rename / delete', () => {
 		expect(workspaceStore.workspaces.find((w) => w.id === ws!.id)!.name).toBe('New');
 	});
 
-	it('delete retire de la liste et de la base', async () => {
+	it('deletes a workspace from the list and database', async () => {
 		const ws = await workspaceStore.save('Del');
 		await workspaceStore.delete(ws!.id);
 		expect(workspaceStore.workspaces.some((w) => w.id === ws!.id)).toBe(false);
 		expect(await db.workspaces.get(ws!.id)).toBeUndefined();
 	});
 
-	it('ignore les identifiants inconnus et un second chargement déjà terminé', async () => {
+	it('ignores unknown IDs and a completed second load', async () => {
 		await workspaceStore.load();
 		await workspaceStore.load();
 		await workspaceStore.update('ghost');
@@ -90,29 +90,29 @@ describe('workspaceStore.update / rename / delete', () => {
 });
 
 describe('workspaceStore.restore', () => {
-	it('rouvre les fichiers du workspace fermés (keepDB) et active la cible', async () => {
+	it('reopens closed workspace files and activates the target', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		const b = filesStore.createNew('b.md', '# B');
 		filesStore.setActive(b.id);
 		await filesStore.flushPending();
 		const ws = await workspaceStore.save('Both');
 
-		// Ferme B sans le supprimer de la base (keepDB) : il quitte la vue.
+		// Close B without deleting it from the database.
 		filesStore.close(b.id, { trash: false, keepDB: true });
 		expect(filesStore.files.some((f) => f.id === b.id)).toBe(false);
 
 		await workspaceStore.restore(ws!.id);
-		// B est rouvert, la cible activeId restaurée.
+		// Reopen B and restore the activeId target.
 		expect(filesStore.files.some((f) => f.id === b.id)).toBe(true);
 		expect(filesStore.files.some((f) => f.id === a.id)).toBe(true);
 		expect(filesStore.activeId).toBe(b.id);
 	});
 
-	it("restore d'un id inconnu = no-op", async () => {
+	it('does nothing when restore receives an unknown ID', async () => {
 		await expect(workspaceStore.restore('ghost')).resolves.toBeUndefined();
 	});
 
-	it('ignore les fichiers supprimés et un activeId qui n’existe plus', async () => {
+	it('ignores deleted files and a missing activeId', async () => {
 		workspaceStore.workspaces = [
 			{
 				...wsRow('missing', 'Missing', ['deleted']),
@@ -126,9 +126,9 @@ describe('workspaceStore.restore', () => {
 		expect(filesStore.activeId).toBeNull();
 	});
 
-	it('ferme les onglets hors workspace sans les supprimer de la base (keepDB)', async () => {
-		// Workspace = {a}. Session courante = {a, b}. restore doit fermer b de la
-		// vue mais le laisser en base (branche keepDB du closeMany de l etape 2).
+	it('closes tabs outside the workspace without database deletion', async () => {
+		// The workspace has {a}, and the current session has {a, b}.
+		// Restore must close b in the view but keep it in the database through closeMany's keepDB branch.
 		const a = filesStore.createNew('a.md', '# A');
 		filesStore.setActive(a.id);
 		await filesStore.flushPending();
@@ -140,26 +140,26 @@ describe('workspaceStore.restore', () => {
 
 		await workspaceStore.restore(ws!.id);
 
-		// b a quitte la vue...
+		// File b left the view.
 		expect(filesStore.files.some((f) => f.id === b.id)).toBe(false);
-		// ...mais reste dans la base (keepDB: true).
+		// It remains in the database because keepDB is true.
 		expect(await db.drafts.get(b.id)).toBeTruthy();
 		expect(filesStore.activeId).toBe(a.id);
 	});
 });
 
-describe('workspaceStore - chemins d echec IDB', () => {
+describe('workspaceStore - IndexedDB failure paths', () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
 	});
 
-	it('update : rollback complet des champs et de la position si le put echoue', async () => {
+	it('restores fields and position after an update failure', async () => {
 		// Deux workspaces : on edite le PLUS ANCIEN (en queue) pour observer le
-		// rollback de position (il remonte en tete, puis doit redescendre).
+		// Roll back its position. It moves to the start, then must move down again.
 		filesStore.createNew('seed.md', '');
 		const wsOld = await workspaceStore.save('Old');
 		const wsNew = await workspaceStore.save('New');
-		// Apres save, le plus recent (wsNew) est en tete.
+		// After save, the newest workspace, wsNew, is first.
 		expect(workspaceStore.workspaces[0]?.id).toBe(wsNew!.id);
 
 		const target = workspaceStore.workspaces.find((w) => w.id === wsOld!.id)!;
@@ -169,7 +169,7 @@ describe('workspaceStore - chemins d echec IDB', () => {
 		const prevIdx = workspaceStore.workspaces.indexOf(target);
 		expect(prevIdx).toBe(1); // en queue
 
-		// Modifie l etat courant puis fait echouer la persistance.
+		// Change the current state, then make persistence fail.
 		filesStore.createNew('extra.md', '');
 		const putSpy = vi
 			.spyOn(db.workspaces, 'put')
@@ -178,16 +178,16 @@ describe('workspaceStore - chemins d echec IDB', () => {
 		await workspaceStore.update(wsOld!.id);
 		expect(putSpy).toHaveBeenCalled();
 
-		// Rollback : champs restaures a l identique.
+		// Roll back all fields to their original values.
 		const after = workspaceStore.workspaces.find((w) => w.id === wsOld!.id)!;
 		expect(after.fileIds).toEqual(prevFileIds);
 		expect(after.activeId).toBe(prevActiveId);
 		expect(after.updatedAt).toBe(prevUpdatedAt);
-		// Rollback : position restauree (revient en queue, pas en tete).
+		// Roll back to the original position at the end of the list.
 		expect(workspaceStore.workspaces.indexOf(after)).toBe(prevIdx);
 	});
 
-	it('save : ne crée pas de workspace fantôme si le put échoue', async () => {
+	it('does not create a workspace after a save failure', async () => {
 		vi.spyOn(db.workspaces, 'put').mockRejectedValueOnce(new Error('IDB write failed'));
 
 		await expect(workspaceStore.save('Impossible')).resolves.toBeNull();
@@ -195,7 +195,7 @@ describe('workspaceStore - chemins d echec IDB', () => {
 		expect(workspaceStore.workspaces).toEqual([]);
 	});
 
-	it('rename : restaure le nom et la date si le put échoue', async () => {
+	it('restores the name and date after a rename failure', async () => {
 		const ws = await workspaceStore.save('Stable');
 		const previousUpdatedAt = ws!.updatedAt;
 		vi.spyOn(db.workspaces, 'put').mockRejectedValueOnce(new Error('IDB write failed'));
@@ -206,7 +206,7 @@ describe('workspaceStore - chemins d echec IDB', () => {
 		expect(ws!.updatedAt).toBe(previousUpdatedAt);
 	});
 
-	it('delete : conserve le workspace visible si la suppression échoue', async () => {
+	it('keeps the workspace visible after a delete failure', async () => {
 		const ws = await workspaceStore.save('Conserver');
 		vi.spyOn(db.workspaces, 'delete').mockRejectedValueOnce(new Error('IDB delete failed'));
 
@@ -215,7 +215,7 @@ describe('workspaceStore - chemins d echec IDB', () => {
 		expect(workspaceStore.workspaces.some((candidate) => candidate.id === ws!.id)).toBe(true);
 	});
 
-	it('delete : tolère la disparition concurrente de la ligne en mémoire', async () => {
+	it('supports concurrent removal of an in-memory row', async () => {
 		const ws = await workspaceStore.save('Concurrent');
 		vi.spyOn(db.workspaces, 'delete').mockImplementationOnce(() => {
 			workspaceStore.workspaces = [];
@@ -227,8 +227,8 @@ describe('workspaceStore - chemins d echec IDB', () => {
 		expect(workspaceStore.workspaces).toEqual([]);
 	});
 
-	it('restore : bulkGet qui rejette est notifie et abandonne proprement', async () => {
-		// Workspace reference un fichier present en base mais ferme de la vue.
+	it('reports a bulkGet restore failure and stops cleanly', async () => {
+		// The workspace refers to a file that is in the database but closed in the view.
 		const a = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPending();
 		const ws = await workspaceStore.save('AvecA');
@@ -239,10 +239,10 @@ describe('workspaceStore - chemins d echec IDB', () => {
 			.spyOn(db.drafts, 'bulkGet')
 			.mockRejectedValueOnce(new Error('IDB read failed'));
 
-		// Ne doit pas rejeter (catch interne + reportPersistenceError + return).
+		// Do not reject. The internal catch reports the persistence error and returns.
 		await expect(workspaceStore.restore(ws!.id)).resolves.toBeUndefined();
 		expect(bulkGetSpy).toHaveBeenCalled();
-		// L echec de lecture interrompt restore : a n est PAS rouvert.
+		// A read failure stops restore, so file a does not reopen.
 		expect(filesStore.files.some((f) => f.id === a.id)).toBe(false);
 	});
 

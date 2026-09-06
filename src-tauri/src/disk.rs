@@ -376,9 +376,9 @@ fn atomic_write(
             .map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
         let metadata = file.metadata().map_err(|error| error.to_string())?;
-        // Windows exige que le fichier de remplacement soit fermé.
+        // Windows requires the replacement file to be closed.
         drop(file);
-        // Le contrôle de révision reste la dernière étape avant le remplacement.
+        // Check the revision immediately before replacement.
         ensure_expected_revision(path, expected_revision, force)?;
         replace_file(&temp, path)?;
         disk_stat_from_metadata(&metadata, revision_for_bytes(contents))
@@ -679,8 +679,8 @@ fn pending_delivery(
         remaining: paths.len(),
     };
     let mut total_bytes = 0;
-    // Aucun élément ne quitte la file avant son acquittement explicite.
-    // Les erreurs individuelles ne bloquent pas les autres chemins du lot.
+    // Keep each item in the queue until the frontend explicitly acknowledges it.
+    // An error for one path does not block other paths in the batch.
     for source in paths.into_iter().take(max_files) {
         let path = Path::new(&source);
         let validated = validate_import_paths(&[path.to_path_buf()])
@@ -704,7 +704,7 @@ fn pending_delivery(
                     delivery.remaining -= 1;
                     continue;
                 };
-                // Le fichier peut avoir grandi entre validation et capability.
+                // The file can grow between validation and capability creation.
                 if stat.size > max_bytes.saturating_sub(total_bytes) {
                     continue;
                 }

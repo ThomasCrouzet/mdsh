@@ -10,18 +10,16 @@ on:
 permissions:
   contents: read
 
-# Scope par ref : un groupe global "pages" (sans suffixe) fait que CHAQUE push
-# (main + toutes les PR confondues) rejoint la meme file d'attente - avec
-# cancel-in-progress=false, seul le dernier run ARRIVE dans la file survit,
-# tous les runs plus anciens (deploy main compris) sont annules avant meme de
-# demarrer un job. Suffixer par ${{ github.ref }} isole chaque branche/PR dans
-# sa propre file.
+# Use one concurrency group per ref. A global pages group combines main and all pull requests.
+# With cancel-in-progress=false, only the newest pending run survives in that queue.
+# Older pending runs, including main deployments, are cancelled before a job starts.
+# The github.ref suffix gives each branch or pull request its own queue.
 concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: false
 
-# Opt-in Node.js 24 pour les actions JS (actions/cache@v4 tourne sinon sur
-# Node 20, déprécié par GitHub en juin 2026). Anticipe la transition.
+# Use Node.js 24 for JavaScript actions before the required transition.
+# actions/cache@v4 otherwise uses Node 20, which GitHub deprecated in June 2026.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
@@ -40,10 +38,9 @@ jobs:
           node-version: 22
           cache: npm
 
-      # §A4.1 - Cache `node_modules` extrait. `setup-node@v5 cache: npm`
-      # couvre déjà le tarball cache (`~/.npm`), mais l'extract reste à faire
-      # à chaque job (~10-15s × 4 jobs). Cache direct de `node_modules` =
-      # restore ~2s sur cache hit.
+      # §A4.1 - Cache extracted node_modules. setup-node@v5 cache: npm covers ~/.npm tarballs only.
+      # Extraction takes about 10-15 seconds per job across four jobs.
+      # A node_modules cache hit restores files in about 2 seconds.
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
@@ -55,9 +52,9 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
 
-      # §J2 - Gate sécurité bloquant sur tout l'arbre : les dépendances de build
-      # s'exécutent en CI et doivent être traitées au même niveau que le runtime.
-      - name: Audit complet des dépendances
+      # §J2 - Check the full dependency tree. Fail on security findings.
+      # Build dependencies execute in CI and need the same checks as runtime dependencies.
+      - name: Full dependency audit
         run: npm audit --audit-level=high
 
       - name: Sync SvelteKit
@@ -72,7 +69,7 @@ jobs:
       - name: Third-party notices
         run: npm run notices:check
 
-      - name: Tests et couverture
+      - name: Tests and coverage
         run: npm run test:coverage
 
   e2e:
@@ -90,10 +87,9 @@ jobs:
           node-version: 22
           cache: npm
 
-      # §A4.1 - Cache `node_modules` extrait. `setup-node@v5 cache: npm`
-      # couvre déjà le tarball cache (`~/.npm`), mais l'extract reste à faire
-      # à chaque job (~10-15s × 4 jobs). Cache direct de `node_modules` =
-      # restore ~2s sur cache hit.
+      # §A4.1 - Cache extracted node_modules. setup-node@v5 cache: npm covers ~/.npm tarballs only.
+      # Extraction takes about 10-15 seconds per job across four jobs.
+      # A node_modules cache hit restores files in about 2 seconds.
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
@@ -108,10 +104,9 @@ jobs:
       - name: Sync SvelteKit
         run: npx svelte-kit sync
 
-      # Cache des binaires navigateurs Playwright (~/.cache/ms-playwright) :
-      # évite de re-télécharger chromium + webkit (~150 MB) à chaque run. Clé
-      # liée au lockfile (la version @playwright/test y est figée). Sur cache
-      # hit on n'installe que les dépendances système (apt), pas les binaires.
+      # Cache Playwright browsers in ~/.cache/ms-playwright to avoid repeated downloads (about 150 MB for Chromium and WebKit).
+      # Use the lockfile in the cache key because it fixes the @playwright/test version.
+      # On a cache hit, install only system dependencies through apt.
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-pw
@@ -119,11 +114,11 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - name: Install Playwright browsers (+ deps système)
+      - name: Install Playwright browsers (+ system dependencies)
         if: steps.cache-pw.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Install Playwright deps système (cache hit)
+      - name: Install Playwright system dependencies (cache hit)
         if: steps.cache-pw.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium firefox webkit
 
@@ -131,7 +126,7 @@ jobs:
       # Docker Playwright baselines diverge from ubuntu-latest font rendering
       # (see ROADMAP.md + CONTRIBUTING.md). Baselines stay versioned for local
       # comparison; do not remove --ignore-snapshots without regenerating on CI.
-      - name: E2E tests (sans snapshots visuels)
+      - name: E2E tests (without visual snapshots)
         run: npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"
 
       - name: Upload Playwright report
@@ -148,10 +143,9 @@ jobs:
     needs: check
     runs-on: ubuntu-24.04
     strategy:
-      # Build en parallèle avec BASE_PATH vide (cas domaine custom) et
-      # /mdsh (cas GitHub Pages sous-chemin). Seule la variante /mdsh remonte
-      # un artifact pour le deploy ; la variante vide sert à détecter les
-      # régressions sur les chemins absolus oubliés.
+      # Build in parallel with an empty BASE_PATH for custom domains and /mdsh for GitHub Pages.
+      # Only the /mdsh variant supplies the deployment artifact.
+      # The empty variant detects incorrect absolute paths.
       fail-fast: false
       matrix:
         include:
@@ -171,10 +165,9 @@ jobs:
           node-version: 22
           cache: npm
 
-      # §A4.1 - Cache `node_modules` extrait. `setup-node@v5 cache: npm`
-      # couvre déjà le tarball cache (`~/.npm`), mais l'extract reste à faire
-      # à chaque job (~10-15s × 4 jobs). Cache direct de `node_modules` =
-      # restore ~2s sur cache hit.
+      # §A4.1 - Cache extracted node_modules. setup-node@v5 cache: npm covers ~/.npm tarballs only.
+      # Extraction takes about 10-15 seconds per job across four jobs.
+      # A node_modules cache hit restores files in about 2 seconds.
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
@@ -218,10 +211,9 @@ jobs:
           node-version: 22
           cache: npm
 
-      # §A4.1 - Cache `node_modules` extrait. `setup-node@v5 cache: npm`
-      # couvre déjà le tarball cache (`~/.npm`), mais l'extract reste à faire
-      # à chaque job (~10-15s × 4 jobs). Cache direct de `node_modules` =
-      # restore ~2s sur cache hit.
+      # §A4.1 - Cache extracted node_modules. setup-node@v5 cache: npm covers ~/.npm tarballs only.
+      # Extraction takes about 10-15 seconds per job across four jobs.
+      # A node_modules cache hit restores files in about 2 seconds.
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
@@ -233,11 +225,10 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
 
-      # Build avec BASE_PATH vide : `staticDistDir` sert `./build` depuis la
-      # racine, donc les paths absolus du HTML doivent pointer sur `/...` et
-      # pas `/mdsh/...`. C'est aussi la config testée par §9.2.1 (custom
-      # domain) - ce job en couvre incidemment la régression.
-      - name: Build (BASE_PATH vide)
+      # Build with an empty BASE_PATH. staticDistDir serves ./build from the root.
+      # Absolute HTML paths must start with /, not /mdsh/.
+      # This also checks the custom domain case in §9.2.1.
+      - name: Build (empty BASE_PATH)
         run: npm run build
         env:
           BASE_PATH: ''
@@ -253,10 +244,10 @@ jobs:
   deploy:
     # Publishing requires the build, browser suite, and Lighthouse audit.
     needs: [build, e2e, lighthouse]
-    # Skip le deploy sur les PR - on ne veut pas publier du code non mergé.
+    # Do not deploy pull requests. Publish code only after merge.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    # Moindre privilège : seul ce job a besoin de publier sur Pages.
+    # Only this job needs permission to publish to Pages.
     permissions:
       contents: read
       pages: write

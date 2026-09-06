@@ -1,5 +1,5 @@
-// Exécute le vrai binaire dans un profil dédié via le WebDriver embarqué de test.
-// Aucun serveur de test ni permission supplémentaire n'entre dans les installateurs.
+// Run the actual binary in a separate profile through its embedded test WebDriver.
+// Packaged installers contain no test server or additional permissions.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -104,7 +104,7 @@ async function until(check, label, timeout = 30_000) {
 	const deadline = Date.now() + timeout;
 	let last;
 	while (Date.now() < deadline) {
-		// Une sortie du processus est fatale, pas une indisponibilité temporaire du pilote.
+		// A process exit is fatal. Do not treat it as temporary driver unavailability.
 		if (currentProcess?.error || currentProcess?.exitedAt) {
 			throw new Error(
 				`Native process unavailable during ${label}: ${JSON.stringify(currentProcess)}`
@@ -184,12 +184,14 @@ function collectWindowsDiagnostics() {
 			{ encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024, windowsHide: true }
 		);
 	} catch (error) {
-		// Le diagnostic ne remplace jamais l'échec initial ni ne relance l'application.
+		// Diagnostics must not replace the original failure or restart the application.
 		results.windowsDiagnosticsError = String(error);
 		try {
 			writeFileSync(join(output, 'windows-diagnostics-error.log'), String(error));
 		} catch {
-			/* Le JSON principal conserve aussi l'erreur de collecte. */
+			/**
+			 * The main JSON also retains the collection error.
+			 */
 		}
 	}
 }
@@ -221,8 +223,8 @@ async function connect() {
 async function reload() {
 	await execute('window.__mdshBeforeReload = true;');
 	const timeouts = await request(`/session/${session}/timeouts`, undefined, 'GET');
-	// Une navigation peut effacer le résultat intermédiaire d'une commande du pilote.
-	// Les sondes courtes peuvent alors reprendre dans le nouveau document.
+	// Navigation can clear the intermediate result of a driver command.
+	// Short probes can resume in the new document.
 	await request(`/session/${session}/timeouts`, { script: 2_000 });
 	try {
 		await request(`/session/${session}/refresh`, {}).catch((error) => {
@@ -337,8 +339,8 @@ try {
 	passed('native Mermaid labels and node colours');
 	const screenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
 	writeFileSync(join(output, 'read.png'), Buffer.from(screenshot, 'base64'));
-	// La préparation réelle est conservée. Le dialogue OS est remplacé seulement
-	// au dernier appel pour permettre au pilote de produire le PDF automatiquement.
+	// Keep the actual preparation steps. Replace only the final OS dialog call
+	// to let the driver produce the PDF automatically.
 	await execute(
 		'window.__nativePrintCalled = false; window.__nativeOriginalPrint = window.print; window.print = () => { window.__nativePrintCalled = true; };'
 	);
@@ -357,8 +359,8 @@ try {
 	passed('native print uses top window with decoded image');
 	await until(() => diagramIsReadable(true), 'printable Mermaid labels and colours', 45_000);
 	passed('native print preserves Mermaid labels and colours');
-	// WKPDFConfiguration capture l'écran plutôt que le média print. La feuille
-	// de tirage est activée pour cette capture, le contenu reste celui du produit.
+	// WKPDFConfiguration captures screen media, not print media.
+	// Enable the print stylesheet for this capture. Keep the product content.
 	await execute(
 		`const style = document.createElement('style'); style.id = 'native-smoke-capture-style'; style.textContent = 'body > :not(#mdsh-native-print){display:none!important} #mdsh-native-print{position:static!important;width:auto!important} html,body{height:auto!important;overflow:visible!important}'; document.head.append(style);`
 	);
@@ -371,8 +373,8 @@ try {
 	assert.ok((pdfStructure.match(/\/Subtype\s*\/Image\b/g) ?? []).length >= 1);
 	writeFileSync(join(output, 'native.pdf'), bytes);
 	passed('native WebView render capture contains the image');
-	// Le dialogue remplacé ne produit pas afterprint : terminer son cycle puis
-	// retirer uniquement la feuille de capture et rendre la main à l'éditeur.
+	// The replacement dialog does not emit afterprint. Complete its cycle,
+	// remove only the capture stylesheet, and return control to the editor.
 	await execute(
 		`document.getElementById('native-smoke-capture-style')?.remove(); window.print = window.__nativeOriginalPrint; delete window.__nativeOriginalPrint; window.dispatchEvent(new Event('afterprint'));`
 	);
@@ -404,7 +406,7 @@ try {
 	);
 
 	const closed = once(/** @type {import('node:child_process').ChildProcess} */ (app), 'exit');
-	// Ferme immédiatement, sans attendre le debounce : le produit doit attendre.
+	// Close immediately, without waiting for the debounce. The product must wait for the save.
 	await executeAsync(
 		`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_request_close').then(() => done(true), error => done({ error: String(error) }));`
 	).catch(() => {});
@@ -438,7 +440,9 @@ try {
 				'return { text: document.body.innerText, editors: [...document.querySelectorAll(".cm-content")].map(node => node.textContent), inputs: [...document.querySelectorAll("input")].map(node => ({name:node.getAttribute("aria-label"),value:node.value})) };'
 			);
 		} catch {
-			/* La fenêtre peut déjà être fermée. */
+			/**
+			 * The window can already be closed.
+			 */
 		}
 	}
 	throw error;

@@ -35,7 +35,7 @@ class WorkspaceStore {
 
 	/**
 	 * Saves the current state as a new workspace. The name is trimmed; fallback
-	 * `Sans nom` if the user confirms with an empty value.
+	 * the localized untitled name (`Sans nom` in French) for an empty confirmed value.
 	 *
 	 * Write-then-mutate: we write to IDB BEFORE mutating the runes state. If the
 	 * `put` fails (full quota…), the error is notified and the list is left
@@ -72,10 +72,8 @@ class WorkspaceStore {
 	 * activeId). Useful for "Update workspace" without creating a new
 	 * one (refresh after adding/removing a tab).
 	 *
-	 * Optimistic + rollback: we mutate the row (and its order) BEFORE the write
-	 * for immediate visual feedback, but we fully restore the previous state
-	 * (fields + position) if the `put` fails, in addition to notifying -
-	 * otherwise the UI would show an update that is not in the database.
+	 * Update the row before the write for immediate feedback. If the write fails,
+	 * restore all fields and the previous position, then notify the user.
 	 */
 	async update(id: string): Promise<void> {
 		const ws = this.workspaces.find((w) => w.id === id);
@@ -156,9 +154,8 @@ class WorkspaceStore {
 	 * Restores a workspace:
 	 *   1. Opens the workspace's files that are no longer in the open session but
 	 *      still exist in the DB (`drafts.bulkGet`).
-	 *   2. Closes the current session's tabs that are not in the workspace,
-	 *      **without touching the DB** (`keepDB: true`) - the files stay
-	 *      available for another workspace to re-open.
+	 *   2. Closes tabs outside the workspace with `keepDB: true`. The files stay
+	 *      available to other workspaces.
 	 *   3. Activates the target tab.
 	 *
 	 * Files present in the workspace but absent from the DB (deleted via `close`

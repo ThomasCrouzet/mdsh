@@ -76,13 +76,10 @@ export function isDiskLinkingAvailable(): boolean {
  *
  * No-op if neither backend is available or if the user cancels.
  *
- * §D - Per-file protected read (mirrors `FilesStore.importFiles`): if
- * `file.text()`, the creation or the handle persistence fails for a file
- * (it became unreadable/inaccessible between selection and read), we log it
- * and skip that file without breaking the loop - the other files in the
- * selection are still opened. The partial summary ("N opened, M skipped") is
- * surfaced to the user via an info toast; the caller keeps the list of files
- * actually opened (`FileItem[]`).
+ * §D - Protect each file read as in `FilesStore.importFiles`. If reading,
+ * creation, or handle storage fails, log the error and skip that file.
+ * Continue to open other selected files. Show the result in an info toast.
+ * Return only the files that opened successfully.
  */
 export async function openFromDisk(
 	deps: DiskSyncDeps,
@@ -107,7 +104,7 @@ async function openFromDiskFsa(deps: DiskSyncDeps, options: ImportOptions): Prom
 			if (content === null) {
 				if (session.cancelled) break;
 				reportError(
-					`ouverture du fichier « ${file.name} »`,
+					`open file "${file.name}"`,
 					new ImportReadError(session.report.issues.at(-1)!.reason)
 				);
 				failed++;
@@ -125,7 +122,7 @@ async function openFromDiskFsa(deps: DiskSyncDeps, options: ImportOptions): Prom
 		} catch (err) {
 			if (item) deps.onImportRollback?.(item.id);
 			// §D - An unreadable file must not fail the whole selection.
-			reportError(`ouverture du fichier « ${file.name} »`, err);
+			reportError(`open file "${file.name}"`, err);
 			failed += 1;
 			session.fail(file.name, err instanceof ImportReadError ? err.reason : 'read');
 		}
@@ -247,7 +244,7 @@ async function ingestDesktopOpens(
 			session.accept();
 		} catch (err) {
 			if (createdItem) deps.onImportRollback?.(createdItem.id);
-			reportError(`ouverture du fichier « ${file.name} »`, err);
+			reportError(`open file "${file.name}"`, err);
 			failed += 1;
 			session.fail(file.name, err instanceof ImportReadError ? err.reason : 'read');
 		}

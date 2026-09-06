@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe('spinnerStore', () => {
-	it("ne s'affiche qu'après 200 ms; dismiss masque", () => {
+	it('shows after 200 ms and hides after dismiss', () => {
 		const dismiss = spinnerStore.show('Export...');
 		expect(spinnerStore.visible).toBe(false); // délai non écoulé
 		vi.advanceTimersByTime(200);
@@ -20,14 +20,14 @@ describe('spinnerStore', () => {
 		expect(spinnerStore.visible).toBe(false);
 	});
 
-	it("dismiss avant 200 ms annule l'affichage (pas de flash)", () => {
+	it('prevents a flash when dismiss occurs before 200 ms', () => {
 		const dismiss = spinnerStore.show('Quick');
 		dismiss();
 		vi.advanceTimersByTime(300);
 		expect(spinnerStore.visible).toBe(false);
 	});
 
-	it("ref-counting : reste visible tant qu'un export tourne", () => {
+	it('stays visible while an export reference remains', () => {
 		const d1 = spinnerStore.show('A');
 		const d2 = spinnerStore.show('B');
 		vi.advanceTimersByTime(200);

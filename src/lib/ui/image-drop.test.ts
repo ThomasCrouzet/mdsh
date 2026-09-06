@@ -49,8 +49,8 @@ function makeStore(initial = 'corps') {
 	return { store, state };
 }
 
-// Construit un faux DragEvent : dataTransfer minimaliste (types + files) plus
-// preventDefault espionnable. `files` mime un FileList (length + index + iterable).
+// Create a fake DragEvent with minimal dataTransfer types and files, plus a preventDefault spy.
+// Make `files` behave like a FileList with length, indexes, and iteration.
 function makeDragEvent(opts: {
 	types?: string[];
 	files?: File[];
@@ -74,8 +74,7 @@ function makeDragEvent(opts: {
 
 describe('appendImagesToActive', () => {
 	beforeEach(() => {
-		// Les assertions de contenu de ce fichier sont en français : on fixe la
-		// locale FR (le défaut applicatif est désormais EN via la couche i18n).
+		// This file checks French content. Set the locale to French because the application default is English.
 		i18n.locale = 'fr';
 		vi.spyOn(notify, 'error');
 		notify.clear();
@@ -85,7 +84,7 @@ describe('appendImagesToActive', () => {
 		notify.clear();
 	});
 
-	it('insère une image valide en data URI dans le fichier actif', async () => {
+	it('inserts a valid data URI image into the active file', async () => {
 		const { store } = makeStore();
 		const img = new File([PNG_BYTES], 'photo.png', { type: 'image/png' });
 		await appendImagesToActive([img], store);
@@ -95,7 +94,7 @@ describe('appendImagesToActive', () => {
 		expect(notify.error).not.toHaveBeenCalled();
 	});
 
-	it('ignore une image trop lourde ET notifie l’utilisateur (plus de skip muet)', async () => {
+	it('ignores an oversized image and notifies the user', async () => {
 		const { store } = makeStore();
 		const big = new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], 'huge.png', { type: 'image/png' });
 		await appendImagesToActive([big], store);
@@ -104,7 +103,7 @@ describe('appendImagesToActive', () => {
 		expect(vi.mocked(notify.error).mock.calls[0]![0]).toMatch(/ignorée|Mo/);
 	});
 
-	it('drop mixte : insère la valide, notifie pour la trop lourde', async () => {
+	it('inserts a valid image and reports an oversized image from one drop', async () => {
 		const { store } = makeStore();
 		const ok = new File([PNG_BYTES], 'ok.png', { type: 'image/png' });
 		const big = new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], 'big.png', { type: 'image/png' });
@@ -113,7 +112,7 @@ describe('appendImagesToActive', () => {
 		expect(notify.error).toHaveBeenCalledOnce();
 	});
 
-	it('crée un fichier si aucun n’est actif', async () => {
+	it('creates a file without an active file', async () => {
 		const { store, state } = makeStore();
 		state.active = null;
 		const img = new File([PNG_BYTES], 'sansactif.png', { type: 'image/png' });
@@ -121,38 +120,38 @@ describe('appendImagesToActive', () => {
 		expect(state.created).toContain('Images.md');
 	});
 
-	it('no-op si aucune image fournie', async () => {
+	it('does nothing without images', async () => {
 		const { store } = makeStore();
 		await appendImagesToActive([], store);
 		expect(store.updateContent).not.toHaveBeenCalled();
 	});
 
-	it('séparateur simple \\n quand le contenu finit déjà par un saut de ligne', async () => {
-		// Contenu déjà terminé par \n : le séparateur ajouté est un seul \n.
-		// On enlève le contenu d'origine pour isoler exactement ce qui a été ajouté.
+	it('uses one newline after content that ends with a newline', async () => {
+		// Content already ends with \n, so add one \n separator.
+		// Remove the original content to isolate the added text.
 		const orig = 'corps\n';
 		const { store } = makeStore(orig);
 		const img = new File([PNG_BYTES], 'p.png', { type: 'image/png' });
 		await appendImagesToActive([img], store);
 		const [, content] = store.updateContent.mock.calls[0]!;
 		const added = content.slice(orig.length);
-		// sep = '\n' (le \n final du contenu n'est pas redoublé) puis le bloc.
+		// Use sep = '\n' without duplicating the final newline, then add the block.
 		expect(added).toMatch(/^\n!\[p\]\(data:image\/png;base64,/);
 		expect(added.startsWith('\n\n')).toBe(false);
 	});
 
-	it('séparateur double \\n\\n quand le contenu ne finit pas par un saut de ligne', async () => {
+	it('uses two newlines after content without a final newline', async () => {
 		const orig = 'corps';
 		const { store } = makeStore(orig);
 		const img = new File([PNG_BYTES], 'p.png', { type: 'image/png' });
 		await appendImagesToActive([img], store);
 		const [, content] = store.updateContent.mock.calls[0]!;
 		const added = content.slice(orig.length);
-		// sep = '\n\n' (ligne vide insérée car le contenu ne finissait pas par \n).
+		// Use sep = '\n\n' to add a blank line because the content did not end with \n.
 		expect(added).toMatch(/^\n\n!\[p\]\(data:image\/png;base64,/);
 	});
 
-	it('plusieurs blocs images séparés par \\n\\n et terminés par \\n', async () => {
+	it('separates image blocks with two newlines and adds a final newline', async () => {
 		const { store } = makeStore('corps\n');
 		const a = new File([PNG_BYTES], 'a.png', { type: 'image/png' });
 		const b = new File([PNG_BYTES], 'b.png', { type: 'image/png' });
@@ -160,25 +159,25 @@ describe('appendImagesToActive', () => {
 		const [, content] = store.updateContent.mock.calls[0]!;
 		expect(content).toContain('![a](data:image/png;base64,');
 		expect(content).toContain('![b](data:image/png;base64,');
-		// Les deux blocs sont séparés par une ligne vide et le doc finit par \n.
+		// Separate the two blocks with a blank line and end the document with \n.
 		expect(content.split('\n\n').length).toBeGreaterThanOrEqual(2);
 		expect(content.endsWith('\n')).toBe(true);
 	});
 
-	it('notifie au pluriel quand plusieurs images sont trop lourdes', async () => {
+	it('uses a plural notification for multiple oversized images', async () => {
 		const { store } = makeStore();
 		const big1 = new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], 'b1.png', { type: 'image/png' });
 		const big2 = new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], 'b2.png', { type: 'image/png' });
 		await appendImagesToActive([big1, big2], store);
 		expect(store.updateContent).not.toHaveBeenCalled();
 		expect(notify.error).toHaveBeenCalledOnce();
-		// Message pluriel : compte d'images.
+		// The plural message includes the image count.
 		expect(vi.mocked(notify.error).mock.calls[0]![0]).toMatch(/2 images/);
 	});
 
-	it('notifie quand une image est illisible (FileReader onerror) et n’insère rien', async () => {
+	it('reports an unreadable image and inserts nothing', async () => {
 		const { store } = makeStore();
-		// FileReader qui échoue : on force la branche `unreadable++`.
+		// Make FileReader fail to exercise the `unreadable++` branch.
 		const FakeReader = class {
 			result: string | null = null;
 			onload: (() => void) | null = null;
@@ -202,7 +201,7 @@ describe('fileToDataUri', () => {
 		vi.unstubAllGlobals();
 	});
 
-	it('résout la data URI sur onload (résultat string)', async () => {
+	it('resolves the data URI string on load', async () => {
 		const FakeReader = class {
 			result: string | null = null;
 			onload: (() => void) | null = null;
@@ -217,7 +216,7 @@ describe('fileToDataUri', () => {
 		expect(out).toBe('data:image/png;base64,AAAA');
 	});
 
-	it('résout null si onload mais résultat non-string (ArrayBuffer)', async () => {
+	it('resolves null when the load result is not a string', async () => {
 		const FakeReader = class {
 			result: ArrayBuffer | null = null;
 			onload: (() => void) | null = null;
@@ -232,7 +231,7 @@ describe('fileToDataUri', () => {
 		expect(out).toBeNull();
 	});
 
-	it('résout null sur onerror', async () => {
+	it('resolves null on error', async () => {
 		const FakeReader = class {
 			result: string | null = null;
 			onload: (() => void) | null = null;
@@ -248,21 +247,21 @@ describe('fileToDataUri', () => {
 });
 
 describe('isFilesDrag', () => {
-	it('vrai pour un drag de fichiers OS', () => {
+	it('returns true for an operating system file drag', () => {
 		expect(isFilesDrag({ dataTransfer: { types: ['Files'] } } as unknown as DragEvent)).toBe(true);
 	});
-	it('faux pour un drag interne (text/plain)', () => {
+	it('returns false for an internal text drag', () => {
 		expect(isFilesDrag({ dataTransfer: { types: ['text/plain'] } } as unknown as DragEvent)).toBe(
 			false
 		);
 	});
-	it('faux si dataTransfer est absent', () => {
+	it('returns false without dataTransfer', () => {
 		expect(isFilesDrag({ dataTransfer: null } as unknown as DragEvent)).toBe(false);
 	});
-	it('faux si types est absent', () => {
+	it('returns false without types', () => {
 		expect(isFilesDrag({ dataTransfer: {} } as unknown as DragEvent)).toBe(false);
 	});
-	it('vrai quand "Files" coexiste avec d’autres types', () => {
+	it('returns true when Files occurs with other types', () => {
 		expect(
 			isFilesDrag({ dataTransfer: { types: ['text/plain', 'Files'] } } as unknown as DragEvent)
 		).toBe(true);
@@ -281,7 +280,7 @@ describe('buildDropHandlers', () => {
 		notify.clear();
 	});
 
-	it('handleDrop : ignore un drag interne (pas de "Files")', async () => {
+	it('ignores an internal drag without Files', async () => {
 		const { store } = makeStore();
 		const setDragOver = vi.fn();
 		const { handleDrop } = buildDropHandlers({ store, setDragOver });
@@ -292,7 +291,7 @@ describe('buildDropHandlers', () => {
 		expect(store.importFiles).not.toHaveBeenCalled();
 	});
 
-	it('handleDrop : Files mais liste vide -> preventDefault + reset dragOver, rien d’autre', async () => {
+	it('prevents an empty Files drop and resets dragOver', async () => {
 		const { store } = makeStore();
 		const setDragOver = vi.fn();
 		const { handleDrop } = buildDropHandlers({ store, setDragOver });
@@ -304,7 +303,7 @@ describe('buildDropHandlers', () => {
 		expect(notify.info).not.toHaveBeenCalled();
 	});
 
-	it('handleDrop : drop mixte markdown + image (importe + insère)', async () => {
+	it('imports Markdown and inserts images from one drop', async () => {
 		const { store } = makeStore();
 		store.importFiles.mockResolvedValueOnce({ created: [{}], skipped: 0, failed: 0 });
 		const setDragOver = vi.fn();
@@ -314,19 +313,19 @@ describe('buildDropHandlers', () => {
 		const e = makeDragEvent({ types: ['Files'], files: [md, img] });
 		await handleDrop(e);
 		expect(setDragOver).toHaveBeenCalledWith(false);
-		// Les markdowns passent par importFiles.
+		// Send Markdown files through importFiles.
 		expect(store.importFiles).toHaveBeenCalledOnce();
 		const [passed] = store.importFiles.mock.calls[0]!;
 		expect((passed as File[]).map((f) => f.name)).toEqual(['doc.md']);
-		// L’image est insérée dans le fichier actif.
+		// Insert the image into the active file.
 		expect(store.updateContent).toHaveBeenCalledOnce();
 		const [, content] = store.updateContent.mock.calls[0]!;
 		expect(content).toContain('![pic](data:image/png;base64,');
-		// Pas de notif "aucun markdown" car created > 0.
+		// Do not show the "no Markdown" notification because created > 0.
 		expect(notify.info).not.toHaveBeenCalled();
 	});
 
-	it('handleDrop : markdowns illisibles -> notifie markdownUnreadable', async () => {
+	it('reports unreadable Markdown files', async () => {
 		const { store } = makeStore();
 		store.importFiles.mockResolvedValueOnce({ created: [], skipped: 0, failed: 2 });
 		const setDragOver = vi.fn();
@@ -336,15 +335,15 @@ describe('buildDropHandlers', () => {
 		await handleDrop(e);
 		expect(notify.error).toHaveBeenCalledOnce();
 		expect(vi.mocked(notify.error).mock.calls[0]![0]).toMatch(/illisible/);
-		// failed > 0 : la branche "aucun markdown reconnu" ne se déclenche pas.
+		// With failed > 0, do not run the "no Markdown recognized" branch.
 		expect(notify.info).not.toHaveBeenCalled();
 	});
 
-	it('handleDrop : que des fichiers non reconnus -> notifie noMarkdown', async () => {
+	it('reports a drop that contains only unrecognized files', async () => {
 		const { store } = makeStore();
 		const setDragOver = vi.fn();
 		const { handleDrop } = buildDropHandlers({ store, setDragOver });
-		// .bin n’est ni image ni markdown (type non vide, extension non md/txt).
+		// A .bin file is not an image or Markdown file because its MIME type is set and its extension differs.
 		const bin = new File(['\x00\x01'], 'data.bin', { type: 'application/octet-stream' });
 		const e = makeDragEvent({ types: ['Files'], files: [bin] });
 		await handleDrop(e);
@@ -354,7 +353,7 @@ describe('buildDropHandlers', () => {
 		expect(vi.mocked(notify.info).mock.calls[0]![0]).toMatch(/Aucun fichier markdown/);
 	});
 
-	it('handleDrop : que des images -> pas de notif noMarkdown', async () => {
+	it('does not report noMarkdown for an image-only drop', async () => {
 		const { store } = makeStore();
 		const setDragOver = vi.fn();
 		const { handleDrop } = buildDropHandlers({ store, setDragOver });
@@ -363,11 +362,11 @@ describe('buildDropHandlers', () => {
 		await handleDrop(e);
 		expect(store.importFiles).not.toHaveBeenCalled();
 		expect(store.updateContent).toHaveBeenCalledOnce();
-		// images.length > 0 : pas de notif "aucun markdown".
+		// With images.length > 0, do not show the "no Markdown" notification.
 		expect(notify.info).not.toHaveBeenCalled();
 	});
 
-	it('handleDragOver : active dragOver sur un drag de fichiers', () => {
+	it('sets dragOver for a file drag', () => {
 		const { store } = makeStore();
 		const setDragOver = vi.fn();
 		const { handleDragOver } = buildDropHandlers({ store, setDragOver });
@@ -377,7 +376,7 @@ describe('buildDropHandlers', () => {
 		expect(setDragOver).toHaveBeenCalledWith(true);
 	});
 
-	it('handleDragOver : no-op sur un drag interne', () => {
+	it('does nothing for an internal drag', () => {
 		const { store } = makeStore();
 		const setDragOver = vi.fn();
 		const { handleDragOver } = buildDropHandlers({ store, setDragOver });
@@ -387,7 +386,7 @@ describe('buildDropHandlers', () => {
 		expect(setDragOver).not.toHaveBeenCalled();
 	});
 
-	it('handleDragLeave : reset dragOver quand relatedTarget est null', () => {
+	it('resets dragOver when relatedTarget is null', () => {
 		const { store } = makeStore();
 		const setDragOver = vi.fn();
 		const { handleDragLeave } = buildDropHandlers({ store, setDragOver });
@@ -395,7 +394,7 @@ describe('buildDropHandlers', () => {
 		expect(setDragOver).toHaveBeenCalledWith(false);
 	});
 
-	it('handleDragLeave : no-op quand relatedTarget existe (drag interne au document)', () => {
+	it('keeps dragOver when relatedTarget exists in the document', () => {
 		const { store } = makeStore();
 		const setDragOver = vi.fn();
 		const { handleDragLeave } = buildDropHandlers({ store, setDragOver });

@@ -56,7 +56,7 @@
 				// frozen indefinitely. We exit the loading state and notify.
 				versions = [];
 				loading = false;
-				reportError("chargement de l'historique de versions", err, {
+				reportError('load version history', err, {
 					notifyUser: t('versionHistory.loadError')
 				});
 				tick().then(() => closeButton?.focus());

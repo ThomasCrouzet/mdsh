@@ -258,9 +258,8 @@ export async function writeHandle(handle: FileSystemFileHandle, content: string)
  * Returns a `{ id, handle }` array ordered by IDB's internal order (insertion
  * order for an object store without an index).
  *
- * Fail-soft: if IDB is unavailable (private mode on some browsers, quota
- * exceeded, FSA support absent…) returns `[]` rather than throwing - the UI
- * panel will display "no link" instead of crashing.
+ * Returns an empty array when IndexedDB or FSA is unavailable, or when the
+ * quota is exceeded. This lets the panel show that no link exists.
  */
 export async function listHandles(): Promise<Array<{ id: string; handle: FileSystemFileHandle }>> {
 	const all = await listDiskLinks();

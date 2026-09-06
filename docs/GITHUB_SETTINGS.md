@@ -1,13 +1,13 @@
 # GitHub repository settings checklist
 
-This file records remote settings for a maintainer to apply manually. Repository automation must not change them.
+This file records settings that a maintainer must apply manually. Repository automation must not change them.
 
 ## General
 
 - Description: `Local-first offline Markdown workspace for web and Desktop Beta`.
 - Website: `https://thomascrouzet.github.io/mdsh/`.
 - Topics: `markdown`, `markdown-editor`, `wysiwyg`, `local-first`, `offline-first`, `privacy`, `pwa`, `svelte`, `sveltekit`, `tauri`, `typescript`.
-- Enable Issues. Discussions are optional and should be enabled only if the maintainer wants another support surface.
+- Enable Issues. Enable Discussions only if the maintainer wants another support channel.
 - Enable Private Vulnerability Reporting and verify the private advisory link in `SECURITY.md`.
 - Keep GitHub Pages source set to GitHub Actions.
 
@@ -19,7 +19,7 @@ This file records remote settings for a maintainer to apply manually. Repository
 - Block force pushes and branch deletion.
 - Require these checks: `check`, `e2e`, both `build` matrix entries, `lighthouse`, `validate-desktop`, `dependency-review`, `dependency-audit`, both `codeql` matrix entries, and `secrets`.
 - Review the exact check names after the first workflow run because GitHub displays matrix suffixes.
-- Merge Dependabot pull requests manually after required checks. The custom token-based auto-merge workflow was removed so a merge always produces the normal post-merge `push` workflows.
+- Merge Dependabot pull requests manually after required checks pass. The removed token-based workflow bypassed the normal post-merge `push` workflows.
 
 ## Release and deployment verification
 

@@ -1,18 +1,17 @@
 import { expect, type Page } from '@playwright/test';
 
 /**
- * Purge toutes les IndexedDB de l'app avant un test - assure un état propre
- * (pas de fichiers restants, pas de corbeille persistée).
- * Force par défaut le mode 'source' via localStorage : évite le lazy-load
- * de Milkdown Crepe dans les tests (gain temps + déterminisme).
+ * Delete all app IndexedDB databases before a test to get a clean state.
+ * Select source mode in localStorage by default. This prevents the Milkdown Crepe
+ * lazy load and makes tests faster and deterministic.
  */
 export async function resetAppState(
 	page: Page,
 	opts: { mode?: 'wysiwyg' | 'source' | 'read' } = {}
 ) {
 	const mode = opts.mode ?? 'source';
-	// /api est exclu du fallback du service worker: même un contexte déjà
-	// contrôlé doit naviguer vers ce document neutre sans exécuter l'app.
+	// The service worker fallback excludes /api. A controlled context must still open
+	// this neutral document without running the app.
 	const resetPath = '/api/__mdsh_e2e_reset__';
 	const resetRoute = '**' + resetPath;
 	await page.route(resetRoute, (route) =>
@@ -53,9 +52,8 @@ export async function resetAppState(
 }
 
 /**
- * Crée un premier fichier en cliquant le bouton "Nouveau fichier" du
- * Welcome screen (situé dans <main>). Attend que la toolbar reflète
- * le fichier actif via son input de renommage.
+ * Create the first file from the Welcome screen button in `<main>`.
+ * Wait until the toolbar rename input shows the active file.
  */
 export async function createFirstFile(page: Page) {
 	// Prefer data-testid (locale-stable). Fallback: FR label in <main>.
@@ -68,9 +66,7 @@ export async function createFirstFile(page: Page) {
 			.getByRole('button', { name: /Nouveau fichier/ })
 			.click();
 	}
-	// §B1.7/B1.8 - l'aria-label inclut maintenant des hints clavier
-	// ("Nom du fichier (Entrée pour valider, Échap pour annuler)") ; on
-	// match par préfixe.
+	// §B1.7/B1.8 - The accessible name includes keyboard hints. Match its prefix.
 	await expect(page.locator('input[aria-label^="Nom du fichier"]')).toBeVisible({
 		timeout: 10_000
 	});
@@ -106,45 +102,40 @@ export async function createFirstFile(page: Page) {
 		.toBeGreaterThan(0);
 }
 
-/** Ouvre la palette via le bouton toolbar (évite les conflits keyboard). */
+/** Open the command palette from the toolbar button. */
 export async function openPalette(page: Page) {
 	await page.getByRole('button', { name: 'Palette de commandes' }).click();
 	await expect(page.getByRole('dialog', { name: 'Palette de commandes' })).toBeVisible();
 }
 
-/** Bascule en mode source via le bouton toolbar (CodeMirror déterministe). */
+/** Select source mode from the toolbar for deterministic CodeMirror behavior. */
 export async function switchToSource(page: Page) {
-	// Le sélecteur du mode est `role="radio"` dans un radiogroup, pas `button`.
-	// On utilise `data-mode` qui est unique et stable.
+	// The mode control has `role="radio"`. Use its unique and stable `data-mode` value.
 	await page.locator('button[data-mode="source"]').click();
 	await expect(page.locator('.cm-content').first()).toBeVisible({ timeout: 10_000 });
 }
 
 /**
- * Renomme le fichier actif via l'input toolbar. Le nom apparaît tel quel dans
- * la sidebar (sauf si le contenu fournit un YAML `title:` qui prend la priorité).
+ * Rename the active file through the toolbar input. The sidebar shows this name
+ * unless a YAML `title` value has priority.
  */
 export async function renameActiveFile(page: Page, newName: string) {
 	const input = page.locator('input[aria-label^="Nom du fichier"]');
 	await input.waitFor({ timeout: 10_000 });
 	await input.fill(newName);
 	await input.press('Enter');
-	// Petit délai pour laisser le flash success (800 ms) retomber et le store
-	// propager le rename vers la sidebar avant qu'un test consulte le DOM.
+	// Wait for the 800 ms success flash and for the store to update the sidebar.
 	await page.waitForTimeout(900);
 }
 
 /**
- * Écrit du contenu dans CodeMirror (mode source). Remplace l'intégralité de
- * l'éditeur - sélection complète puis insertText. Suppose qu'on est déjà en
- * mode source (cf. resetAppState avec mode = 'source').
+ * Replace all CodeMirror content in source mode. Select all text, then insert text.
+ * resetAppState must already have selected source mode.
  */
 export async function writeSourceContent(page: Page, content: string) {
-	// Garantit explicitement le mode source plutôt que de dépendre de la
-	// restauration asynchrone de `mdsh:mode` (localStorage → onMount), fragile
-	// sous charge : l'automatisation peut créer un fichier avant que le mode
-	// soit restauré, laissant l'app en WYSIWYG (Milkdown, pas de .cm-content).
-	// Même approche que golden-path.spec.ts. Clic idempotent si déjà en source.
+	// Select source mode explicitly. Async restoration of `mdsh:mode` can finish after
+	// automation creates a file and leave the app in WYSIWYG mode without `.cm-content`.
+	// The click is idempotent when source mode is already active.
 	const sourceBtn = page.locator('button[data-mode="source"]');
 	if (await sourceBtn.count()) await sourceBtn.click();
 	const editor = page.locator('.cm-content').first();
@@ -153,7 +144,7 @@ export async function writeSourceContent(page: Page, content: string) {
 	await page.keyboard.press('ControlOrMeta+a');
 	await page.keyboard.press('Delete');
 	await page.keyboard.insertText(content);
-	// Debounce save 400 ms + marge pour que `dirty` soit clean et la persistance OK.
+	// Wait for the 400 ms save delay and a margin so persistence can finish.
 	await page.waitForTimeout(600);
 }
 
@@ -163,23 +154,21 @@ export interface SeedFile {
 }
 
 /**
- * Seed `n` fichiers via l'UI (clic Welcome / Sidebar → rename → write).
- * Plus lent qu'un seed direct via IDB mais robuste face aux migrations de
- * schéma Dexie : on passe par les mêmes APIs qu'un utilisateur. Le dernier
- * fichier reste actif (utile pour pré-positionner un test sur le contenu
- * "principal" à exercer).
+ * Seed `n` files through the UI: create, rename, and write each file.
+ * This is slower than direct IndexedDB insertion, but it uses the user APIs and
+ * supports Dexie schema migrations. The last file stays active.
  */
 export async function seedFiles(page: Page, files: SeedFile[]) {
 	if (files.length === 0) return;
 	const [first, ...rest] = files;
-	// 1er fichier : bouton du Welcome screen
+	// Create the first file from the Welcome screen.
 	await page
 		.locator('main')
 		.getByRole('button', { name: /Nouveau fichier/ })
 		.click();
 	await renameActiveFile(page, first.name);
 	await writeSourceContent(page, first.content);
-	// Fichiers suivants : bouton "Nouveau fichier" de la Sidebar
+	// Create later files from the sidebar button.
 	for (const f of rest) {
 		await page.locator('aside button[aria-label^="Nouveau fichier"]').first().click();
 		await renameActiveFile(page, f.name);

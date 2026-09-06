@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 describe('templatesStore', () => {
-	it('load : lit les modèles utilisateur, plus récents en tête', async () => {
+	it('loads the latest user templates first', async () => {
 		await db.templates.bulkPut([
 			{ id: 'a', name: 'A', content: 'x', builtin: false, createdAt: 1, updatedAt: 1 },
 			{ id: 'b', name: 'B', content: 'y', builtin: false, createdAt: 2, updatedAt: 2 }
@@ -22,7 +22,7 @@ describe('templatesStore', () => {
 		expect(templatesStore.userTemplates.map((t) => t.id)).toEqual(['b', 'a']);
 	});
 
-	it('load : idempotent (loaded=true coupe la relecture)', async () => {
+	it('does not load again when loaded is true', async () => {
 		await templatesStore.load();
 		await db.templates.put({
 			id: 'late',
@@ -36,7 +36,7 @@ describe('templatesStore', () => {
 		expect(templatesStore.userTemplates.some((t) => t.id === 'late')).toBe(false);
 	});
 
-	it('choices : builtins d’abord puis modèles utilisateur, flag builtin correct', async () => {
+	it('lists built-in templates before user templates with the correct flag', async () => {
 		await templatesStore.save('Perso', '# Perso');
 		const choices = templatesStore.choices;
 		expect(choices.length).toBe(BUILTIN_TEMPLATES.length + 1);
@@ -44,36 +44,35 @@ describe('templatesStore', () => {
 		expect(choices.at(-1)).toMatchObject({ name: 'Perso', builtin: false });
 	});
 
-	it('save : persiste, retourne la row et l’ajoute en tête', async () => {
+	it('persists and returns a saved row at the start of the list', async () => {
 		const row = await templatesStore.save('Mon modèle', '# Contenu');
 		expect(row).not.toBeNull();
-		// Note : les tableaux $state de Svelte 5 proxient leurs éléments, donc on
-		// compare par id (pas d'égalité de référence avec l'objet retourné).
+		// Svelte 5 $state arrays proxy their elements. Compare IDs instead of object references.
 		expect(templatesStore.userTemplates[0]?.id).toBe(row!.id);
 		expect(await db.templates.get(row!.id)).toMatchObject({ name: 'Mon modèle' });
 	});
 
-	it('save : nom vide -> nom de repli non vide', async () => {
+	it('uses a non-empty fallback for an empty name', async () => {
 		const row = await templatesStore.save('   ', 'x');
 		expect(row).not.toBeNull();
 		expect(row!.name.trim().length).toBeGreaterThan(0);
 	});
 
-	it('delete : retire un modèle utilisateur de la liste et de la base', async () => {
+	it('deletes a user template from the list and database', async () => {
 		const row = await templatesStore.save('X', 'x');
 		await templatesStore.delete(row!.id);
 		expect(templatesStore.userTemplates.find((t) => t.id === row!.id)).toBeUndefined();
 		expect(await db.templates.get(row!.id)).toBeUndefined();
 	});
 
-	it('delete : no-op sur un id builtin: (protégé)', async () => {
+	it('does not delete a protected built-in ID', async () => {
 		await templatesStore.save('Y', 'y');
 		const before = templatesStore.userTemplates.length;
 		await templatesStore.delete('builtin:daily');
 		expect(templatesStore.userTemplates.length).toBe(before);
 	});
 
-	it('resolve : un builtin renvoie name + content', () => {
+	it('returns name and content for a built-in template', () => {
 		const b = BUILTIN_TEMPLATES[0]!;
 		const r = templatesStore.resolve(b.id, new Date('2026-01-15T10:00:00Z'));
 		expect(r).not.toBeNull();
@@ -81,18 +80,18 @@ describe('templatesStore', () => {
 		expect(typeof r!.content).toBe('string');
 	});
 
-	it('resolve : un modèle utilisateur renvoie {name}.md + content', async () => {
+	it('returns a Markdown name and content for a user template', async () => {
 		const row = await templatesStore.save('Notes', '# Titre');
 		const r = templatesStore.resolve(row!.id, new Date('2026-01-15T10:00:00Z'));
 		expect(r!.name).toBe('Notes.md');
 		expect(typeof r!.content).toBe('string');
 	});
 
-	it('resolve : id inconnu -> null', () => {
+	it('returns null for an unknown ID', () => {
 		expect(templatesStore.resolve('inconnu')).toBeNull();
 	});
 
-	it('reload : force une relecture depuis Dexie', async () => {
+	it('loads from Dexie again after reload', async () => {
 		await templatesStore.load();
 		await db.templates.put({
 			id: 'z',

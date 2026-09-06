@@ -197,7 +197,7 @@
 					try {
 						return await filesStore.openPathsFromDesktop(paths);
 					} catch (err) {
-						reportError('ouverture depuis le shell desktop', err, {
+						reportError('open from desktop shell', err, {
 							notifyUser: t('page.openFromDiskError')
 						});
 						throw err;
@@ -264,7 +264,7 @@
 				// User cancellation (AbortError) is already absorbed in fsa/disk-tauri;
 				// here it is a real failure (permission, security, read).
 				openThrew = true;
-				reportError('ouverture depuis le disque', err, {
+				reportError('open from disk', err, {
 					notifyUser: t('page.openFromDiskError')
 				});
 			}
@@ -395,7 +395,7 @@
 		try {
 			await filesStore.saveActiveToDisk();
 		} catch (err) {
-			reportError('enregistrement sur le disque', err, {
+			reportError('save to disk', err, {
 				notifyUser: t('page.saveToDiskError')
 			});
 		} finally {
@@ -418,11 +418,10 @@
 	 * panel (`@codemirror/search`) which already covers search, replace,
 	 * case-sensitive, regex and F3/Shift-F3 navigation.
 	 *
-	 * WYSIWYG trade-off: ProseMirror (Milkdown / Crepe) has no equivalent
-	 * built-in search and a custom overlay would be fragile (textNodes split by
-	 * marks, decorations to recompute on every edit). So we temporarily switch to
-	 * `source` mode when the user presses `⌘F` from WYSIWYG / reading - UX similar
-	 * to Typora (which switches to raw view for find). Manual return via `⌘E`.
+	 * ProseMirror has no equivalent built-in search. A custom overlay would need
+	 * to track split text nodes and recalculate decorations after each edit.
+	 * Therefore, `⌘F` switches WYSIWYG or reading mode to source mode. Use `⌘E`
+	 * to return.
 	 */
 	function openInFileSearch() {
 		if (!filesStore.active) return;
@@ -493,7 +492,7 @@
 
 	function handleWindowDrag(event: DragEvent, handler: (event: DragEvent) => void | Promise<void>) {
 		if (!canInteract) {
-			// Un dépôt pendant le chargement ne doit ni importer ni ouvrir le fichier dans le navigateur.
+			// Ignore drops during startup. Do not import or open the file in the browser.
 			event.preventDefault();
 			return;
 		}

@@ -1,19 +1,18 @@
-// Tests unitaires de Toolbar.svelte via @testing-library/svelte.
+// Unit tests for Toolbar.svelte with @testing-library/svelte.
 //
-// Toolbar expose tous ses callbacks via $props() (onToggleSidebar, onSetMode,
-// onExport, onExportPDF, onOpenPalette, onSaveToDisk). Elle lit néanmoins
-// `filesStore.active` pour conditionner les boutons (disabled si pas de fichier
-// actif) et afficher le nom du fichier. On seed le store avant chaque test.
+// Toolbar exposes all callbacks through $props(): onToggleSidebar, onSetMode,
+// onExport, onExportPDF, onOpenPalette, and onSaveToDisk.
+// It reads `filesStore.active` to control buttons and show the file name. Set the store before each test.
 //
-// Couverture :
-//  - Rendu du radiogroup « Mode d'édition » avec les 3 modes.
-//  - aria-checked reflète le mode actif passé en prop.
-//  - Clic sur un bouton de mode appelle onSetMode avec le bon mode.
-//  - Navigation clavier ArrowRight/ArrowLeft dans le radiogroup.
-//  - Bouton palette toujours présent et déclenche onOpenPalette au clic.
-//  - Boutons export/PDF désactivés (disabled) si pas de fichier actif.
-//  - Boutons export/PDF actifs si un fichier est actif.
-//  - Affichage du nom du fichier actif dans l'input de rename.
+// Coverage:
+//  - Render the "Editing mode" radio group with three modes.
+//  - Make aria-checked show the active mode from the prop.
+//  - Call onSetMode with the correct mode when a mode button is clicked.
+//  - Support ArrowRight and ArrowLeft navigation in the radio group.
+//  - Always show the palette button and call onOpenPalette on click.
+//  - Disable export and PDF buttons when no file is active.
+//  - Enable export and PDF buttons when a file is active.
+//  - Show the active file name in the rename input.
 
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
@@ -50,7 +49,7 @@ function seedStore(file: FileItem | null) {
 	}
 }
 
-/** Props minimaux nécessaires pour rendre Toolbar. */
+/** Minimum props required to render Toolbar. */
 function defaultProps(mode: EditMode = 'wysiwyg') {
 	return {
 		mode,
@@ -69,11 +68,11 @@ beforeEach(() => {
 });
 
 // ------------------------------------------------------------------
-// Tests - radiogroup des modes
+// Test the mode radio group.
 // ------------------------------------------------------------------
 
-describe("Toolbar - radiogroup modes d'édition", () => {
-	it('affiche les 3 boutons de mode', () => {
+describe('Toolbar - edit mode radio group', () => {
+	it('shows the three mode buttons', () => {
 		const props = defaultProps('wysiwyg');
 		render(Toolbar, { props });
 
@@ -82,7 +81,7 @@ describe("Toolbar - radiogroup modes d'édition", () => {
 		expect(screen.getByRole('radio', { name: /lecture/i })).toBeInTheDocument();
 	});
 
-	it('marque le mode wysiwyg comme coché quand mode="wysiwyg"', () => {
+	it('checks WYSIWYG mode when mode is wysiwyg', () => {
 		render(Toolbar, { props: defaultProps('wysiwyg') });
 
 		expect(screen.getByRole('radio', { name: /wysiwyg/i })).toHaveAttribute('aria-checked', 'true');
@@ -93,7 +92,7 @@ describe("Toolbar - radiogroup modes d'édition", () => {
 		);
 	});
 
-	it('marque le mode source comme coché quand mode="source"', () => {
+	it('checks source mode when mode is source', () => {
 		render(Toolbar, { props: defaultProps('source') });
 
 		expect(screen.getByRole('radio', { name: /source/i })).toHaveAttribute('aria-checked', 'true');
@@ -103,7 +102,7 @@ describe("Toolbar - radiogroup modes d'édition", () => {
 		);
 	});
 
-	it('marque le mode lecture comme coché quand mode="read"', () => {
+	it('checks read mode when mode is read', () => {
 		render(Toolbar, { props: defaultProps('read') });
 
 		expect(screen.getByRole('radio', { name: /lecture/i })).toHaveAttribute('aria-checked', 'true');
@@ -111,11 +110,11 @@ describe("Toolbar - radiogroup modes d'édition", () => {
 });
 
 // ------------------------------------------------------------------
-// Tests - callbacks des modes
+// Test mode callbacks.
 // ------------------------------------------------------------------
 
-describe('Toolbar - callbacks de mode', () => {
-	it('appelle onSetMode("source") au clic sur Mode source', async () => {
+describe('Toolbar - mode callbacks', () => {
+	it('calls onSetMode with source after a Source mode click', async () => {
 		const user = userEvent.setup();
 		const props = defaultProps('wysiwyg');
 		render(Toolbar, { props });
@@ -126,7 +125,7 @@ describe('Toolbar - callbacks de mode', () => {
 		expect(props.onSetMode).toHaveBeenCalledWith('source');
 	});
 
-	it('appelle onSetMode("read") au clic sur Mode lecture', async () => {
+	it('calls onSetMode with read after a Read mode click', async () => {
 		const user = userEvent.setup();
 		const props = defaultProps('wysiwyg');
 		render(Toolbar, { props });
@@ -137,7 +136,7 @@ describe('Toolbar - callbacks de mode', () => {
 		expect(props.onSetMode).toHaveBeenCalledWith('read');
 	});
 
-	it('appelle onSetMode("wysiwyg") au clic sur Mode WYSIWYG', async () => {
+	it('calls onSetMode with wysiwyg after a WYSIWYG mode click', async () => {
 		const user = userEvent.setup();
 		const props = defaultProps('source');
 		render(Toolbar, { props });
@@ -150,11 +149,11 @@ describe('Toolbar - callbacks de mode', () => {
 });
 
 // ------------------------------------------------------------------
-// Tests - navigation clavier dans le radiogroup
+// Test keyboard navigation in the radio group.
 // ------------------------------------------------------------------
 
-describe('Toolbar - navigation clavier radiogroup', () => {
-	it('ArrowRight depuis wysiwyg appelle onSetMode("source")', async () => {
+describe('Toolbar - radio group keyboard navigation', () => {
+	it('calls onSetMode with source after ArrowRight from wysiwyg', async () => {
 		const user = userEvent.setup();
 		const props = defaultProps('wysiwyg');
 		render(Toolbar, { props });
@@ -166,7 +165,7 @@ describe('Toolbar - navigation clavier radiogroup', () => {
 		expect(props.onSetMode).toHaveBeenCalledWith('source');
 	});
 
-	it('ArrowLeft depuis wysiwyg appelle onSetMode("read") (cycle)', async () => {
+	it('wraps to read mode after ArrowLeft from wysiwyg', async () => {
 		const user = userEvent.setup();
 		const props = defaultProps('wysiwyg');
 		render(Toolbar, { props });
@@ -180,16 +179,16 @@ describe('Toolbar - navigation clavier radiogroup', () => {
 });
 
 // ------------------------------------------------------------------
-// Tests - bouton palette
+// Test the palette button.
 // ------------------------------------------------------------------
 
-describe('Toolbar - bouton palette', () => {
-	it('affiche le bouton palette de commandes', () => {
+describe('Toolbar - command palette button', () => {
+	it('shows the command palette button', () => {
 		render(Toolbar, { props: defaultProps() });
 		expect(screen.getByRole('button', { name: /palette de commandes/i })).toBeInTheDocument();
 	});
 
-	it('appelle onOpenPalette au clic sur la palette', async () => {
+	it('calls onOpenPalette after a palette button click', async () => {
 		const user = userEvent.setup();
 		const props = defaultProps();
 		render(Toolbar, { props });
@@ -201,27 +200,27 @@ describe('Toolbar - bouton palette', () => {
 });
 
 // ------------------------------------------------------------------
-// Tests - état disabled selon fichier actif
+// Test the disabled state with and without an active file.
 // ------------------------------------------------------------------
 
-describe('Toolbar - boutons désactivés sans fichier actif', () => {
-	it('le bouton Exporter est désactivé si pas de fichier actif', () => {
+describe('Toolbar - disabled buttons without an active file', () => {
+	it('disables the Export button without an active file', () => {
 		render(Toolbar, { props: defaultProps() });
 		expect(screen.getByRole('button', { name: /^exporter$/i })).toBeDisabled();
 	});
 
-	it('le bouton Exporter en PDF est désactivé si pas de fichier actif', () => {
+	it('disables the PDF export button without an active file', () => {
 		render(Toolbar, { props: defaultProps() });
 		expect(screen.getByRole('button', { name: /exporter en pdf/i })).toBeDisabled();
 	});
 
-	it('le bouton Exporter est actif si un fichier est actif', () => {
+	it('enables the Export button with an active file', () => {
 		seedStore(makeFile());
 		render(Toolbar, { props: defaultProps() });
 		expect(screen.getByRole('button', { name: /^exporter$/i })).not.toBeDisabled();
 	});
 
-	it('le bouton Exporter en PDF est actif si un fichier est actif', () => {
+	it('enables the PDF export button with an active file', () => {
 		seedStore(makeFile());
 		render(Toolbar, { props: defaultProps() });
 		expect(screen.getByRole('button', { name: /exporter en pdf/i })).not.toBeDisabled();
@@ -229,11 +228,11 @@ describe('Toolbar - boutons désactivés sans fichier actif', () => {
 });
 
 // ------------------------------------------------------------------
-// Tests - affichage du nom de fichier
+// Test the file name display.
 // ------------------------------------------------------------------
 
-describe('Toolbar - nom du fichier actif', () => {
-	it("affiche le nom du fichier sans extension dans l'input", () => {
+describe('Toolbar - active file name', () => {
+	it('shows the active file name without its extension', () => {
 		seedStore(makeFile({ name: 'mon-rapport.md' }));
 		render(Toolbar, { props: defaultProps() });
 
@@ -241,23 +240,23 @@ describe('Toolbar - nom du fichier actif', () => {
 		expect(input.value).toBe('mon-rapport');
 	});
 
-	it('affiche « Aucun fichier ouvert » si pas de fichier actif', () => {
+	it('shows the no-file label without an active file', () => {
 		render(Toolbar, { props: defaultProps() });
 		expect(screen.getByText(/aucun fichier ouvert/i)).toBeInTheDocument();
 	});
 });
 
 // ------------------------------------------------------------------
-// Tests - callback sidebar
+// Test the sidebar callback.
 // ------------------------------------------------------------------
 
-describe('Toolbar - bouton sidebar', () => {
-	it('appelle onToggleSidebar au clic sur le bouton Menu', async () => {
+describe('Toolbar - sidebar button', () => {
+	it('calls onToggleSidebar after a Menu button click', async () => {
 		const user = userEvent.setup();
 		const props = defaultProps();
 		render(Toolbar, { props });
 
-		// Il y a deux boutons Menu (mobile + desktop) - on prend le premier visible.
+		// There are mobile and desktop Menu buttons. Use the first visible button.
 		const menuButtons = screen.getAllByRole('button', { name: /^menu$|^afficher/i });
 		expect(menuButtons.length).toBeGreaterThan(0);
 		await user.click(menuButtons[0]!);

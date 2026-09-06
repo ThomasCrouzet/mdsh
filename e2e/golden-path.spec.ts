@@ -1,36 +1,35 @@
 import { test, expect } from '@playwright/test';
 import { resetAppState, createFirstFile, switchToSource, writeSourceContent } from './helpers';
 
-test.describe('Golden path - persistance cycle de vie', () => {
+test.describe('Golden path - persistence lifecycle', () => {
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page);
 	});
 
-	test('crée un fichier, tape du contenu, recharge, contenu intact', async ({ page }) => {
+	test('creates a file and keeps its content after reload', async ({ page }) => {
 		await createFirstFile(page);
-		// Bascule en mode source via le bouton UI - garantit CodeMirror visible
-		// y compris sur WebKit où le localStorage forcé par resetAppState peut ne
-		// pas être persisté avant le reload (comportement WebKit sandbox IDB).
+		// Select source mode in the UI so CodeMirror is visible. On WebKit,
+		// resetAppState can reload before localStorage persists the mode.
 		await switchToSource(page);
 		const cm = page.locator('.cm-content').first();
 		await expect(cm).toBeVisible({ timeout: 10_000 });
 
 		const payload = 'Bonjour\n\nContenu de test E2E';
 		await cm.click();
-		// CodeMirror est un contenteditable - on tape via le clavier pour simuler l'input réel.
+		// Type into the CodeMirror contenteditable to simulate user input.
 		await page.keyboard.type(payload);
 
-		// Attendre le debounce save (400 ms) + marge
+		// Wait for the 400 ms save delay and a safety margin.
 		await page.waitForTimeout(800);
 
-		// Recharger
+		// Reload the page.
 		await page.reload();
-		// Sur WebKit, le mode n'est pas toujours restauré via localStorage après reload
-		// → on repasse explicitement en source avant de lire le contenu.
+		// WebKit does not always restore the mode after reload. Select source mode before
+		// the content check.
 		await switchToSource(page);
 		const cmAfter = page.locator('.cm-content').first();
 		await expect(cmAfter).toBeVisible({ timeout: 10_000 });
-		// CodeMirror rend chaque ligne dans un .cm-line ; on assemble pour comparer.
+		// CodeMirror renders each line in `.cm-line`. Join the lines for comparison.
 		await expect(async () => {
 			const text = await cmAfter.evaluate((el) => {
 				const lines = el.querySelectorAll('.cm-line');
@@ -44,9 +43,7 @@ test.describe('Golden path - persistance cycle de vie', () => {
 		}).toPass({ timeout: 10_000 });
 	});
 
-	test('chargement lent: bloque clic, raccourci et dépôt puis conserve les créations', async ({
-		page
-	}) => {
+	test('blocks input during a slow load and keeps later creations', async ({ page }) => {
 		await createFirstFile(page);
 		await writeSourceContent(page, 'Document conservé avant rechargement');
 		const readDrafts = () =>
@@ -69,8 +66,8 @@ test.describe('Golden path - persistance cycle de vie', () => {
 			.poll(async () => (await readDrafts()).map((row) => row.content))
 			.toEqual(['Document conservé avant rechargement']);
 
-		// Retient le résultat initial réellement lu par Dexie. La transaction reste
-		// vivante avec count(), sans retarder le réseau ni changer les données.
+		// Keep the initial result that Dexie read. count() keeps the transaction active
+		// without a network delay or data change.
 		await page.addInitScript(() => {
 			if (sessionStorage.getItem('mdsh:test:read-gate')) return;
 			sessionStorage.setItem('mdsh:test:read-gate', 'used');
@@ -158,15 +155,15 @@ test.describe('Golden path - persistance cycle de vie', () => {
 		expect((await readDrafts()).map((row) => row.content).sort()).toEqual(expected);
 	});
 
-	test('la sidebar liste les fichiers après création', async ({ page }) => {
+	test('lists files in the sidebar after creation', async ({ page }) => {
 		await createFirstFile(page);
 
-		// Ouvrir la sidebar explicitement (peut être fermée selon la largeur viewport)
+		// Open the sidebar because the viewport width can close it.
 		const toggle = page.getByRole('button', { name: 'Afficher/masquer le panneau' });
 		if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
 		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 
-		// Un item de fichier doit apparaître dans l'aside
+		// A file item must appear in the sidebar.
 		const sidebarItem = page
 			.locator('aside')
 			.getByText(/Sans titre/)

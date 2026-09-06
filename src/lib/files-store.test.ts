@@ -4,10 +4,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Dexie from 'dexie';
 import { db, type DraftRow } from './db';
 
-// Les wrappers d'export et de disque délèguent à des modules purs : on les mocke
-// pour vérifier la délégation (args + cible) sans déclencher de vrai export ni la
-// File System Access API. Les mocks sont hoistés et s'appliquent à tout le fichier ;
-// les autres suites n'en dépendent pas (elles testent l'orchestration en mémoire).
+// Export and disk wrappers delegate to pure modules. Mock them to verify the arguments and target.
+// This avoids actual exports and File System Access API calls. Hoisted mocks apply to this file.
+// Other suites do not use these mocks because they test in-memory orchestration.
 vi.mock('./export-ops', () => ({
 	exportMarkdown: vi.fn(),
 	exportAllZip: vi.fn(async () => {}),
@@ -71,10 +70,9 @@ import { filesStore } from './files.svelte';
 import { notify } from './notify.svelte';
 import type { CrossTabMessage } from './cross-tab';
 
-// Tests de l'orchestrateur FilesStore (singleton runes) sous fake-indexeddb.
-// La logique pure injectée (file-utils, trash, meta-index...) a ses propres
-// suites ; ici on cible les chemins d'orchestration : création, édition, dirty,
-// corbeille + restauration, fermeture, réordonnancement, sélection multiple,
+// Test the FilesStore rune singleton with fake-indexeddb.
+// The injected pure logic has separate test suites.
+// Test orchestration here: create, edit, dirty state, trash, restore, close, reorder, and multi-select.
 // chargement/rechargement, import, backlinks.
 
 function draftRow(id: string, name: string, content = '', order = 0): DraftRow {
@@ -115,8 +113,8 @@ beforeEach(async () => {
 		db.workspaces.clear()
 	]);
 	localStorage.clear();
-	// reload(false) annule les saves/timers en cours, vide l'état runes et relit
-	// depuis la base (désormais vide) : reset propre du singleton entre tests.
+	// reload(false) cancels pending saves and timers, clears rune state, and reads the empty database.
+	// This resets the singleton between tests.
 	await filesStore.reload(false);
 });
 
@@ -126,7 +124,7 @@ afterEach(() => {
 });
 
 describe('createNew', () => {
-	it("crée un fichier, l'ajoute et l'active", () => {
+	it('creates, adds, and activates a file', () => {
 		const f = filesStore.createNew('a.md', '# A');
 		expect(filesStore.files.map((x) => x.id)).toContain(f.id);
 		expect(filesStore.activeId).toBe(f.id);
@@ -134,14 +132,14 @@ describe('createNew', () => {
 		expect(f.dirty).toBe(true);
 	});
 
-	it('déduplique les noms (uniqueName)', () => {
+	it('deduplicates names with uniqueName', () => {
 		filesStore.createNew('note.md', '');
 		const b = filesStore.createNew('note.md', '');
 		expect(b.name).not.toBe('note.md');
 		expect(b.name).toMatch(/note-2\.md|note \(2\)\.md|note-1\.md/);
 	});
 
-	it("utilise un nom par défaut quand aucun n'est fourni", () => {
+	it('uses a default name when none is provided', () => {
 		const f = filesStore.createNew();
 		expect(f.name.endsWith('.md')).toBe(true);
 		expect(f.name.length).toBeGreaterThan(3);
@@ -149,14 +147,14 @@ describe('createNew', () => {
 });
 
 describe('updateContent', () => {
-	it('met à jour le contenu et marque dirty', () => {
+	it('updates content and marks it dirty', () => {
 		const f = filesStore.createNew('a.md', 'old');
 		filesStore.updateContent(f.id, 'new');
 		expect(filesStore.files.find((x) => x.id === f.id)?.content).toBe('new');
 		expect(filesStore.files.find((x) => x.id === f.id)?.dirty).toBe(true);
 	});
 
-	it('no-op si le contenu est identique', () => {
+	it('does nothing when content is identical', () => {
 		const f = filesStore.createNew('a.md', 'same');
 		const before = filesStore.files.find((x) => x.id === f.id)?.updatedAt;
 		filesStore.updateContent(f.id, 'same');
@@ -164,8 +162,8 @@ describe('updateContent', () => {
 	});
 });
 
-describe('close + restore (corbeille)', () => {
-	it('ferme une vue sans perdre le document ou son historique après rechargement', async () => {
+describe('close and restore from trash', () => {
+	it('closes a view without document or history loss after reload', async () => {
 		const file = filesStore.createNew('conserver.md', 'texte jamais exporté');
 		await filesStore.flushPendingAwait();
 		await db.versions.put({
@@ -189,7 +187,7 @@ describe('close + restore (corbeille)', () => {
 		expect((await db.drafts.get(file.id))?.open).toBe(true);
 	});
 
-	it('une suppression reste récupérable au-delà de cinq secondes', async () => {
+	it('keeps a deleted document recoverable after five seconds', async () => {
 		const file = filesStore.createNew('supprimer.md', 'récupérable');
 		await filesStore.flushPendingAwait();
 		filesStore.delete(file.id);
@@ -205,7 +203,7 @@ describe('close + restore (corbeille)', () => {
 		);
 	});
 
-	it('close (trash) retire de la vue puis restore réinjecte', async () => {
+	it('removes the view on close and restores it from trash', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPending();
 		filesStore.delete(f.id);
@@ -216,11 +214,11 @@ describe('close + restore (corbeille)', () => {
 		expect(restored?.id).toBe(f.id);
 		expect(filesStore.files.some((x) => x.id === f.id)).toBe(true);
 		expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(false);
-		// La restauration est atomique : le draft est en base.
+		// Restore is atomic, so the draft must be in the database.
 		expect(await db.drafts.get(f.id)).toBeTruthy();
 	});
 
-	it('close keepDB retire la vue sans supprimer le draft', async () => {
+	it('removes the view but keeps the draft with keepDB', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPending();
 		filesStore.close(f.id, { trash: false, keepDB: true });
@@ -229,7 +227,7 @@ describe('close + restore (corbeille)', () => {
 		expect(filesStore.trash.some((t) => t.file.id === f.id)).toBe(false);
 	});
 
-	it('close keepDB flushe les frappes non debouncees (anti-perte workspace)', async () => {
+	it('flushes pending edits before keepDB close', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPendingAwait();
 		// Edit inside the debounce window - cancel() would drop this; flush must persist it.
@@ -241,7 +239,7 @@ describe('close + restore (corbeille)', () => {
 		});
 	});
 
-	it('close sans corbeille conserve aussi le draft dans la bibliothèque', async () => {
+	it('keeps the draft in the library after close without trash', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPending();
 		filesStore.close(f.id, { trash: false });
@@ -251,7 +249,7 @@ describe('close + restore (corbeille)', () => {
 		expect(filesStore.closedFiles.some((file) => file.id === f.id)).toBe(true);
 	});
 
-	it('la suppression pendant une écriture ne ressuscite pas le draft', async () => {
+	it('does not restore a draft deleted during a write', async () => {
 		let deletedId = '';
 		const put = vi.spyOn(db.drafts, 'put').mockImplementationOnce((row) => {
 			deletedId = row.id;
@@ -271,7 +269,7 @@ describe('close + restore (corbeille)', () => {
 		}
 	});
 
-	it('reload utilise invalidate (pas discard) et conserve le draft en base', async () => {
+	it('uses invalidate during reload and keeps the database draft', async () => {
 		const f = filesStore.createNew('keep.md', '# keep');
 		await filesStore.flushPendingAwait();
 		expect(await db.drafts.get(f.id)).toBeTruthy();
@@ -282,7 +280,7 @@ describe('close + restore (corbeille)', () => {
 		expect(await db.drafts.get(f.id)).toBeTruthy();
 	});
 
-	it('restore attend moveToTrash avant restoreFromTrash (pas de wipe Undo)', async () => {
+	it('waits for moveToTrash before restoreFromTrash', async () => {
 		// Fast Undo: if restoreFromTrash runs before moveToTrash finishes, a late
 		// moveToTrash would delete the restored drafts row. restore must await
 		// the pending move first.
@@ -315,7 +313,7 @@ describe('close + restore (corbeille)', () => {
 		}
 	});
 
-	it('la restauration attend une écriture supprimée avant de rétablir le draft', async () => {
+	it('waits for a deleted write before draft restoration', async () => {
 		let restoredId = '';
 		const put = vi.spyOn(db.drafts, 'put').mockImplementationOnce((row) => {
 			queueMicrotask(() =>
@@ -341,7 +339,7 @@ describe('close + restore (corbeille)', () => {
 		}
 	});
 
-	it('reorderToIds aligne l ordre des onglets sur fileIds workspace', () => {
+	it('matches tab order to workspace fileIds with reorderToIds', () => {
 		const a = filesStore.createNew('a.md', 'a');
 		const b = filesStore.createNew('b.md', 'b');
 		const c = filesStore.createNew('c.md', 'c');
@@ -351,11 +349,11 @@ describe('close + restore (corbeille)', () => {
 		expect(filesStore.files.map((f) => f.id)).toEqual([a.id, b.id, c.id]);
 	});
 
-	it("restore d'un id inconnu retourne null", () => {
+	it('returns null when restore receives an unknown ID', () => {
 		expect(filesStore.restore('ghost')).toBeNull();
 	});
 
-	it('restore annule l UI si restoreFromTrash echoue', async () => {
+	it('reverts the UI when restoreFromTrash fails', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		await filesStore.flushPendingAwait();
 		filesStore.delete(f.id);
@@ -377,7 +375,7 @@ describe('close + restore (corbeille)', () => {
 });
 
 describe('rename', () => {
-	it('renomme (normalisé, extension préservée)', () => {
+	it('normalizes a rename and keeps the extension', () => {
 		const f = filesStore.createNew('a.md', '');
 		filesStore.rename(f.id, 'renamed');
 		expect(filesStore.files.find((x) => x.id === f.id)?.name).toBe('renamed.md');
@@ -385,19 +383,19 @@ describe('rename', () => {
 });
 
 describe('reorder', () => {
-	it('réordonne les fichiers en mémoire', () => {
+	it('reorders files in memory', () => {
 		const a = filesStore.createNew('a.md', '');
 		const b = filesStore.createNew('b.md', '');
 		const c = filesStore.createNew('c.md', '');
-		// déplace a après c
+		// Move a after c.
 		filesStore.reorder(a.id, c.id);
 		const order = filesStore.files.map((x) => x.id);
 		expect(order.indexOf(a.id)).toBeGreaterThan(order.indexOf(b.id));
 	});
 });
 
-describe('sélection multiple', () => {
-	it('toggle, range et clear', () => {
+describe('multiple selection', () => {
+	it('toggles, extends, and clears a selection', () => {
 		const a = filesStore.createNew('a.md', '');
 		const b = filesStore.createNew('b.md', '');
 		const c = filesStore.createNew('c.md', '');
@@ -415,7 +413,7 @@ describe('sélection multiple', () => {
 		expect(filesStore.selectedIds.size).toBe(0);
 	});
 
-	it('closeSelected ferme tous les fichiers sélectionnés', async () => {
+	it('closes all selected files with closeSelected', async () => {
 		const a = filesStore.createNew('a.md', '');
 		const b = filesStore.createNew('b.md', '');
 		await filesStore.flushPending();
@@ -427,7 +425,7 @@ describe('sélection multiple', () => {
 });
 
 describe('load', () => {
-	it('charge les drafts ordonnés et restaure activeId', async () => {
+	it('loads ordered drafts and restores activeId', async () => {
 		await db.drafts.bulkPut([draftRow('b', 'b.md', '', 1), draftRow('a', 'a.md', '', 0)]);
 		localStorage.setItem('mdsh:activeId', 'b');
 		filesStore.loaded = false;
@@ -437,7 +435,7 @@ describe('load', () => {
 		expect(filesStore.activeId).toBe('b');
 	});
 
-	it("active le premier fichier si l'activeId persisté n'existe plus", async () => {
+	it('activates the first file when stored activeId is missing', async () => {
 		await db.drafts.put(draftRow('a', 'a.md', '', 0));
 		localStorage.setItem('mdsh:activeId', 'disparu');
 		filesStore.loaded = false;
@@ -446,7 +444,7 @@ describe('load', () => {
 		expect(filesStore.activeId).toBe('a');
 	});
 
-	it('restaure les liens FSA et chemin enregistrés', async () => {
+	it('restores stored FSA and path links', async () => {
 		await db.drafts.bulkPut([
 			draftRow('fsa', 'fsa.md', '', 0),
 			draftRow('path', 'path.md', '', 1),
@@ -467,7 +465,7 @@ describe('load', () => {
 		expect(filesStore.files.find((file) => file.id === 'none')?.linkedToDisk).toBe(false);
 	});
 
-	it('restaure une entrée récente de la corbeille et arme sa purge', async () => {
+	it('restores a recent trash entry and schedules its purge', async () => {
 		await db.trashed.put({
 			id: 'trashed',
 			file: draftRow('trashed', 'trashed.md', '# Trash', 0),
@@ -480,7 +478,7 @@ describe('load', () => {
 		expect(filesStore.trash.map((entry) => entry.file.id)).toEqual(['trashed']);
 	});
 
-	it('signale une erreur de chargement IndexedDB sans marquer le store chargé', async () => {
+	it('reports an IndexedDB load error without marking the store loaded', async () => {
 		const orderBy = vi.spyOn(db.drafts, 'orderBy').mockImplementationOnce(() => {
 			throw new Error('IDB indisponible');
 		});
@@ -495,7 +493,7 @@ describe('load', () => {
 });
 
 describe('importFiles', () => {
-	it('importe les markdown, ignore les non-markdown', async () => {
+	it('imports Markdown files and ignores other files', async () => {
 		const res = await filesStore.importFiles([
 			mdFile('one.md', '# One'),
 			mdFile('two.md', '# Two'),
@@ -507,7 +505,7 @@ describe('importFiles', () => {
 		expect(filesStore.files.length).toBe(2);
 	});
 
-	it('continue après un fichier markdown devenu illisible', async () => {
+	it('continues after a Markdown file becomes unreadable', async () => {
 		const unreadable = {
 			name: 'broken.md',
 			type: 'text/markdown',
@@ -522,8 +520,8 @@ describe('importFiles', () => {
 	});
 });
 
-describe('synchronisation multi-onglets', () => {
-	it('protège une écriture en erreur puis conserve la branche distante lors du retry', async () => {
+describe('cross-tab synchronization', () => {
+	it('protects a failed write and keeps the remote branch during retry', async () => {
 		const file = filesStore.createNew('quota.md', 'initial');
 		await filesStore.flushPendingAwait();
 		filesStore.updateContent(file.id, 'local non durable');
@@ -549,7 +547,7 @@ describe('synchronisation multi-onglets', () => {
 		expect(filesStore.closedFiles.some((entry) => entry.content === 'branche distante')).toBe(true);
 	});
 
-	it('recharge un draft distant lorsqu’aucune sauvegarde locale n’est en attente', async () => {
+	it('reloads a remote draft without a pending local save', async () => {
 		const file = filesStore.createNew('local.md', 'local');
 		filesStore.flushPending();
 		await vi.waitFor(() => expect(filesStore.hasPendingSave).toBe(false));
@@ -568,7 +566,7 @@ describe('synchronisation multi-onglets', () => {
 		expect(synced?.dirty).toBe(false);
 	});
 
-	it('ignore un draft distant qui n’est pas ouvert ou a disparu de la base', async () => {
+	it('ignores a remote draft that is closed or missing from the database', async () => {
 		receiveCrossTab({ type: 'draft-written', id: 'ghost', updatedAt: 2000 });
 		const file = filesStore.createNew('missing.md', 'local');
 		filesStore.flushPending();
@@ -581,7 +579,7 @@ describe('synchronisation multi-onglets', () => {
 		expect(file.content).toBe('local');
 	});
 
-	it('préserve une édition locale en attente et propose un rechargement explicite', async () => {
+	it('keeps a pending local edit and offers an explicit reload', async () => {
 		const file = filesStore.createNew('conflict.md', 'local');
 
 		receiveCrossTab({ type: 'draft-written', id: file.id, updatedAt: 2000 });
@@ -592,7 +590,7 @@ describe('synchronisation multi-onglets', () => {
 		await vi.waitFor(() => expect(filesStore.loaded).toBe(true));
 	});
 
-	it('retire un draft supprimé à distance, mais conserve une édition locale en attente', async () => {
+	it('removes a remotely deleted draft but keeps a pending local edit', async () => {
 		const clean = filesStore.createNew('clean.md', 'clean');
 		filesStore.flushPending();
 		await vi.waitFor(() => expect(filesStore.hasPendingSave).toBe(false));
@@ -607,7 +605,7 @@ describe('synchronisation multi-onglets', () => {
 		receiveCrossTab({ type: 'removed', id: 'ghost' });
 	});
 
-	it('recharge sur réordonnancement et resynchronise les stores après restauration', async () => {
+	it('reloads after reorder and synchronizes stores after restoration', async () => {
 		const reload = vi.spyOn(filesStore, 'reload').mockResolvedValue();
 		receiveCrossTab({ type: 'reorder' });
 		expect(reload).toHaveBeenCalledWith(false);
@@ -620,7 +618,7 @@ describe('synchronisation multi-onglets', () => {
 		reload.mockRestore();
 	});
 
-	it('signale un conflit global si un réordonnancement arrive pendant une édition', () => {
+	it('reports a global conflict when reorder occurs during editing', () => {
 		filesStore.createNew('pending.md', 'pending');
 		const reload = vi.spyOn(filesStore, 'reload');
 
@@ -632,8 +630,8 @@ describe('synchronisation multi-onglets', () => {
 	});
 });
 
-describe('récupération corbeille', () => {
-	it('annule la fermeture optimiste si la transaction vers la corbeille échoue', async () => {
+describe('trash recovery', () => {
+	it('reverts optimistic close when the trash transaction fails', async () => {
 		const moveToTrash = vi.spyOn(trashOps, 'moveToTrash').mockResolvedValueOnce(false);
 		const file = filesStore.createNew('rollback.md', '# Rollback');
 		filesStore.delete(file.id);
@@ -646,7 +644,7 @@ describe('récupération corbeille', () => {
 		moveToTrash.mockRestore();
 	});
 
-	it('purge une entrée connue et ignore un identifiant absent', async () => {
+	it('purges a known entry and ignores a missing ID', async () => {
 		const file = filesStore.createNew('purge.md', '# Purge');
 		filesStore.close(file.id, { trash: false, keepDB: true });
 		filesStore.trash = [{ file, order: 0, trashedAt: Date.now() }];
@@ -658,8 +656,8 @@ describe('récupération corbeille', () => {
 	});
 });
 
-describe('gardes de l’orchestrateur', () => {
-	it('ignore les identifiants absents, les réordonnancements invalides et un second load', async () => {
+describe('orchestrator guards', () => {
+	it('ignores missing IDs, invalid reorder operations, and a second load', async () => {
 		filesStore.close('ghost');
 		filesStore.rename('ghost', 'ignored');
 		filesStore.reorder('ghost', 'ghost');
@@ -668,12 +666,12 @@ describe('gardes de l’orchestrateur', () => {
 		expect(filesStore.files).toEqual([]);
 	});
 
-	it('reload() diffuse par défaut la restauration appliquée', async () => {
+	it('broadcasts an applied restoration from reload by default', async () => {
 		await filesStore.reload();
 		expect(crossTabHarness.post).toHaveBeenCalledWith({ type: 'backup-applied' });
 	});
 
-	it('flushPending ignore un draft retiré avant la création de sa row', () => {
+	it('ignores a draft removed before its row is created in flushPending', () => {
 		filesStore.createNew('gone.md', '# Gone');
 		filesStore.files = [];
 
@@ -684,7 +682,7 @@ describe('gardes de l’orchestrateur', () => {
 });
 
 describe('backlinks / wiki-links', () => {
-	it('résout les wiki-links et calcule les backlinks', () => {
+	it('resolves wiki links and calculates backlinks', () => {
 		const target = filesStore.createNew('Cible.md', '# Cible');
 		const source = filesStore.createNew('Source.md', 'voir [[Cible]] ici');
 		const links = filesStore.wikiLinkTargets(source.id);
@@ -697,20 +695,20 @@ describe('backlinks / wiki-links', () => {
 });
 
 describe('loadDemo', () => {
-	it('crée les fichiers de démo, wiki-liés, et active le premier', () => {
+	it('creates linked demo files and activates the first file', () => {
 		const created = filesStore.loadDemo();
 		expect(created.length).toBe(3);
 		expect(filesStore.files.length).toBe(3);
 		expect(filesStore.activeId).toBe(created[0]!.id);
 
-		// Les fichiers "Math and diagrams" et "Task list" pointent vers le premier
-		// via [[Welcome to the mdsh demo]] - vérifie que ça se résout en backlinks.
+		// The "Math and diagrams" and "Task list" files point to the first file.
+		// Verify that [[Welcome to the mdsh demo]] resolves as a backlink.
 		const welcome = created[0]!;
 		const back = filesStore.backlinks(welcome.id);
 		expect(back.length).toBe(2);
 	});
 
-	it('appelée deux fois ne crée pas de doublons de nom (uniqueName)', () => {
+	it('does not create duplicate names after two calls', () => {
 		filesStore.loadDemo();
 		filesStore.loadDemo();
 		expect(filesStore.files.length).toBe(6);
@@ -719,7 +717,7 @@ describe('loadDemo', () => {
 });
 
 describe('replaceInAll', () => {
-	it('archive les dernières frappes avant le remplacement malgré le throttle', async () => {
+	it('archives the latest edits before replacement during throttling', async () => {
 		const file = filesStore.createNew('a.md', 'foo initial');
 		await filesStore.flushPendingAwait();
 		filesStore.updateContent(file.id, 'foo juste avant');
@@ -736,7 +734,7 @@ describe('replaceInAll', () => {
 		expect(filesStore.files.find((entry) => entry.id === file.id)?.content).toBe('bar juste avant');
 	});
 
-	it('ne modifie aucun document si le checkpoint du lot échoue', async () => {
+	it('does not change documents when the batch checkpoint fails', async () => {
 		const file = filesStore.createNew('a.md', 'foo avant');
 		await filesStore.flushPendingAwait();
 		filesStore.updateContent(file.id, 'foo dernières frappes');
@@ -757,7 +755,7 @@ describe('replaceInAll', () => {
 		}
 	});
 
-	it('archive l’état immédiatement antérieur à une restauration de version', async () => {
+	it('archives the state before version restoration', async () => {
 		const file = filesStore.createNew('a.md', 'état courant');
 		await filesStore.flushPendingAwait();
 		await filesStore.restoreVersion(file.id, 'version ancienne');
@@ -771,7 +769,7 @@ describe('replaceInAll', () => {
 		).toContain('état courant');
 	});
 
-	it('remplace une occurrence dans tous les fichiers', async () => {
+	it('replaces an occurrence in all files', async () => {
 		const a = filesStore.createNew('a.md', 'foo bar foo');
 		filesStore.createNew('b.md', 'no match');
 		const res = await filesStore.replaceInAll('foo', 'baz', {
@@ -785,7 +783,7 @@ describe('replaceInAll', () => {
 		expect(filesStore.files.find((x) => x.id === a.id)?.content).toContain('baz');
 	});
 
-	it('retourne regexError sur une regex invalide (useRegex)', async () => {
+	it('returns regexError for an invalid regular expression', async () => {
 		filesStore.createNew('a.md', 'foo bar');
 		const res = await filesStore.replaceInAll('(unclosed', 'x', {
 			caseSensitive: false,
@@ -795,17 +793,17 @@ describe('replaceInAll', () => {
 		expect(res.regexError).not.toBeNull();
 		expect(res.files).toBe(0);
 		expect(res.occurrences).toBe(0);
-		// La regex invalide ne touche aucun contenu.
+		// An invalid regular expression must not change content.
 		expect(filesStore.files.find((x) => x.name === 'a.md')?.content).toBe('foo bar');
 	});
 });
 
-describe('exports (délégation → export-ops)', () => {
+describe('export delegation to export-ops', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
 
-	it('export(id) délègue à exportMarkdown avec exportDeps', () => {
+	it('delegates export to exportMarkdown with exportDeps', () => {
 		const a = filesStore.createNew('a.md', '# A');
 		filesStore.export(a.id);
 		expect(exportOps.exportMarkdown).toHaveBeenCalledTimes(1);
@@ -818,7 +816,7 @@ describe('exports (délégation → export-ops)', () => {
 		deps.scheduleSave(a.id);
 	});
 
-	it('exportActive() exporte le fichier actif', () => {
+	it('exports the active file with exportActive', () => {
 		filesStore.createNew('a.md', '# A');
 		const b = filesStore.createNew('b.md', '# B');
 		filesStore.setActive(b.id);
@@ -827,14 +825,14 @@ describe('exports (délégation → export-ops)', () => {
 		expect(vi.mocked(exportOps.exportMarkdown).mock.calls[0]![0]).toBe(b.id);
 	});
 
-	it('exportActive() ne fait rien sans fichier actif', () => {
-		// Aucun fichier ouvert → active === null.
+	it('does nothing in exportActive without an active file', () => {
+		// With no open file, active is null.
 		expect(filesStore.active).toBeNull();
 		filesStore.exportActive();
 		expect(exportOps.exportMarkdown).not.toHaveBeenCalled();
 	});
 
-	it('exportAll() délègue à exportAllZip', async () => {
+	it('delegates exportAll to exportAllZip', async () => {
 		filesStore.createNew('a.md', '# A');
 		await filesStore.exportAll();
 		expect(exportOps.exportAllZip).toHaveBeenCalledTimes(1);
@@ -842,45 +840,45 @@ describe('exports (délégation → export-ops)', () => {
 		expect(typeof deps.getFiles).toBe('function');
 	});
 
-	it('exportHTML(id) délègue à exportHTML avec le bon id', async () => {
+	it('delegates exportHTML with the correct ID', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		await filesStore.exportHTML(a.id);
 		expect(exportOps.exportHTML).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(exportOps.exportHTML).mock.calls[0]![0]).toBe(a.id);
 	});
 
-	it('exportActiveHTML() exporte le fichier actif en HTML', async () => {
+	it('exports the active file as HTML with exportActiveHTML', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		await filesStore.exportActiveHTML();
 		expect(exportOps.exportHTML).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(exportOps.exportHTML).mock.calls[0]![0]).toBe(a.id);
 	});
 
-	it('exportActiveHTML() ne fait rien sans fichier actif', async () => {
+	it('does nothing in exportActiveHTML without an active file', async () => {
 		await filesStore.exportActiveHTML();
 		expect(exportOps.exportHTML).not.toHaveBeenCalled();
 	});
 
-	it('exportPDF(id) délègue à exportPDF avec le bon id', async () => {
+	it('delegates exportPDF with the correct ID', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		await filesStore.exportPDF(a.id);
 		expect(exportOps.exportPDF).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(exportOps.exportPDF).mock.calls[0]![0]).toBe(a.id);
 	});
 
-	it('exportActivePDF() exporte le fichier actif en PDF', async () => {
+	it('exports the active file as PDF with exportActivePDF', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		await filesStore.exportActivePDF();
 		expect(exportOps.exportPDF).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(exportOps.exportPDF).mock.calls[0]![0]).toBe(a.id);
 	});
 
-	it('exportActivePDF() ne fait rien sans fichier actif', async () => {
+	it('does nothing in exportActivePDF without an active file', async () => {
 		await filesStore.exportActivePDF();
 		expect(exportOps.exportPDF).not.toHaveBeenCalled();
 	});
 
-	it('exportSelectedZip() délègue à exportSelectionZip avec la sélection', async () => {
+	it('delegates exportSelectedZip with the selection', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		const b = filesStore.createNew('b.md', '# B');
 		filesStore.selectionToggle(a.id);
@@ -894,12 +892,12 @@ describe('exports (délégation → export-ops)', () => {
 	});
 });
 
-describe('disque (délégation → disk-sync)', () => {
+describe('disk delegation to disk-sync', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
 
-	it('openFromDisk() délègue à disk-sync.openFromDisk avec diskDeps', async () => {
+	it('delegates openFromDisk to disk-sync with diskDeps', async () => {
 		await filesStore.openFromDisk();
 		expect(diskSync.openFromDisk).toHaveBeenCalledTimes(1);
 		const deps = vi.mocked(diskSync.openFromDisk).mock.calls[0]![0];
@@ -910,7 +908,7 @@ describe('disque (délégation → disk-sync)', () => {
 		deps.scheduleSave(created.id);
 	});
 
-	it('openPathsFromDesktop() délègue les chemins et ses callbacks', async () => {
+	it('delegates paths and callbacks from openPathsFromDesktop', async () => {
 		await filesStore.openPathsFromDesktop([
 			{
 				token: 'native-token',
@@ -931,18 +929,18 @@ describe('disque (délégation → disk-sync)', () => {
 		deps.scheduleSave(created.id);
 	});
 
-	it('saveToDisk(id) délègue avec le bon id et diskDeps', async () => {
+	it('delegates saveToDisk with the correct ID and diskDeps', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		const ok = await filesStore.saveToDisk(a.id);
 		expect(ok).toBe(true);
 		expect(diskSync.saveToDisk).toHaveBeenCalledTimes(1);
 		const [id, deps] = vi.mocked(diskSync.saveToDisk).mock.calls[0]!;
 		expect(id).toBe(a.id);
-		// diskDeps.getFile retrouve bien le fichier dans le store.
+		// diskDeps.getFile must find the file in the store.
 		expect(deps.getFile(a.id)?.id).toBe(a.id);
 	});
 
-	it('saveActiveToDisk() enregistre le fichier actif', async () => {
+	it('saves the active file with saveActiveToDisk', async () => {
 		filesStore.createNew('a.md', '# A');
 		const b = filesStore.createNew('b.md', '# B');
 		filesStore.setActive(b.id);
@@ -952,21 +950,21 @@ describe('disque (délégation → disk-sync)', () => {
 		expect(vi.mocked(diskSync.saveToDisk).mock.calls[0]![0]).toBe(b.id);
 	});
 
-	it('saveActiveToDisk() retourne false sans fichier actif', async () => {
+	it('returns false from saveActiveToDisk without an active file', async () => {
 		expect(filesStore.active).toBeNull();
 		const ok = await filesStore.saveActiveToDisk();
 		expect(ok).toBe(false);
 		expect(diskSync.saveToDisk).not.toHaveBeenCalled();
 	});
 
-	it('unlinkFromDisk(id) délègue à disk-sync.unlinkFromDisk', async () => {
+	it('delegates unlinkFromDisk to disk-sync', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		await filesStore.unlinkFromDisk(a.id);
 		expect(diskSync.unlinkFromDisk).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(diskSync.unlinkFromDisk).mock.calls[0]![0]).toBe(a.id);
 	});
 
-	it('refreshBrokenLinks() délègue avec la liste de fichiers et un accesseur', async () => {
+	it('delegates refreshBrokenLinks with files and an accessor', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		await filesStore.refreshBrokenLinks();
 		expect(diskSync.refreshBrokenLinks).toHaveBeenCalledTimes(1);
@@ -977,13 +975,12 @@ describe('disque (délégation → disk-sync)', () => {
 });
 
 describe('flushPending', () => {
-	it('persiste immédiatement les éditions en attente', async () => {
+	it('persists pending edits immediately', async () => {
 		const f = filesStore.createNew('a.md', '# A');
 		filesStore.updateContent(f.id, '# A modifié');
-		// L'écriture est debouncée (400 ms) : pas encore en base.
+		// The write has a 400 ms debounce, so it is not in the database yet.
 		filesStore.flushPending();
-		// flushPending écrit de façon synchrone via la SaveQueue ; on laisse la
-		// microtask Dexie se résoudre.
+		// flushPending writes synchronously through SaveQueue. Let the Dexie microtask resolve.
 		await Promise.resolve();
 		await new Promise((r) => setTimeout(r, 0));
 		const row = await db.drafts.get(f.id);
@@ -992,7 +989,7 @@ describe('flushPending', () => {
 });
 
 describe('importDirectory', () => {
-	it('crée les drafts retournés par le sélecteur et conserve le statut tronqué', async () => {
+	it('creates drafts from the picker and keeps truncated status', async () => {
 		vi.mocked(fsa.pickDirectoryFiles).mockResolvedValue({
 			files: [
 				{ name: 'a.md', content: '# A' },
@@ -1010,7 +1007,7 @@ describe('importDirectory', () => {
 });
 
 describe('closeMany / openMany', () => {
-	it('closeMany ferme plusieurs fichiers, ignore les ids inconnus', async () => {
+	it('closes multiple files and ignores unknown IDs with closeMany', async () => {
 		const a = filesStore.createNew('a.md', '# A');
 		const b = filesStore.createNew('b.md', '# B');
 		await filesStore.flushPending();
@@ -1021,13 +1018,13 @@ describe('closeMany / openMany', () => {
 		expect(await db.drafts.get(b.id)).toBeTruthy();
 	});
 
-	it('closeMany no-op quand aucun id ne correspond', () => {
+	it('does nothing in closeMany when no ID matches', () => {
 		const a = filesStore.createNew('a.md', '# A');
 		filesStore.closeMany(['ghost1', 'ghost2']);
 		expect(filesStore.files.some((x) => x.id === a.id)).toBe(true);
 	});
 
-	it('openMany réinjecte des rows Dexie sans les recréer', () => {
+	it('opens Dexie rows without creating them again in openMany', () => {
 		const rows: DraftRow[] = [draftRow('x', 'x.md', '# X', 0), draftRow('y', 'y.md', '# Y', 1)];
 		filesStore.openMany(rows);
 		expect(filesStore.files.map((f) => f.id)).toEqual(expect.arrayContaining(['x', 'y']));
@@ -1036,21 +1033,21 @@ describe('closeMany / openMany', () => {
 		expect(x?.dirty).toBe(false);
 	});
 
-	it('openMany ignore les rows déjà ouverts (dédup par id)', () => {
+	it('ignores already open rows by ID in openMany', () => {
 		filesStore.openMany([draftRow('x', 'x.md', '# X', 0)]);
 		const before = filesStore.files.length;
 		filesStore.openMany([draftRow('x', 'x.md', '# X bis', 0)]);
 		expect(filesStore.files.length).toBe(before);
-		// Le contenu existant n'est pas écrasé.
+		// Existing content must not be overwritten.
 		expect(filesStore.files.find((f) => f.id === 'x')?.content).toBe('# X');
 	});
 
-	it('openMany no-op sur une liste vide', () => {
+	it('does nothing in openMany for an empty list', () => {
 		filesStore.openMany([]);
 		expect(filesStore.files.length).toBe(0);
 	});
 
-	it('openMany restaure linkedToDisk quand un path link existe', async () => {
+	it('restores linkedToDisk from a path link in openMany', async () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
 		vi.mocked(fsa.getHandle).mockResolvedValue(null);
 		vi.mocked(fsa.getPathLink).mockImplementation(async (id: string) =>
@@ -1067,7 +1064,7 @@ describe('closeMany / openMany', () => {
 		expect(diskSync.refreshBrokenLinks).toHaveBeenCalled();
 	});
 
-	it('reorderToIds no-op sur liste vide ou un seul onglet', () => {
+	it('does nothing in reorderToIds for zero or one tab', () => {
 		const a = filesStore.createNew('a.md', 'a');
 		const b = filesStore.createNew('b.md', 'b');
 		const order = filesStore.files.map((f) => f.id);
@@ -1079,24 +1076,24 @@ describe('closeMany / openMany', () => {
 	});
 });
 
-describe('métadonnées (getTags / displayTitle / wiki-links)', () => {
-	it('getTags lit les tags du front-matter, [] si id inconnu', () => {
+describe('metadata from getTags, displayTitle, and wiki links', () => {
+	it('reads front matter tags and returns an empty list for an unknown ID', () => {
 		const f = filesStore.createNew('a.md', '---\ntags: [un, deux]\n---\ncorps');
 		expect(filesStore.getTags(f.id)).toEqual(expect.arrayContaining(['un', 'deux']));
 		expect(filesStore.getTags('ghost')).toEqual([]);
 	});
 
-	it('displayTitle : front-matter title > H1 > nom de fichier', () => {
+	it('uses front matter title before H1 and file name in displayTitle', () => {
 		const fm = filesStore.createNew('a.md', '---\ntitle: Titre YAML\n---\n# Autre');
 		expect(filesStore.displayTitle(fm.id)).toBe('Titre YAML');
 		const noFm = filesStore.createNew('mon-doc.md', 'pas de front-matter');
-		// Sans front-matter, fallback sur le nom sans extension.
+		// Without front matter, use the file name without its extension.
 		expect(filesStore.displayTitle(noFm.id)).toBe('mon-doc');
-		// Id inconnu : chaîne vide.
+		// An unknown ID returns an empty string.
 		expect(filesStore.displayTitle('ghost')).toBe('');
 	});
 
-	it('resolveWikiLink : par id, par nom, null sur vide ou inconnu', () => {
+	it('resolves wiki links by ID or name and returns null when unresolved', () => {
 		const target = filesStore.createNew('Cible.md', '# Cible');
 		expect(filesStore.resolveWikiLink(target.id)).toBe(target.id);
 		expect(filesStore.resolveWikiLink('cible')).toBe(target.id);
@@ -1104,7 +1101,7 @@ describe('métadonnées (getTags / displayTitle / wiki-links)', () => {
 		expect(filesStore.resolveWikiLink('Inexistant')).toBeNull();
 	});
 
-	it('openWikiLink active une cible existante', () => {
+	it('activates an existing target with openWikiLink', () => {
 		const target = filesStore.createNew('Cible.md', '# Cible');
 		filesStore.createNew('Autre.md', '# Autre');
 		const id = filesStore.openWikiLink('Cible');
@@ -1112,7 +1109,7 @@ describe('métadonnées (getTags / displayTitle / wiki-links)', () => {
 		expect(filesStore.activeId).toBe(target.id);
 	});
 
-	it('openWikiLink crée un nouveau fichier si la cible est absente', () => {
+	it('creates a new file when openWikiLink cannot find the target', () => {
 		const before = filesStore.files.length;
 		const id = filesStore.openWikiLink('Nouvelle Note');
 		expect(id).not.toBeNull();
@@ -1122,22 +1119,22 @@ describe('métadonnées (getTags / displayTitle / wiki-links)', () => {
 		expect(filesStore.activeId).toBe(id);
 	});
 
-	it('openWikiLink retourne null sur une cible vide non résolue', () => {
+	it('returns null from openWikiLink for an unresolved empty target', () => {
 		const before = filesStore.files.length;
-		// Cible vide → resolveWikiLink null puis trimmed vide → null, sans création.
+		// An empty target makes resolveWikiLink return null without creating a file.
 		expect(filesStore.openWikiLink('   ')).toBeNull();
 		expect(filesStore.files.length).toBe(before);
 	});
 
-	it('allTags agrège et trie les tags du corpus', () => {
+	it('collects and sorts corpus tags with allTags', () => {
 		filesStore.createNew('a.md', '---\ntags: [zebre, alpha]\n---\n');
 		filesStore.createNew('b.md', '---\ntags: [alpha, mango]\n---\n');
 		expect(filesStore.allTags).toEqual(['alpha', 'mango', 'zebre']);
 	});
 });
 
-describe('orchestration des imports bornés', () => {
-	it('importe 300 notes puis refuse le surplus sans lecture', async () => {
+describe('bounded import orchestration', () => {
+	it('imports 300 notes and rejects additional notes without reading', async () => {
 		const extra = { name: 'extra.md', size: 1, arrayBuffer: vi.fn() } as unknown as File;
 		const result = await filesStore.importFiles([
 			...Array.from({ length: 300 }, (_, index) => mdFile(`${index}.md`, '# Note')),
@@ -1149,7 +1146,7 @@ describe('orchestration des imports bornés', () => {
 		expect(filesStore.lastImportReport?.issues[0]?.reason).toBe('file-count');
 		expect(filesStore.importProgress).toBeNull();
 	});
-	it('annule depuis la progression et conserve le bilan partiel', async () => {
+	it('cancels from progress and keeps the partial summary', async () => {
 		const result = await filesStore.importFiles([mdFile('one.md'), mdFile('two.md')], {
 			onProgress: (report) => {
 				if (report.imported === 1) filesStore.cancelImport();
@@ -1158,7 +1155,7 @@ describe('orchestration des imports bornés', () => {
 		expect(result.created).toHaveLength(1);
 		expect(filesStore.lastImportReport).toMatchObject({ cancelled: true, imported: 1 });
 	});
-	it('respecte un signal externe déjà annulé', async () => {
+	it('respects an external signal that is already canceled', async () => {
 		const controller = new AbortController();
 		controller.abort();
 		expect(
@@ -1166,7 +1163,7 @@ describe('orchestration des imports bornés', () => {
 		).toEqual([]);
 		expect(filesStore.lastImportReport?.cancelled).toBe(true);
 	});
-	it('demande une autorisation propre à chaque grand document', () => {
+	it('requests separate approval for each large document', () => {
 		const first = filesStore.createNew('large.md', 'x'.repeat(256 * 1024));
 		const second = filesStore.createNew('large2.md', first.content);
 		expect(filesStore.requiresRenderConfirmation(first.id)).toBe(true);
@@ -1176,7 +1173,7 @@ describe('orchestration des imports bornés', () => {
 		expect(filesStore.requiresRenderConfirmation(second.id)).toBe(true);
 		expect(filesStore.requiresRenderConfirmation('missing')).toBe(false);
 	});
-	it('une nouvelle importation ne perd pas sa progression lorsque la précédente finit', async () => {
+	it('keeps new import progress when the previous import finishes', async () => {
 		let resolveFirst!: (value: ArrayBuffer) => void;
 		const first = {
 			name: 'first.md',
@@ -1196,8 +1193,8 @@ describe('orchestration des imports bornés', () => {
 	});
 });
 
-describe('barrière argv et erreurs de récupération', () => {
-	it('n’acquitte l’ouverture native qu’une fois le document durable', async () => {
+describe('argv barrier and recovery errors', () => {
+	it('acknowledges native open only after the document is durable', async () => {
 		vi.mocked(diskSync.openPathsFromDesktop).mockImplementationOnce(async (_grants, deps) => ({
 			files: [deps.onCreate('argv.md', 'contenu natif')],
 			processedTokens: ['argv-token']
@@ -1206,7 +1203,7 @@ describe('barrière argv et erreurs de récupération', () => {
 		expect(processed).toEqual(['argv-token']);
 		expect((await db.drafts.toArray())[0]?.content).toBe('contenu natif');
 	});
-	it('remonte une erreur de persistance avant l’acquittement natif', async () => {
+	it('returns a persistence error before native acknowledgment', async () => {
 		vi.mocked(diskSync.openPathsFromDesktop).mockImplementationOnce(async (_grants, deps) => ({
 			files: [deps.onCreate('argv.md', 'contenu natif')],
 			processedTokens: ['argv-token']
@@ -1221,7 +1218,7 @@ describe('barrière argv et erreurs de récupération', () => {
 			await filesStore.flushPendingAwait();
 		}
 	});
-	it('une purge défaillante laisse la note dans la corbeille visible', async () => {
+	it('keeps a note in visible trash after purge failure', async () => {
 		const file = filesStore.createNew('safe.md', 'safe');
 		await filesStore.flushPendingAwait();
 		filesStore.delete(file.id);
@@ -1235,12 +1232,12 @@ describe('barrière argv et erreurs de récupération', () => {
 			purge.mockRestore();
 		}
 	});
-	it('ignore la restauration d’une version sans changement et d’un document absent', async () => {
+	it('ignores unchanged version restoration and a missing document', async () => {
 		const file = filesStore.createNew('same.md', 'same');
 		expect(await filesStore.restoreVersion('missing', 'other')).toBe(false);
 		expect(await filesStore.restoreVersion(file.id, 'same')).toBe(false);
 	});
-	it('réactive par callback natif un document fermé sans le dupliquer', async () => {
+	it('reactivates a closed document through a native callback without duplication', async () => {
 		const file = filesStore.createNew('closed.md', 'local');
 		filesStore.close(file.id);
 		await filesStore.flushPendingAwait();
@@ -1256,7 +1253,7 @@ describe('barrière argv et erreurs de récupération', () => {
 	});
 });
 
-describe('collisions entre restauration globale et corbeille', () => {
+describe('conflicts between full restoration and trash', () => {
 	async function replaceCurrent() {
 		const { applyBackup, BACKUP_FORMAT } = await import('./services/backup');
 		const file = filesStore.createNew('same.md', 'version A');
@@ -1275,7 +1272,7 @@ describe('collisions entre restauration globale et corbeille', () => {
 		await filesStore.reload();
 		return file.id;
 	}
-	it('supprime B après restauration globale sans perdre A et conserve son historique', async () => {
+	it('deletes B after full restoration without losing A or its history', async () => {
 		const id = await replaceCurrent();
 		filesStore.delete(id);
 		expect(new Set(filesStore.trash.map((entry) => entry.file.id)).size).toBe(
@@ -1293,7 +1290,7 @@ describe('collisions entre restauration globale et corbeille', () => {
 			'version B'
 		]);
 	});
-	it.each([false, true])('restaure A sans collision avec B fermé=%s', async (closed) => {
+	it.each([false, true])('restores A without conflict when B closed is %s', async (closed) => {
 		const id = await replaceCurrent();
 		if (closed) {
 			filesStore.close(id);
@@ -1309,7 +1306,7 @@ describe('collisions entre restauration globale et corbeille', () => {
 		expect(new Set(all.map((file) => file.id)).size).toBe(2);
 		expect(await db.versions.where('draftId').equals(restored.id).count()).toBeGreaterThan(0);
 	});
-	it('une erreur de copie de corbeille restaure B ouvert et A dans la corbeille', async () => {
+	it('restores open B and trashed A after a trash copy error', async () => {
 		const id = await replaceCurrent();
 		const put = vi.spyOn(db.trashed, 'put').mockRejectedValueOnce(new Error('quota'));
 		try {
@@ -1322,15 +1319,15 @@ describe('collisions entre restauration globale et corbeille', () => {
 			put.mockRestore();
 		}
 	});
-	it('openMany ne crée jamais deux onglets pour des références répétées', async () => {
+	it('does not create duplicate tabs for repeated references in openMany', async () => {
 		const row = draftRow('duplicate', 'duplicate.md');
 		filesStore.openMany([row, row, row]);
 		expect(filesStore.files.map((file) => file.id)).toEqual(['duplicate']);
 	});
 });
 
-describe('références renouvelées pendant les opérations', () => {
-	it('refuse la restauration de version si un rechargement a remplacé l’objet courant', async () => {
+describe('references replaced during operations', () => {
+	it('rejects version restoration after reload replaces the current object', async () => {
 		const file = filesStore.createNew('same.md', 'before');
 		await filesStore.flushPendingAwait();
 		let release!: (ok: boolean) => void;
@@ -1350,7 +1347,7 @@ describe('références renouvelées pendant les opérations', () => {
 			checkpoint.mockRestore();
 		}
 	});
-	it('retire un document fermé supprimé par un autre onglet sans le ressusciter', async () => {
+	it('removes a closed document deleted by another tab without restoring it', async () => {
 		const file = filesStore.createNew('closed.md', 'before');
 		filesStore.close(file.id);
 		await filesStore.flushPendingAwait();
@@ -1361,7 +1358,7 @@ describe('références renouvelées pendant les opérations', () => {
 		await filesStore.flushPendingAwait();
 		expect(await db.drafts.get(file.id)).toBeUndefined();
 	});
-	it('synchronise aussi le contenu durable des documents fermés', async () => {
+	it('also synchronizes durable content for closed documents', async () => {
 		const file = filesStore.createNew('closed.md', 'before');
 		filesStore.close(file.id);
 		await filesStore.flushPendingAwait();
@@ -1371,8 +1368,8 @@ describe('références renouvelées pendant les opérations', () => {
 	});
 });
 
-describe('barrière de synchronisation de l’éditeur', () => {
-	it('demande le contenu Milkdown courant avant une barrière durable', async () => {
+describe('editor synchronization barrier', () => {
+	it('requests current Milkdown content before a durability barrier', async () => {
 		const file = filesStore.createNew('wysiwyg.md', 'avant');
 		await filesStore.flushPendingAwait();
 		const listener = () => filesStore.updateContent(file.id, 'frappe non débouncée');
@@ -1380,7 +1377,7 @@ describe('barrière de synchronisation de l’éditeur', () => {
 		await filesStore.flushPendingAwait();
 		expect((await db.drafts.get(file.id))?.content).toBe('frappe non débouncée');
 	});
-	it('déclenche aussi la barrière synchrone du pagehide', async () => {
+	it('also starts the synchronous pagehide barrier', async () => {
 		const file = filesStore.createNew('wysiwyg.md', 'avant');
 		await filesStore.flushPendingAwait();
 		window.addEventListener(
@@ -1394,8 +1391,8 @@ describe('barrière de synchronisation de l’éditeur', () => {
 	});
 });
 
-describe('branches de récupération du store', () => {
-	it('la fermeture explicitement destructive utilise la corbeille durable', async () => {
+describe('store recovery paths', () => {
+	it('uses durable trash for an explicitly destructive close', async () => {
 		const file = filesStore.createNew('trash.md', 'body');
 		await filesStore.flushPendingAwait();
 		filesStore.close(file.id, { trash: true });
@@ -1403,7 +1400,7 @@ describe('branches de récupération du store', () => {
 		expect(filesStore.trash[0]?.file.id).toBe(file.id);
 		expect(await db.trashed.get(file.id)).toBeDefined();
 	});
-	it('supprime un document fermé et ignore un identifiant inconnu', async () => {
+	it('deletes a closed document and ignores an unknown ID', async () => {
 		const file = filesStore.createNew('closed.md', 'body');
 		filesStore.close(file.id);
 		await filesStore.flushPendingAwait();
@@ -1413,7 +1410,7 @@ describe('branches de récupération du store', () => {
 		expect(filesStore.closedFiles).toEqual([]);
 		expect((await db.trashed.get(file.id))?.file.content).toBe('body');
 	});
-	it('restaure la vue fermée quand sa mise en corbeille échoue', async () => {
+	it('restores a closed view when its trash operation fails', async () => {
 		const file = filesStore.createNew('closed.md', 'body');
 		filesStore.close(file.id);
 		await filesStore.flushPendingAwait();
@@ -1428,7 +1425,7 @@ describe('branches de récupération du store', () => {
 			move.mockRestore();
 		}
 	});
-	it('annule une restauration défaillante sans retirer la branche en collision', async () => {
+	it('cancels a failed restoration without removing the conflicting branch', async () => {
 		const current = filesStore.createNew('current.md', 'current');
 		filesStore.trash = [
 			{ file: { ...current, name: 'old.md', content: 'old' }, order: 0, trashedAt: Date.now() }
@@ -1445,7 +1442,7 @@ describe('branches de récupération du store', () => {
 			restore.mockRestore();
 		}
 	});
-	it('exécute les callbacks d’activation et rollback fournis au disque', async () => {
+	it('runs disk activation and rollback callbacks', async () => {
 		const open = filesStore.createNew('open.md', 'open');
 		const closed = filesStore.createNew('closed.md', 'closed');
 		filesStore.close(closed.id);
@@ -1462,7 +1459,7 @@ describe('branches de récupération du store', () => {
 		expect(filesStore.files.map((entry) => entry.id).sort()).toEqual([closed.id, open.id].sort());
 		expect(filesStore.files.some((entry) => entry.name === 'temporary.md')).toBe(false);
 	});
-	it('importe un dossier desktop avec bilan partiel, puis expose le garde hors desktop', async () => {
+	it('imports a desktop directory with a partial summary and applies the browser guard', async () => {
 		(window as Window & { isTauri?: boolean }).isTauri = true;
 		vi.mocked(diskSync.openDirectoryFromDisk).mockImplementationOnce(async (deps, options) => {
 			options?.onProgress?.({
@@ -1491,8 +1488,8 @@ describe('branches de récupération du store', () => {
 	});
 });
 
-describe('réouverture et liens de workspace défensifs', () => {
-	it('réouvre une ligne déjà fermée sans recréer son contenu', async () => {
+describe('defensive workspace reopen and links', () => {
+	it('reopens a closed row without creating its content again', async () => {
 		const file = filesStore.createNew('closed.md', 'mémoire');
 		filesStore.close(file.id);
 		await filesStore.flushPendingAwait();
@@ -1505,7 +1502,7 @@ describe('réouverture et liens de workspace défensifs', () => {
 		});
 		expect(filesStore.closedFiles).toEqual([]);
 	});
-	it('restaure un handle FSA et ignore proprement une ligne sans aucun lien', async () => {
+	it('restores an FSA handle and ignores a row without links', async () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
 		vi.mocked(fsa.getHandle).mockImplementation(async (id) =>
 			id === 'handle' ? ({} as FileSystemFileHandle) : null
@@ -1520,7 +1517,7 @@ describe('réouverture et liens de workspace défensifs', () => {
 		);
 		expect(filesStore.files.find((file) => file.id === 'plain')?.linkedToDisk).toBe(false);
 	});
-	it('ignore références absentes et répétées en conservant les onglets hors workspace', () => {
+	it('ignores missing and repeated references and keeps tabs outside the workspace', () => {
 		const a = filesStore.createNew('a.md');
 		const b = filesStore.createNew('b.md');
 		const c = filesStore.createNew('c.md');
@@ -1529,7 +1526,7 @@ describe('réouverture et liens de workspace défensifs', () => {
 		filesStore.reorderToIds([b.id, a.id, c.id]);
 		expect(filesStore.files.map((file) => file.id)).toEqual([b.id, a.id, c.id]);
 	});
-	it('n’ajoute pas deux fois une variante déjà injectée par le backend de restauration', async () => {
+	it('does not add a variant twice after backend restoration', async () => {
 		const current = filesStore.createNew('current.md', 'current');
 		filesStore.trash = [
 			{ file: { ...current, id: 'trash', content: 'trash' }, order: 0, trashedAt: Date.now() }

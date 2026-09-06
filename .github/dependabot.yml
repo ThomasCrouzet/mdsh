@@ -23,9 +23,8 @@ updates:
     # Major upgrades remain visible as separate pull requests for manual review.
     # A previous major-version ignore hid them entirely.
     ignore:
-      # js-yaml 5 supprime l'export DEFAULT_SCHEMA utilisé dans frontmatter.ts -
-      # pas de migration prévue tant que le parsing fail-soft actuel
-      # (js-yaml 4.x) suffit.
+      # js-yaml 5 removes DEFAULT_SCHEMA, which frontmatter.ts uses.
+      # Keep js-yaml 4.x while the current parser and its error recovery meet requirements.
       - dependency-name: 'js-yaml'
         update-types:
           - 'version-update:semver-major'

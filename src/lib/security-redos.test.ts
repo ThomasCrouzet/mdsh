@@ -1,17 +1,15 @@
-// §J2 - Garde anti-ReDoS sur les parsers regex exposés à du contenu hostile.
+// §J2 - Protect regular expression parsers from ReDoS with hostile content.
 //
-// L'app parse du markdown importé (drag-drop, share_target, launchQueue, ouverture
-// disque) qui peut être adverse. Plusieurs regex combinent quantificateurs
-// non-greedy et alternations - terrain classique du « catastrophic backtracking »
-// (un fichier piégé fige l'onglet → déni de service côté client).
+// The app parses imported Markdown from drops, shares, launch events, and disk.
+// Some expressions combine reluctant quantifiers and alternatives. A hostile file
+// can cause catastrophic backtracking and block the browser tab.
 //
-// Deux niveaux :
-//   1. Régression déterministe : entrées pathologiques connues, plafond de temps
-//      large (1 s). Un backtracking catastrophique prend des dizaines de secondes ;
-//      un parsing linéaire reste < 1 ms même sur 100k caractères → le plafond
-//      distingue les deux sans flakiness CI.
-//   2. Fuzzing (fast-check) : chaînes faites des métacaractères qui stressent les
-//      regex. Une explosion fait dépasser le timeout du test → échec visible.
+// Use two test levels:
+//   1. Deterministic regression uses known pathological input and a one-second limit.
+//      Catastrophic backtracking takes many seconds. Linear parsing stays below 1 ms
+//      for 100,000 characters, so the limit separates these cases in CI.
+//   2. fast-check creates metacharacter strings that stress the parsers.
+//      Catastrophic backtracking exceeds the test timeout and causes a clear failure.
 
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
@@ -25,47 +23,47 @@ function elapsed(fn: () => void): number {
 	return performance.now() - t0;
 }
 
-describe('anti-ReDoS - entrées pathologiques (régression)', () => {
-	// Candidat n°1 : le tokenizer math combine `\\$|[^\n$]` (+?) → ambiguïté sur `\`.
-	it('hasMath : avalanche de backslashes non terminée', () => {
+describe('anti-ReDoS - pathological input regression', () => {
+	// Candidate 1: the math tokenizer combines `\\$|[^\n$]` with a reluctant quantifier.
+	it('hasMath handles an unterminated backslash sequence', () => {
 		expect(elapsed(() => hasMath('$' + '\\'.repeat(100_000)))).toBeLessThan(1000);
 	});
-	it('hasMath : $ ouvrant + corps massif sans fermeture', () => {
+	it('hasMath handles a large unclosed dollar sequence', () => {
 		expect(elapsed(() => hasMath('$' + 'a'.repeat(100_000)))).toBeLessThan(1000);
 	});
-	it('hasMath : alternance de $ partiels', () => {
+	it('hasMath handles alternating partial dollar markers', () => {
 		expect(elapsed(() => hasMath('$a'.repeat(50_000)))).toBeLessThan(1000);
 	});
-	it('hasMermaid : fences en rafale', () => {
+	it('hasMermaid handles repeated fences', () => {
 		expect(elapsed(() => hasMermaid('```'.repeat(50_000)))).toBeLessThan(1000);
 	});
-	it('preprocessWikiLinks : crochets ouvrants en rafale', () => {
+	it('preprocessWikiLinks handles repeated opening brackets', () => {
 		expect(elapsed(() => preprocessWikiLinks('[['.repeat(50_000)))).toBeLessThan(1000);
 	});
-	it('preprocessWikiLinks : cible non fermée massive', () => {
+	it('preprocessWikiLinks handles a large unclosed target', () => {
 		expect(elapsed(() => preprocessWikiLinks('[[' + 'a'.repeat(100_000)))).toBeLessThan(1000);
 	});
-	it('extractWikiLinkTargets : pipes et crochets mêlés', () => {
+	it('extractWikiLinkTargets handles mixed pipes and brackets', () => {
 		expect(elapsed(() => extractWikiLinkTargets('[[a|'.repeat(50_000)))).toBeLessThan(1000);
 	});
-	it('stripFrontmatter : bloc --- jamais fermé', () => {
+	it('stripFrontmatter handles an unclosed front matter block', () => {
 		expect(elapsed(() => stripFrontmatter('---\n' + 'a\n'.repeat(100_000)))).toBeLessThan(1000);
 	});
-	it('slugify : entrée massive avec diacritiques', () => {
+	it('slugify handles large input with diacritics', () => {
 		expect(elapsed(() => slugify('Éà-'.repeat(100_000)))).toBeLessThan(1000);
 	});
 });
 
-describe('anti-ReDoS - fuzzing métacaractères (fast-check)', () => {
-	// Chaînes composées des délimiteurs qui stressent les regex math/wiki/frontmatter.
+describe('anti-ReDoS - metacharacter fuzzing', () => {
+	// Build strings from delimiters that stress math, wiki, and front matter parsers.
 	const meta = fc
 		.array(fc.constantFrom('$', '\\', '[', ']', '|', '-', '`', '\n', 'x'), { maxLength: 1500 })
 		.map((chars) => chars.join(''));
 
-	it('aucun parser n’explose sur des entrées adversariales', { timeout: 10_000 }, () => {
+	it('keeps all parsers stable with hostile input', { timeout: 10_000 }, () => {
 		fc.assert(
 			fc.property(meta, (s) => {
-				// Une explosion ferait dépasser le timeout (déclaré ci-dessus) → échec.
+				// Catastrophic backtracking exceeds the timeout above.
 				hasMath(s);
 				hasMermaid(s);
 				preprocessWikiLinks(s);
@@ -78,7 +76,7 @@ describe('anti-ReDoS - fuzzing métacaractères (fast-check)', () => {
 		);
 	});
 
-	it('slugify : sortie toujours dans [a-z0-9-], sans tiret en bord', () => {
+	it('keeps slugify output in [a-z0-9-] without edge hyphens', () => {
 		fc.assert(
 			fc.property(fc.string(), (s) => {
 				const out = slugify(s);
@@ -88,7 +86,7 @@ describe('anti-ReDoS - fuzzing métacaractères (fast-check)', () => {
 		);
 	});
 
-	it('preprocessWikiLinks : neutre sur du texte sans [[…]]', () => {
+	it('keeps text unchanged without wiki link markers', () => {
 		fc.assert(
 			fc.property(
 				fc.string().filter((s) => !s.includes('[[')),
@@ -99,11 +97,10 @@ describe('anti-ReDoS - fuzzing métacaractères (fast-check)', () => {
 	});
 });
 
-describe("§J2 - bombe d'alias YAML en front-matter (DoS)", () => {
-	// Une bombe d'alias YAML produit un GRAPHE partagé compact, mais le
-	// stringifier comme un ARBRE explose exponentiellement. Le rendu du bloc
-	// front-matter (buildFrontmatterBlock) ne doit jamais expanser ce graphe.
-	it("rend en moins d'une seconde avec une sortie bornée", async () => {
+describe('§J2 - YAML alias bomb in front matter', () => {
+	// A YAML alias bomb creates a compact shared graph. Stringifying it as a tree grows exponentially.
+	// buildFrontmatterBlock must never expand this front-matter graph.
+	it('renders bounded output in less than one second', async () => {
 		const md = [
 			'---',
 			'a: &a [x,x,x,x,x,x,x,x,x]',
@@ -119,7 +116,7 @@ describe("§J2 - bombe d'alias YAML en front-matter (DoS)", () => {
 		const t0 = performance.now();
 		const html = await renderMarkdown(md);
 		const ms = performance.now() - t0;
-		// Sans borne, String() traverserait ~9^6 noeuds -> plusieurs Mo / secondes.
+		// Without a limit, String() would traverse about 9^6 nodes and create several megabytes of output.
 		expect(ms).toBeLessThan(1000);
 		expect(html.length).toBeLessThan(50_000);
 	});

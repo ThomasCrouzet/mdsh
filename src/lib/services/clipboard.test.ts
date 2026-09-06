@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// Le rendu markdown est lazy-importé par copyRichHtml - on le mocke pour
-// isoler la logique presse-papiers (pas de marked/DOMPurify ici).
+// copyRichHtml imports the Markdown renderer lazily. Mock it to
+// isolate clipboard logic without marked or DOMPurify.
 vi.mock('../render/markdown', () => ({
 	renderMarkdown: vi.fn(async (md: string) => `<rendered>${md}</rendered>`)
 }));
@@ -22,7 +22,7 @@ function installClipboard(c: ClipboardMock | undefined) {
 beforeEach(() => {
 	clip = { writeText: vi.fn(async () => {}), write: vi.fn(async () => {}) };
 	installClipboard(clip);
-	// ClipboardItem fictif : stocke les données pour inspection.
+	// Store data in a fake ClipboardItem for inspection.
 	(globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = class {
 		data: Record<string, Blob | Promise<Blob>>;
 		constructor(d: Record<string, Blob | Promise<Blob>>) {
@@ -37,28 +37,28 @@ afterEach(() => {
 });
 
 describe('isClipboardSupported', () => {
-	it('vrai quand navigator.clipboard existe', () => {
+	it('returns true when navigator.clipboard exists', () => {
 		expect(isClipboardSupported()).toBe(true);
 	});
-	it('faux sans navigator.clipboard', () => {
+	it('returns false without navigator.clipboard', () => {
 		installClipboard(undefined);
 		expect(isClipboardSupported()).toBe(false);
 	});
 });
 
 describe('copyMarkdown', () => {
-	it('écrit le markdown brut', async () => {
+	it('writes raw Markdown', async () => {
 		await copyMarkdown('# Titre\ncorps');
 		expect(clip.writeText).toHaveBeenCalledWith('# Titre\ncorps');
 	});
-	it('rejette si presse-papiers indisponible', async () => {
+	it('rejects when the clipboard is unavailable', async () => {
 		installClipboard(undefined);
 		await expect(copyMarkdown('x')).rejects.toThrow(/indisponible/);
 	});
 });
 
 describe('copyRichHtml', () => {
-	it('écrit text/html + text/plain via ClipboardItem', async () => {
+	it('writes text/html and text/plain through ClipboardItem', async () => {
 		await copyRichHtml('# Hi');
 		expect(clip.write).toHaveBeenCalledTimes(1);
 		const items = clip.write.mock.calls[0]?.[0] as Array<{
@@ -68,13 +68,13 @@ describe('copyRichHtml', () => {
 		expect(items[0]?.data['text/plain']).toBeInstanceOf(Blob);
 	});
 
-	it('repli sur writeText(html) sans ClipboardItem', async () => {
+	it('uses writeText with HTML when ClipboardItem is unavailable', async () => {
 		delete (globalThis as unknown as { ClipboardItem?: unknown }).ClipboardItem;
 		await copyRichHtml('# Hi');
 		expect(clip.writeText).toHaveBeenCalledWith('<rendered># Hi</rendered>');
 	});
 
-	it('rejette si presse-papiers indisponible', async () => {
+	it('rejects when the clipboard is unavailable', async () => {
 		installClipboard(undefined);
 		await expect(copyRichHtml('x')).rejects.toThrow(/indisponible/);
 	});

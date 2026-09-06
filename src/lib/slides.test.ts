@@ -2,41 +2,41 @@ import { describe, it, expect } from 'vitest';
 import { splitSlides } from './slides';
 
 describe('splitSlides', () => {
-	it('document sans séparateur → une seule diapo', () => {
+	it('returns one slide when the document has no separator', () => {
 		expect(splitSlides('# Titre\n\ncorps')).toEqual(['# Titre\n\ncorps']);
 	});
 
-	it('découpe sur les règles horizontales ---', () => {
+	it('splits at horizontal rules', () => {
 		const md = '# Slide 1\n\n---\n\n# Slide 2\n\n---\n\n# Slide 3';
 		expect(splitSlides(md)).toEqual(['# Slide 1', '# Slide 2', '# Slide 3']);
 	});
 
-	it('ignore le front-matter (pas de fausse diapo vide)', () => {
+	it('does not create an empty slide from front matter', () => {
 		const md = '---\ntitle: Deck\n---\n\n# Slide 1\n\n---\n\n# Slide 2';
 		expect(splitSlides(md)).toEqual(['# Slide 1', '# Slide 2']);
 	});
 
-	it('filtre les diapos vides (séparateurs consécutifs)', () => {
+	it('removes empty slides between consecutive separators', () => {
 		const md = '# A\n\n---\n\n---\n\n# B';
 		expect(splitSlides(md)).toEqual(['# A', '# B']);
 	});
 
-	it('accepte les séparateurs de plus de 3 tirets', () => {
+	it('accepts separators with more than three hyphens', () => {
 		expect(splitSlides('A\n-----\nB')).toEqual(['A', 'B']);
 	});
 
-	it('document vide → aucune diapo', () => {
+	it('returns no slides for an empty document', () => {
 		expect(splitSlides('')).toEqual([]);
 		expect(splitSlides('   \n  ')).toEqual([]);
 	});
 
-	it('ne coupe PAS sur un --- à l’intérieur d’un bloc de code clôturé', () => {
+	it('does not split at a rule inside a fenced code block', () => {
 		const md = 'Slide 1\n\n```\n---\n```\n\n---\n\nSlide 2';
-		// Le `---` du fence reste dans la diapo 1 ; seul le `---` hors fence coupe.
+		// Keep `---` inside the fence on slide 1. Only `---` outside the fence splits slides.
 		expect(splitSlides(md)).toEqual(['Slide 1\n\n```\n---\n```', 'Slide 2']);
 	});
 
-	it('gère les fences ~~~ et ne se ferme pas sur un marqueur d’un autre type', () => {
+	it('supports tilde fences and ignores a different closing marker', () => {
 		const md = 'A\n\n~~~\n---\n~~~\n\n---\n\nB';
 		expect(splitSlides(md)).toEqual(['A\n\n~~~\n---\n~~~', 'B']);
 	});

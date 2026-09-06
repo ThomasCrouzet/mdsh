@@ -1,12 +1,11 @@
-// Mini serveur statique pour tester en local le build comme s'il était servi
-// par GitHub Pages sous le sous-chemin `/mdsh/`. Utile pour reproduire les
-// régressions de paths absolus avant qu'elles atteignent la prod.
+// Serve the static build locally at /mdsh/ to simulate GitHub Pages.
+// Use this server to reproduce absolute path failures before deployment.
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 
-console.log('🔨 Build avec BASE_PATH=/mdsh...');
+console.log('🔨 Build with BASE_PATH=/mdsh...');
 execSync('npm run build', {
 	stdio: 'inherit',
 	env: { ...process.env, BASE_PATH: '/mdsh' }
@@ -33,7 +32,7 @@ const TYPES = {
 
 const server = createServer(async (req, res) => {
 	const url = req.url ?? '/';
-	// Redirige racine + tout chemin hors prefix vers /mdsh/ pour simuler GH Pages.
+	// Redirect the root and paths outside the prefix to /mdsh/, as on GitHub Pages.
 	if (!url.startsWith(PREFIX)) {
 		res.writeHead(302, { Location: PREFIX + url });
 		res.end();
@@ -42,7 +41,7 @@ const server = createServer(async (req, res) => {
 	let path = url.slice(PREFIX.length).split('?')[0];
 	if (path === '' || path === '/') path = '/index.html';
 	const fsPath = normalize(join(ROOT, path));
-	// Garde-fou contre traversal : on refuse tout chemin qui sort de build/.
+	// Reject paths outside build/ to prevent path traversal.
 	if (!fsPath.startsWith(ROOT)) {
 		res.writeHead(403);
 		res.end('Forbidden');
@@ -58,7 +57,7 @@ const server = createServer(async (req, res) => {
 		});
 		res.end(buf);
 	} catch {
-		// SPA fallback : on sert index.html pour toute route inconnue.
+		// Serve index.html as the SPA fallback for unknown routes.
 		try {
 			const buf = await readFile(join(ROOT, 'index.html'));
 			res.writeHead(200, {
@@ -74,6 +73,6 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-	console.log(`✓ Servi sur http://localhost:${PORT}${PREFIX}/`);
-	console.log('  Ctrl+C pour arrêter.');
+	console.log(`✓ Served at http://localhost:${PORT}${PREFIX}/`);
+	console.log('  Press Ctrl+C to stop.');
 });

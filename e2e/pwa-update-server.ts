@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readdir, readFile } from 'node:fs/promises';
 import { extname, join, relative, sep } from 'node:path';
 
-// Snapshot du build en mémoire : un build concurrent ne change pas une release servie.
+// Keep the build snapshot in memory so a concurrent build cannot change a served release.
 export async function createPwaUpdateServer(buildDirectory: string) {
 	const assets = new Map<string, Buffer>();
 	async function visit(directory: string): Promise<void> {
@@ -45,7 +45,7 @@ export async function createPwaUpdateServer(buildDirectory: string) {
 			);
 		}
 		if (key === '/sw.js') {
-			// Version réellement installée, avec nouveau contenu HTML précaché.
+			// Install the actual version with the new precached HTML.
 			body = Buffer.from(
 				worker.replace(/url:"\/",revision:"[^"]+"/, `url:"/",revision:"pwa-test-${version}"`) +
 					`\nself.addEventListener('message', event => { if (event.data?.type === 'PWA_TEST_VERSION') event.ports[0]?.postMessage(${version}); });\n`

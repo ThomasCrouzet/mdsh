@@ -5,7 +5,7 @@ test.beforeEach(async ({ page }) => {
 	await resetAppState(page);
 });
 
-test('menu visible, recherche sans accent et sélection défilée', async ({ page }) => {
+test('shows the menu and scrolls to an accent-insensitive search result', async ({ page }) => {
 	await createFirstFile(page);
 	await openPalette(page);
 	const query = page.getByRole('combobox');
@@ -27,7 +27,7 @@ test('menu visible, recherche sans accent et sélection défilée', async ({ pag
 		.toBe(true);
 });
 
-test('recherche avec résultats conserve la boucle Tab', async ({ page }) => {
+test('keeps the Tab loop when search has results', async ({ page }) => {
 	await createFirstFile(page);
 	await writeSourceContent(page, 'Une phrase pour rechercher.');
 	await openPalette(page);
@@ -43,7 +43,7 @@ test('recherche avec résultats conserve la boucle Tab', async ({ page }) => {
 		.toBe(true);
 });
 
-test('petite fenêtre : drawer inerte, retour focus et sortie focus tactile', async ({ page }) => {
+test('keeps the small-screen drawer inert and restores touch focus', async ({ page }) => {
 	await page.setViewportSize({ width: 320, height: 568 });
 	await createFirstFile(page);
 	await expect(page.locator('#files-panel')).toHaveAttribute('inert', '');
@@ -64,7 +64,7 @@ test('petite fenêtre : drawer inerte, retour focus et sortie focus tactile', as
 	await expect(page.getByRole('button', { name: 'Palette de commandes' })).toBeVisible();
 });
 
-test('personnalisation locale du raccourci de palette', async ({ page }) => {
+test('customizes the command palette shortcut locally', async ({ page }) => {
 	await openPalette(page);
 	await page.getByRole('combobox').fill('parametres');
 	await page.getByRole('option').first().click();
@@ -112,7 +112,7 @@ async function openSettings(page: import('@playwright/test').Page) {
 	await expect(page.getByRole('dialog', { name: 'Réglages' })).toBeVisible();
 }
 
-test('Escape annule la restauration sans fusionner ni remplacer', async ({ page }) => {
+test('Escape cancels restore without a merge or replacement', async ({ page }) => {
 	await createFirstFile(page);
 	await writeSourceContent(page, 'Contenu conservé après annulation');
 	const before = await draftContents(page);
@@ -151,9 +151,7 @@ test('Escape annule la restauration sans fusionner ni remplacer', async ({ page 
 	expect(await draftContents(page)).toEqual(before);
 });
 
-test('phrase secrète au premier plan, clavier confiné et annulation sans export', async ({
-	page
-}) => {
+test('keeps the passphrase dialog visible and traps focus until cancellation', async ({ page }) => {
 	await createFirstFile(page);
 	await openSettings(page);
 	const trigger = page.getByRole('button', { name: /exporter.*chiffré/i });
@@ -181,9 +179,7 @@ test('phrase secrète au premier plan, clavier confiné et annulation sans expor
 	await expect(trigger).toBeFocused();
 });
 
-test('document volumineux ouvert en source et rendu soumis à une décision explicite', async ({
-	page
-}) => {
+test('opens a large document in source mode and asks before rendering', async ({ page }) => {
 	const content = '# Long document\n\n' + 'Texte de contrôle. '.repeat(15000);
 	await page
 		.locator('input[type="file"][accept*="text/markdown"]')
@@ -203,7 +199,7 @@ test('document volumineux ouvert en source et rendu soumis à une décision expl
 	await expect(page.locator('.mdsh-preview')).toContainText('Long document');
 });
 
-test('bilan d’import explique un fichier binaire ignoré', async ({ page }) => {
+test('reports an ignored binary file in the import summary', async ({ page }) => {
 	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles([
 		{ name: 'valide.md', mimeType: 'text/markdown', buffer: Buffer.from('# Import valide') },
 		{ name: 'binaire.md', mimeType: 'text/markdown', buffer: Buffer.from([0, 1, 0, 255, 0, 3]) }
@@ -216,8 +212,10 @@ test('bilan d’import explique un fichier binaire ignoré', async ({ page }) =>
 	await expect.poll(() => draftContents(page)).toEqual(['# Import valide']);
 });
 
-test('annuler un import conserve les documents terminés et arrête le lot', async ({ page }) => {
-	// Ce scénario vérifie les octets importés, sans sérialisation WYSIWYG intermédiaire.
+test('keeps completed documents and stops the batch after import cancellation', async ({
+	page
+}) => {
+	// Verify the imported bytes without intermediate WYSIWYG serialization.
 	const sourceMode = page.locator('button[data-mode="source"]');
 	await sourceMode.click();
 	await expect(sourceMode).toHaveAttribute('aria-checked', 'true');
@@ -251,7 +249,7 @@ test('annuler un import conserve les documents terminés et arrête le lot', asy
 	expect(await draftContents(page)).toEqual(imported);
 });
 
-test('une sauvegarde trop volumineuse est refusée avant sa lecture', async ({ page }) => {
+test('rejects an oversized backup before it reads the file', async ({ page }) => {
 	await openSettings(page);
 	await page.evaluate(() => {
 		const size = Object.getOwnPropertyDescriptor(Blob.prototype, 'size')!.get!;

@@ -3,14 +3,12 @@ import { browser } from '$app/environment';
 /**
  * Desktop shell detection (Tauri 2).
  *
- * Prefer `import.meta.env.TAURI_ENV_PLATFORM` when present (injected by the
- * Tauri CLI during `tauri dev` / `tauri build`). Fall back to the runtime
- * globals Tauri injects into the webview so a production web build that
- * never saw those env vars still detects the shell if opened inside it.
+ * Prefer `import.meta.env.TAURI_ENV_PLATFORM`, injected by `tauri dev` and `tauri build`.
+ * Otherwise, use the runtime globals from the webview. This also detects a
+ * desktop shell that opens a production web build.
  *
- * Pure, no `@tauri-apps/*` import: keeps Tauri out of the GH Pages boot graph
- * and the size-limit budget. Native APIs must be loaded via dynamic `import()`
- * from desktop-only call sites.
+ * Do not import `@tauri-apps/*` here. Keep Tauri out of the GitHub Pages boot graph and size-limit budget.
+ * Desktop-only call sites must load native APIs with dynamic `import()`.
  */
 export function isDesktop(): boolean {
 	if (!browser) return false;

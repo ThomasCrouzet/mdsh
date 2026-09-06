@@ -8,7 +8,7 @@ test.describe('Exports MD / HTML / PDF / ZIP', () => {
 		await resetAppState(page);
 	});
 
-	test('export markdown depuis la toolbar', async ({ page }) => {
+	test('exports Markdown from the toolbar', async ({ page }) => {
 		await seedFiles(page, [{ name: 'demo', content: '# Demo\n\nContenu.\n' }]);
 		const downloadPromise = page.waitForEvent('download');
 		await page.getByRole('button', { name: 'Exporter' }).first().click();
@@ -16,7 +16,7 @@ test.describe('Exports MD / HTML / PDF / ZIP', () => {
 		expect(download.suggestedFilename()).toMatch(/\.md$/);
 	});
 
-	test('export HTML via la palette', async ({ page }) => {
+	test('exports HTML from the command palette', async ({ page }) => {
 		await seedFiles(page, [
 			{
 				name: 'demo',
@@ -41,7 +41,7 @@ test.describe('Exports MD / HTML / PDF / ZIP', () => {
 		expect(html).not.toContain('class="mdsh-anchor"');
 	});
 
-	test('export HTML math reste autonome hors ligne', async ({ page, browser }, testInfo) => {
+	test('keeps math in the HTML export available offline', async ({ page, browser }, testInfo) => {
 		await seedFiles(page, [{ name: 'offline-math', content: '# Math\n\n$e^{i\\pi}+1=0$\n' }]);
 		await openPalette(page);
 		await page.keyboard.type('Exporter en HTML');
@@ -68,7 +68,7 @@ test.describe('Exports MD / HTML / PDF / ZIP', () => {
 		await context.close();
 	});
 
-	test('export ZIP via la palette regroupe tous les fichiers', async ({ page }) => {
+	test('exports all files in a ZIP from the command palette', async ({ page }) => {
 		await seedFiles(page, [
 			{ name: 'one', content: '# One\n' },
 			{ name: 'two', content: '# Two\n' }

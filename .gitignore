@@ -25,12 +25,12 @@ vite.config.ts.timestamp-*
 # PWA
 dev-dist
 
-# Playwright - rapports & traces de test (les snapshots *.png sont versionnés)
+# Playwright test reports and traces (*.png snapshots stay versioned)
 /test-results
 /playwright-report
 /playwright/.cache
 
-# Vitest - rapport de couverture (généré par npm run test:coverage)
+# Vitest coverage reports (npm run test:coverage)
 /coverage
 
 # Release supply-chain artifacts
@@ -41,5 +41,18 @@ dev-dist
 /src-tauri/target
 /src-tauri/gen
 
-# Preuves des tests WebView natifs
+# Native WebView test evidence
 /native-test-results
+
+# Store audit and review reports outside the repository
+AUDIT-*.md
+audit-*.md
+REVIEW-*.md
+review-report*.md
+*-audit-report.*
+*-review-report.*
+audit-reports/
+review-reports/
+/AMELIORATIONS-*.md
+/NOTES-publication.md
+/todo-before-v1.md

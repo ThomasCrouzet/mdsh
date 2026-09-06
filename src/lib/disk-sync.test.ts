@@ -3,9 +3,9 @@ import { notify } from './notify.svelte';
 import { promptStore } from './prompt.svelte';
 import type { FileItem } from './types';
 
-// FSA est entièrement mocké : on teste la logique de synchronisation disque
-// (flags FileItem, feedback notify, gardes mtime, gestion d'erreur par fichier),
-// pas l'API File System Access native (absente de jsdom).
+// Mock all FSA operations to test disk synchronization, FileItem flags,
+// notifications, mtime guards, and per-file error handling.
+// jsdom does not provide the native File System Access API.
 vi.mock('./fsa', () => ({
 	isFSASupported: vi.fn(() => true),
 	getHandle: vi.fn(),
@@ -67,9 +67,8 @@ function makeFile(over: Partial<FileItem> = {}): FileItem {
 
 const handle = {} as unknown as FileSystemFileHandle;
 
-// jsdom n'implémente pas File.prototype.text() ; on fabrique un faux File doté
-// d'un text() résolvant, plus lastModified/size contrôlables. Suffisant pour
-// openFromDisk qui ne lit que name/text()/lastModified/size.
+// jsdom does not implement File.prototype.text. Create a file-like object with
+// text, lastModified, and size values. openFromDisk uses only these properties.
 function fakeFile(
 	name: string,
 	content: string,
@@ -98,9 +97,9 @@ function testDeps(store: FileItem[]): DiskSyncDeps {
 beforeEach(() => {
 	notify.clear();
 	vi.clearAllMocks();
-	// Évite la pollution console des reportError attendus.
+	// Hide expected reportError output.
 	vi.spyOn(console, 'error').mockImplementation(() => {});
-	// Par défaut FSA est supportée, desktop non (réinitialisé après clearAllMocks).
+	// Use FSA support without desktop support by default.
 	vi.mocked(fsa.isFSASupported).mockReturnValue(true);
 	vi.mocked(desktop.isDesktop).mockReturnValue(false);
 	vi.mocked(fsa.getPathLink).mockResolvedValue(null);
@@ -119,20 +118,20 @@ describe('openFromDisk', () => {
 		};
 	}
 
-	it('retourne [] si FSA non supportée', async () => {
+	it('returns an empty list when FSA is unavailable', async () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
 		const created = await openFromDisk(depsFor([]));
 		expect(created).toEqual([]);
 		expect(fsa.pickAndOpen).not.toHaveBeenCalled();
 	});
 
-	it('retourne [] si le picker ne renvoie rien (annulation)', async () => {
+	it('returns an empty list after picker cancellation', async () => {
 		vi.mocked(fsa.pickAndOpen).mockResolvedValue([]);
 		const created = await openFromDisk(depsFor([]));
 		expect(created).toEqual([]);
 	});
 
-	it('ouvre chaque fichier, marque le lien disque et persiste le handle', async () => {
+	it('opens each file, marks its disk link, and persists its handle', async () => {
 		const fileA = fakeFile('a.md', '# A', { lastModified: 1000 });
 		const fileB = fakeFile('b.md', '# B', { lastModified: 2000 });
 		const hA = { tag: 'A' } as unknown as FileSystemFileHandle;
@@ -151,16 +150,16 @@ describe('openFromDisk', () => {
 		expect(created.every((f) => f.linkedToDisk === true)).toBe(true);
 		expect(created[0]!.diskLastModified).toBe(1000);
 		expect(created[0]!.diskSize).toBe(fileA.size);
-		// Un handle persisté par fichier.
+		// Persist one handle per file.
 		expect(fsa.saveHandle).toHaveBeenCalledTimes(2);
 		expect(fsa.saveHandle).toHaveBeenCalledWith('id-a.md', hA);
-		// Aucun toast partiel si rien n'a échoué.
+		// Do not show a partial toast when all files succeed.
 		expect(notify.toasts).toHaveLength(0);
 	});
 
-	it('continue malgré un fichier illisible et émet un toast info partiel', async () => {
+	it('continues after an unreadable file and shows a partial info toast', async () => {
 		const good = fakeFile('good.md', 'ok');
-		// Fichier dont .text() rejette → la lecture du contenu échoue.
+		// Reject `.text()` to simulate a content read failure.
 		const bad = {
 			name: 'bad.md',
 			lastModified: 0,
@@ -178,13 +177,13 @@ describe('openFromDisk', () => {
 
 		expect(created).toHaveLength(1);
 		expect(created[0]!.name).toBe('good.md');
-		// reportError a été appelé pour le fichier en échec.
+		// reportError receives the failed file.
 		expect(console.error).toHaveBeenCalled();
-		// Résumé partiel "N ouverts, M ignorés" via toast info.
+		// Show the partial result in an info toast.
 		expect(notify.toasts.some((t) => t.level === 'info')).toBe(true);
 	});
 
-	it('échec de persistance du handle compte comme fichier ignoré', async () => {
+	it('counts a handle persistence failure as a skipped file', async () => {
 		const f = fakeFile('x.md', 'ok');
 		vi.mocked(fsa.pickAndOpen).mockResolvedValue([{ handle, file: f }]);
 		vi.mocked(fsa.saveHandle).mockRejectedValue(new Error('IDB plein'));
@@ -192,8 +191,8 @@ describe('openFromDisk', () => {
 		const store: FileItem[] = [];
 		const created = await openFromDisk(depsFor(store));
 
-		// onCreate a tourné mais l'échec de saveHandle a écarté le fichier de la
-		// liste retournée. Pas de toast partiel car aucun fichier n'a réussi.
+		// onCreate runs, but saveHandle failure excludes the file from the result.
+		// Do not show a partial toast because no file succeeded.
 		expect(created).toHaveLength(0);
 		expect(console.error).toHaveBeenCalled();
 		expect(notify.toasts.some((t) => t.level === 'info')).toBe(false);
@@ -211,17 +210,17 @@ describe('saveToDisk', () => {
 		deps = { getFile: () => file, onCreate: () => file, scheduleSave };
 	});
 
-	it('retourne false si FSA non supportée', async () => {
+	it('returns false when FSA is unavailable', async () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
 		expect(await saveToDisk('a', deps)).toBe(false);
 	});
 
-	it('retourne false si le fichier est introuvable', async () => {
+	it('returns false when the file is missing', async () => {
 		const missing: DiskSyncDeps = { ...deps, getFile: () => undefined };
 		expect(await saveToDisk('a', missing)).toBe(false);
 	});
 
-	it('handle existant + permission accordée : écrit, met à jour les flags et planifie un save', async () => {
+	it('writes with an approved handle, updates flags, and schedules a save', async () => {
 		const written = new File(['contenu'], 'note.md');
 		Object.defineProperty(written, 'lastModified', { value: 5555, configurable: true });
 		const handleWithFile = {
@@ -237,14 +236,14 @@ describe('saveToDisk', () => {
 		expect(file.linkedToDisk).toBe(true);
 		expect(file.brokenLink).toBe(false);
 		expect(file.dirty).toBe(false);
-		// La baseline anti-écrasement est rafraîchie après écriture.
+		// Refresh the overwrite baseline after the write.
 		expect(file.diskLastModified).toBe(5555);
 		expect(file.diskSize).toBe(written.size);
 		expect(scheduleSave).toHaveBeenCalledWith('a');
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
 	});
 
-	it('handle existant + permission refusée : false, sans toast', async () => {
+	it('returns false without a toast when handle permission is denied', async () => {
 		vi.mocked(fsa.getHandle).mockResolvedValue(handle);
 		vi.mocked(fsa.requestPermission).mockResolvedValue(false);
 		expect(await saveToDisk('a', deps)).toBe(false);
@@ -252,7 +251,7 @@ describe('saveToDisk', () => {
 		expect(fsa.writeHandle).not.toHaveBeenCalled();
 	});
 
-	it("échec d'écriture : false, lien marqué cassé, toast erreur", async () => {
+	it('returns false and marks the link broken after a write failure', async () => {
 		vi.mocked(fsa.getHandle).mockResolvedValue(handle);
 		vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 		vi.mocked(fsa.writeHandle).mockRejectedValue(new Error('disk fail'));
@@ -263,7 +262,7 @@ describe('saveToDisk', () => {
 		expect(scheduleSave).not.toHaveBeenCalled();
 	});
 
-	it('aucun handle : ouvre un picker, persiste le handle puis écrit', async () => {
+	it('opens a picker, persists the new handle, and writes', async () => {
 		const picked = { tag: 'picked' } as unknown as FileSystemFileHandle;
 		const written = new File(['contenu'], 'note.md');
 		Object.defineProperty(picked, 'getFile', {
@@ -283,7 +282,7 @@ describe('saveToDisk', () => {
 		expect(file.linkedToDisk).toBe(true);
 	});
 
-	it('aucun handle + picker annulé : false sans écriture', async () => {
+	it('returns false without a write after picker cancellation', async () => {
 		vi.mocked(fsa.getHandle).mockResolvedValue(null);
 		vi.mocked(fsa.pickSaveTarget).mockResolvedValue(null);
 		expect(await saveToDisk('a', deps)).toBe(false);
@@ -291,27 +290,27 @@ describe('saveToDisk', () => {
 		expect(fsa.saveHandle).not.toHaveBeenCalled();
 	});
 
-	it('re-lecture impossible après écriture : invalide la baseline (undefined)', async () => {
+	it('clears the baseline when a read after write fails', async () => {
 		const getFile = vi.fn().mockRejectedValue(new Error('relecture KO'));
 		const h = { getFile } as unknown as FileSystemFileHandle;
 		vi.mocked(fsa.getHandle).mockResolvedValue(h);
 		vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
-		// file.diskLastModified undefined → pas de garde mtime, mais getFile post-write throw.
+		// With no file.diskLastModified, skip the mtime guard. Then make the post-write getFile call throw.
 		const ok = await saveToDisk('a', deps);
 		expect(ok).toBe(true);
 		expect(file.diskLastModified).toBeUndefined();
 		expect(file.diskSize).toBeUndefined();
 	});
 
-	describe('garde anti-écrasement (conflit mtime §C2)', () => {
+	describe('overwrite guard for mtime conflicts (§C2)', () => {
 		beforeEach(() => {
-			// Fichier déjà lié avec une baseline disque connue.
+			// Use an existing link with a known disk baseline.
 			file = makeFile({ linkedToDisk: true, diskLastModified: 1000, diskSize: 7 });
 			deps = { getFile: () => file, onCreate: () => file, scheduleSave };
 		});
 
-		it('disque divergent + confirmation : écrit', async () => {
+		it('writes after confirmation when disk content differs', async () => {
 			const onDisk = new File(['autre contenu disque'], 'note.md');
 			Object.defineProperty(onDisk, 'lastModified', { value: 9999, configurable: true });
 			const writtenAfter = new File(['contenu'], 'note.md');
@@ -335,7 +334,7 @@ describe('saveToDisk', () => {
 			confirmSpy.mockRestore();
 		});
 
-		it('disque divergent + refus : false, toast info "annulé", pas d\'écriture', async () => {
+		it('returns false without a write after conflict rejection', async () => {
 			const onDisk = new File(['autre'], 'note.md');
 			Object.defineProperty(onDisk, 'lastModified', { value: 9999, configurable: true });
 			const h = { getFile: vi.fn().mockResolvedValue(onDisk) } as unknown as FileSystemFileHandle;
@@ -351,8 +350,8 @@ describe('saveToDisk', () => {
 			confirmSpy.mockRestore();
 		});
 
-		it('divergence par taille seule déclenche aussi la confirmation', async () => {
-			// mtime identique mais taille différente → diverged.
+		it('requests confirmation for a size-only difference', async () => {
+			// The same mtime with a different size is a conflict.
 			const onDisk = new File(['taille differente'], 'note.md');
 			Object.defineProperty(onDisk, 'lastModified', { value: 1000, configurable: true });
 			const h = { getFile: vi.fn().mockResolvedValue(onDisk) } as unknown as FileSystemFileHandle;
@@ -365,7 +364,7 @@ describe('saveToDisk', () => {
 			confirmSpy.mockRestore();
 		});
 
-		it('disque inchangé : pas de confirmation, écrit directement', async () => {
+		it('writes unchanged disk content without confirmation', async () => {
 			const onDisk = new File(['1234567'], 'note.md'); // 7 octets, mtime 1000 = baseline
 			Object.defineProperty(onDisk, 'lastModified', { value: 1000, configurable: true });
 			const writtenAfter = new File(['contenu'], 'note.md');
@@ -384,7 +383,7 @@ describe('saveToDisk', () => {
 			confirmSpy.mockRestore();
 		});
 
-		it("lecture impossible pendant le check : log puis poursuite de l'écriture", async () => {
+		it('logs a read failure during the check and continues the write', async () => {
 			const writtenAfter = new File(['contenu'], 'note.md');
 			Object.defineProperty(writtenAfter, 'lastModified', { value: 3000, configurable: true });
 			const getFile = vi
@@ -399,7 +398,7 @@ describe('saveToDisk', () => {
 
 			const ok = await saveToDisk('a', deps);
 
-			// Lecture du check impossible → on logge et on laisse l'écriture suivre.
+			// Log a failed check read and continue the write.
 			expect(confirmSpy).not.toHaveBeenCalled();
 			expect(console.error).toHaveBeenCalled();
 			expect(ok).toBe(true);
@@ -409,7 +408,7 @@ describe('saveToDisk', () => {
 });
 
 describe('unlinkFromDisk', () => {
-	it('supprime le handle puis délie le fichier et planifie un save', async () => {
+	it('deletes the handle, unlinks the file, and schedules a save', async () => {
 		const file = makeFile({ linkedToDisk: true, brokenLink: true });
 		const scheduleSave = vi.fn();
 		const deps: DiskSyncDeps = { getFile: () => file, onCreate: () => file, scheduleSave };
@@ -424,7 +423,7 @@ describe('unlinkFromDisk', () => {
 		expect(scheduleSave).toHaveBeenCalledWith('a');
 	});
 
-	it('supprime quand même le handle orphelin si le fichier est absent du store', async () => {
+	it('deletes an orphan handle when the store file is missing', async () => {
 		const scheduleSave = vi.fn();
 		const deps: DiskSyncDeps = {
 			getFile: () => undefined,
@@ -435,27 +434,27 @@ describe('unlinkFromDisk', () => {
 
 		await unlinkFromDisk('orphan', deps);
 
-		// Le handle IDB est retiré en premier (garantie pour DiskLinksPanel)…
+		// Delete the IndexedDB handle first for the DiskLinksPanel contract.
 		expect(fsa.deleteHandle).toHaveBeenCalledWith('orphan');
-		// …mais aucun scheduleSave car aucun FileItem à persister.
+		// Do not schedule a save without a FileItem.
 		expect(scheduleSave).not.toHaveBeenCalled();
 	});
 });
 
 describe('isDiskLinkingAvailable', () => {
-	it('vrai si FSA est supportée', () => {
+	it('returns true when FSA is available', () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
 		vi.mocked(desktop.isDesktop).mockReturnValue(false);
 		expect(isDiskLinkingAvailable()).toBe(true);
 	});
 
-	it('vrai sur le shell desktop même sans FSA', () => {
+	it('returns true in the desktop shell without FSA', () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		expect(isDiskLinkingAvailable()).toBe(true);
 	});
 
-	it('faux sans FSA ni desktop', () => {
+	it('returns false without FSA or desktop', () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
 		vi.mocked(desktop.isDesktop).mockReturnValue(false);
 		expect(isDiskLinkingAvailable()).toBe(false);
@@ -475,7 +474,7 @@ describe('openFromDisk desktop capability backend', () => {
 		};
 	}
 
-	it('utilise le backend Tauri et persiste un path link', async () => {
+	it('uses the Tauri backend and persists a path link', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
 		vi.mocked(diskTauri.tauriPickAndOpen).mockResolvedValue({
@@ -575,7 +574,7 @@ describe('saveToDisk desktop capability backend', () => {
 		expect(scheduleSave).toHaveBeenCalledWith('a');
 	});
 
-	it('retourne false quand le sélecteur natif est annulé', async () => {
+	it('returns false when the native picker is canceled', async () => {
 		const file = makeFile();
 		const { deps } = desktopDeps(file);
 		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
@@ -654,7 +653,7 @@ describe('saveToDisk desktop capability backend', () => {
 		confirmSpy.mockRestore();
 	});
 
-	it("signale une erreur d'écriture native et marque le lien cassé", async () => {
+	it('reports a native write error and marks the link broken', async () => {
 		const file = makeFile();
 		const { deps, scheduleSave } = desktopDeps(file);
 		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
@@ -697,17 +696,17 @@ describe('saveToDisk desktop capability backend', () => {
 });
 
 describe('refreshBrokenLinks', () => {
-	it('no-op si FSA non supportée et hors desktop', async () => {
+	it('does nothing without FSA outside desktop', async () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
 		vi.mocked(desktop.isDesktop).mockReturnValue(false);
 		const files = [makeFile({ id: 'f1', linkedToDisk: true })];
 		await refreshBrokenLinks(files, () => files[0]);
-		// getHandle/checkHandle ne sont jamais appelés.
+		// Do not call getHandle or checkHandle.
 		expect(fsa.getHandle).not.toHaveBeenCalled();
 		expect(fsa.checkHandle).not.toHaveBeenCalled();
 	});
 
-	it('marque brokenLink=true quand checkHandle renvoie "broken"', async () => {
+	it('sets brokenLink when checkHandle returns broken', async () => {
 		const f = makeFile({ id: 'f1', linkedToDisk: true });
 		vi.mocked(fsa.getHandle).mockResolvedValue(handle);
 		vi.mocked(fsa.checkHandle).mockResolvedValue('broken');
@@ -716,17 +715,17 @@ describe('refreshBrokenLinks', () => {
 		expect(f.linkedToDisk).toBe(true); // handle présent → on garde le lien
 	});
 
-	it('handle absent : brokenLink=true ET linkedToDisk repassé à false', async () => {
+	it('sets brokenLink and clears linkedToDisk for a missing handle', async () => {
 		const f = makeFile({ id: 'f1', linkedToDisk: true });
 		vi.mocked(fsa.getHandle).mockResolvedValue(null);
 		await refreshBrokenLinks([f], (id) => (id === 'f1' ? f : undefined));
 		expect(f.brokenLink).toBe(true);
 		expect(f.linkedToDisk).toBe(false);
-		// checkHandle non appelé puisqu'il n'y a pas de handle.
+		// Do not call checkHandle without a handle.
 		expect(fsa.checkHandle).not.toHaveBeenCalled();
 	});
 
-	it('lien OK : brokenLink remis à false, linkedToDisk conservé', async () => {
+	it('clears brokenLink and keeps linkedToDisk for a valid link', async () => {
 		const f = makeFile({ id: 'f1', linkedToDisk: true, brokenLink: true });
 		vi.mocked(fsa.getHandle).mockResolvedValue(handle);
 		vi.mocked(fsa.checkHandle).mockResolvedValue('ok');
@@ -735,24 +734,24 @@ describe('refreshBrokenLinks', () => {
 		expect(f.linkedToDisk).toBe(true);
 	});
 
-	it('ignore les fichiers non liés au disque', async () => {
+	it('ignores files that are not linked to disk', async () => {
 		const f = makeFile({ id: 'f1', linkedToDisk: false });
 		await refreshBrokenLinks([f], () => f);
 		expect(fsa.getHandle).not.toHaveBeenCalled();
 	});
 
-	it('saute silencieusement un update dont le FileItem a disparu du store', async () => {
+	it('skips an update when FileItem is missing from the store', async () => {
 		const f = makeFile({ id: 'f1', linkedToDisk: true });
 		vi.mocked(fsa.getHandle).mockResolvedValue(handle);
 		vi.mocked(fsa.checkHandle).mockResolvedValue('broken');
-		// getFileMutable ne retrouve plus le fichier (supprimé entre-temps).
+		// getFileMutable cannot find the file after concurrent deletion.
 		await expect(refreshBrokenLinks([f], () => undefined)).resolves.toBeUndefined();
-		// L'objet d'origine n'est pas muté car le lookup renvoie undefined.
+		// Do not change the original object when lookup returns undefined.
 		expect(f.brokenLink).toBeUndefined();
 	});
 });
 
-describe('imports natifs protégés', () => {
+describe('guarded native imports', () => {
 	const opened = {
 		name: 'note.md',
 		content: 'disk',
@@ -762,7 +761,7 @@ describe('imports natifs protégés', () => {
 		revision: 'new-disk-revision',
 		link: { kind: 'path' as const, path: '/tmp/note.md' }
 	};
-	it('réactive le brouillon sale existant sans changer sa branche ni sa révision', async () => {
+	it('reactivates an existing dirty draft without branch or revision changes', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		vi.mocked(diskTauri.tauriPickAndOpen).mockResolvedValue({ files: [opened], failed: 0 });
 		const file = makeFile({ content: 'local unsaved', dirty: true, diskRevision: 'old-revision' });
@@ -785,7 +784,7 @@ describe('imports natifs protégés', () => {
 			diskRevision: 'old-revision'
 		});
 	});
-	it('importe un dossier natif et conserve les échecs du backend dans le bilan', async () => {
+	it('imports a native directory and keeps backend failures in the summary', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		vi.mocked(diskTauri.tauriPickDirectoryAndOpen).mockResolvedValue({
 			files: [opened],
@@ -805,7 +804,7 @@ describe('imports natifs protégés', () => {
 			expect.objectContaining({ imported: 1, failed: 1 })
 		);
 	});
-	it('refuse un faux markdown et abandonne les créations après annulation', async () => {
+	it('rejects false Markdown and stops creation after cancellation', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		const onCreate = vi.fn();
 		const deps = { getFile: () => undefined, onCreate, scheduleSave: vi.fn() };
@@ -819,7 +818,7 @@ describe('imports natifs protégés', () => {
 		expect(await openFromDisk(deps, { signal: controller.signal })).toEqual([]);
 		expect(onCreate).not.toHaveBeenCalled();
 	});
-	it('ne lance pas de sélecteur natif dans un navigateur', async () => {
+	it('does not start a native picker in a browser', async () => {
 		expect(
 			await openDirectoryFromDisk({
 				getFile: () => undefined,
@@ -831,8 +830,8 @@ describe('imports natifs protégés', () => {
 	});
 });
 
-describe('acquittement natif par capacité', () => {
-	it('retourne seulement les tokens créés ou dédupliqués avec leur lien persistant', async () => {
+describe('native capability acknowledgment', () => {
+	it('returns only created or deduplicated tokens with persistent links', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
 			files: [
@@ -870,7 +869,7 @@ describe('acquittement natif par capacité', () => {
 		expect(result.files.map((file) => file.name)).toEqual(['good.md']);
 		expect(result.processedTokens).toEqual(['good-token']);
 	});
-	it('révoque la création en mémoire si le lien du token ne peut être persisté', async () => {
+	it('reverts in-memory creation when token link persistence fails', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
 			files: [
@@ -902,7 +901,7 @@ describe('acquittement natif par capacité', () => {
 		expect(result).toEqual({ files: [], processedTokens: [] });
 		expect(store).toEqual([]);
 	});
-	it('acquitte également le token qui réactive une branche locale existante', async () => {
+	it('also acknowledges a token that reactivates an existing local branch', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		const existing = makeFile({ id: 'existing', content: 'local' });
 		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/same.md' });

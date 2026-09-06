@@ -1,11 +1,9 @@
 /* ============================================================================
-   Preview dark - utilisé par le mode lecture (ReadView.svelte)
-   Les styles sont scopés via .mdsh-preview pour ne pas fuir vers Milkdown.
+   Dark preview for the reading view in ReadView.svelte.
+   Scope styles with .mdsh-preview to keep them out of Milkdown.
 
-   La typographie structurelle (headings, p, lists, code, tables, blockquotes,
-   images, liens) est factorisée dans `../styles/prose-base.css` - seules les
-   spécificités de la vue preview (conteneur, checkbox tasks, math, mermaid,
-   highlight.js atom-one-dark) restent ici.
+   `../styles/prose-base.css` contains shared typography. This file contains
+   preview container, task checkbox, math, Mermaid, and highlight.js rules.
    ============================================================================ */
 
 @import '../styles/prose-base.css';
@@ -16,13 +14,12 @@
 	padding: 3rem 5vw 15vh;
 	color: var(--color-fg);
 	font-family: var(--font-prose);
-	/* 17 px pour cohérence avec le mode édition ; recommandation Rello 2016
-	   (compréhension améliorée ≥ 18 pt) honorée pour un rendu confortable. */
+	/* Match the 17 px editing view. Rello 2016 reports improved comprehension at ≥ 18 pt. */
 	font-size: 17px;
 	line-height: 1.65;
-	/* Compensation optique du poids en dark (halation). */
+	/* Reduce the weight because light text appears heavier on a dark surface. */
 	font-weight: 380;
-	/* Isole les reflows du resize - même raison que Milkdown (cf. milkdown.css). */
+	/* Isolate resize layout changes. See milkdown.css. */
 	contain: layout style;
 }
 
@@ -32,14 +29,14 @@
 	}
 }
 
-/* Premier heading collé en haut (pas de top-margin) - UX preview. */
+/* Remove the top margin from the first heading. */
 .mdsh-preview h1:first-child,
 .mdsh-preview h2:first-child,
 .mdsh-preview h3:first-child {
 	margin-top: 0;
 }
 
-/* Listes - preview ajoute un margin vertical que Milkdown n'a pas. */
+/* Add vertical list margins in the preview. */
 .mdsh-preview ul,
 .mdsh-preview ol {
 	margin: 0.4em 0 0.9em;
@@ -49,7 +46,7 @@
 	margin: 0.25em 0;
 }
 
-/* Task lists GFM - checkboxes natives stylées. */
+/* Style native GFM task checkboxes. */
 .mdsh-preview li.task-list-item {
 	list-style: none;
 }
@@ -60,7 +57,7 @@
 	accent-color: var(--color-accent);
 }
 
-/* --- Code blocks (pre) - spécifique preview (Milkdown utilise CodeMirror) --- */
+/* Preview code blocks. Milkdown uses CodeMirror. */
 .mdsh-preview pre {
 	background: var(--color-bg-1);
 	border: 1px solid var(--color-border);
@@ -80,12 +77,12 @@
 	font-size: inherit;
 }
 
-/* Images - preview force height: auto pour les vraies images (vs data:). */
+/* Preserve the aspect ratio of preview images. */
 .mdsh-preview img {
 	height: auto;
 }
 
-/* --- §5.1 Front-matter - bloc métadonnées en tête ---------------------- */
+/* §5.1 Front-matter metadata block */
 .mdsh-preview .mdsh-frontmatter {
 	margin: 0 0 1.6em;
 	padding: 0.7em 1em;
@@ -128,10 +125,8 @@
 	font-size: 0.85em;
 }
 
-/* §B4.5 - Anchor permalien sur h1-h3 (visible au hover du heading).
-   Discret par défaut (opacity:0), accent au focus pour la navigation clavier
-   (note : `tabindex=-1` sur le `<a>` empêche de Tab dessus mais on peut
-   toujours cliquer/copier le lien). */
+/* §B4.5 - Show h1-h3 permalinks on hover. Keep opacity at 0 by default and use the accent on focus.
+   `tabindex=-1` on the `<a>` removes it from the tab order. Users can still click or copy the link. */
 .mdsh-preview :is(h1, h2, h3) {
 	scroll-margin-top: 1rem;
 }
@@ -153,7 +148,7 @@
 	color: var(--color-accent);
 }
 @media (hover: none) {
-	/* Mobile / tactile : pas de hover, on rend toujours visible mais discret. */
+	/* Keep anchors visible but subtle on devices without hover. */
 	.mdsh-preview .mdsh-anchor {
 		opacity: 0.4;
 	}
@@ -226,7 +221,7 @@
 }
 
 /* ============================================================================
-   Highlight.js - thème atom-one-dark adapté (cohérent avec l'app)
+   Highlight.js - adapted atom-one-dark theme
    ============================================================================ */
 .mdsh-preview .hljs {
 	color: var(--color-fg);

@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { resetAppState, createFirstFile, openPalette } from './helpers';
 
-test.describe('Accessibilité - skip link & focus trap', () => {
+test.describe('Accessibility - skip link and focus trap', () => {
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page);
 	});
 
-	test('skip link présent, masqué au repos, cible #main', async ({ page }) => {
+	test('keeps the #main skip link hidden until focus', async ({ page }) => {
 		const link = page.locator('a.skip-link');
 		await expect(link).toBeAttached();
 		await expect(link).toHaveAttribute('href', '#main');
@@ -20,7 +20,7 @@ test.describe('Accessibilité - skip link & focus trap', () => {
 		await expect(main).toHaveAttribute('tabindex', '-1');
 	});
 
-	test('CommandPalette - Tab wrap depuis le dernier focusable', async ({ page }) => {
+	test('CommandPalette - wraps Tab from the last focusable element', async ({ page }) => {
 		await createFirstFile(page);
 		await openPalette(page);
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
@@ -31,13 +31,13 @@ test.describe('Accessibilité - skip link & focus trap', () => {
 		const count = await focusables.count();
 		expect(count).toBeGreaterThan(1);
 
-		// Focus le dernier → Tab → retour au premier (l'input)
+		// Focus the last element. Tab must move focus to the first input.
 		await focusables.nth(count - 1).focus();
 		await page.keyboard.press('Tab');
 		await expect(dialog.locator('input[type="text"]')).toBeFocused();
 	});
 
-	test('CommandPalette - Shift+Tab wrap depuis le premier focusable', async ({ page }) => {
+	test('CommandPalette - wraps Shift+Tab from the first focusable element', async ({ page }) => {
 		await createFirstFile(page);
 		await openPalette(page);
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
@@ -47,7 +47,7 @@ test.describe('Accessibilité - skip link & focus trap', () => {
 		);
 		const count = await focusables.count();
 
-		// Focus le premier (l'input) → Shift+Tab → doit aller au dernier
+		// Focus the first input. Shift+Tab must move focus to the last element.
 		await dialog.locator('input[type="text"]').focus();
 		await page.keyboard.press('Shift+Tab');
 		await expect(focusables.nth(count - 1)).toBeFocused();

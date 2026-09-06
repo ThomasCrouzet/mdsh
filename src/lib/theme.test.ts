@@ -9,21 +9,21 @@ import {
 } from './theme';
 
 describe('resolveTheme', () => {
-	it('light/dark sont absolus (ignorent le système)', () => {
+	it('treats light and dark as explicit settings', () => {
 		expect(resolveTheme('light', false)).toBe('light');
 		expect(resolveTheme('light', true)).toBe('light');
 		expect(resolveTheme('dark', true)).toBe('dark');
 		expect(resolveTheme('dark', false)).toBe('dark');
 	});
 
-	it('system suit la préférence OS', () => {
+	it('follows the operating system for the system setting', () => {
 		expect(resolveTheme('system', true)).toBe('light');
 		expect(resolveTheme('system', false)).toBe('dark');
 	});
 });
 
 describe('nextThemePref', () => {
-	it('cycle système → clair → sombre → système', () => {
+	it('cycles through system, light, dark, and system', () => {
 		let p: ThemePref = 'system';
 		p = nextThemePref(p);
 		expect(p).toBe('light');
@@ -35,12 +35,12 @@ describe('nextThemePref', () => {
 });
 
 describe('isThemePref', () => {
-	it('accepte les 3 valeurs valides', () => {
+	it('accepts the three valid values', () => {
 		expect(isThemePref('system')).toBe(true);
 		expect(isThemePref('light')).toBe(true);
 		expect(isThemePref('dark')).toBe(true);
 	});
-	it('rejette tout le reste', () => {
+	it('rejects all other values', () => {
 		expect(isThemePref('')).toBe(false);
 		expect(isThemePref(null)).toBe(false);
 		expect(isThemePref('Light')).toBe(false);
@@ -49,7 +49,7 @@ describe('isThemePref', () => {
 });
 
 describe('THEME_COLORS', () => {
-	it('mappe chaque thème effectif à une couleur barre système', () => {
+	it('maps each effective theme to a system bar color', () => {
 		expect(THEME_COLORS.dark).toBe('#0b0c0d');
 		expect(THEME_COLORS.light).toBe('#f0ede5');
 	});

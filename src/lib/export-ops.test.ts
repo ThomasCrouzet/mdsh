@@ -4,8 +4,7 @@ import type { FileItem } from './types';
 import { promptStore } from './prompt.svelte';
 import { MediaPreparationError } from './render/image-media';
 
-// On teste l'orchestration du feedback (notify), pas le rendu réel : les
-// services d'export et le spinner sont mockés.
+// Test notification orchestration. Mock export services and the spinner to avoid actual rendering.
 vi.mock('./services/export', () => ({
 	exportMarkdown: vi.fn(),
 	exportHTML: vi.fn(),
@@ -41,84 +40,84 @@ const deps = {
 	scheduleSave: () => {}
 };
 
-describe('export-ops - feedback notify (§J3)', () => {
+describe('export-ops - notification feedback (§J3)', () => {
 	beforeEach(() => {
 		notify.clear();
 		vi.clearAllMocks();
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 	});
 
-	it('exportHTML : toast succès', async () => {
+	it('shows a success toast after exportHTML', async () => {
 		vi.mocked(services.exportHTML).mockResolvedValue(true);
 		await exportHTML('a', deps);
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
 	});
 
-	it('exportHTML : toast erreur si le service échoue', async () => {
+	it('shows an error toast when exportHTML fails', async () => {
 		vi.mocked(services.exportHTML).mockRejectedValue(new Error('boom'));
 		await exportHTML('a', deps);
 		expect(notify.toasts.some((t) => t.level === 'error')).toBe(true);
 	});
 
-	it('exportPDF : toast succès', async () => {
+	it('shows a success toast after exportPDF', async () => {
 		vi.mocked(services.exportPDF).mockResolvedValue(undefined);
 		await exportPDF('a', deps);
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
 	});
 
-	it('exportPDF : toast erreur si le service échoue', async () => {
+	it('shows an error toast when exportPDF fails', async () => {
 		vi.mocked(services.exportPDF).mockRejectedValue(new Error('boom'));
 		await exportPDF('a', deps);
 		expect(notify.toasts.some((t) => t.level === 'error')).toBe(true);
 	});
 
-	it('exportAllZip : succès annonçant le nombre de fichiers', async () => {
+	it('reports the file count after exportAllZip', async () => {
 		vi.mocked(services.exportZip).mockResolvedValue(true);
 		await exportAllZip(deps);
 		const ok = notify.toasts.find((t) => t.level === 'success');
 		expect(ok?.message).toContain('2');
 	});
 
-	it('exportAllZip : toast erreur si le service échoue', async () => {
+	it('shows an error toast when exportAllZip fails', async () => {
 		vi.mocked(services.exportZip).mockRejectedValue(new Error('boom'));
 		await exportAllZip(deps);
 		expect(notify.toasts.some((t) => t.level === 'error')).toBe(true);
 	});
 
-	it('exportSelectionZip : succès sur une sélection', async () => {
+	it('reports success after exportSelectionZip', async () => {
 		vi.mocked(services.exportZip).mockResolvedValue(true);
 		await exportSelectionZip(new Set(['a']), deps);
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
 	});
 
-	it('exportSelectionZip : no-op si sélection vide', async () => {
+	it('does nothing for an empty exportSelectionZip selection', async () => {
 		await exportSelectionZip(new Set(), deps);
 		expect(services.exportZip).not.toHaveBeenCalled();
 		expect(notify.toasts).toHaveLength(0);
 	});
 
-	it('exportSelectionZip : no-op si ids hors corpus', async () => {
+	it('does nothing when exportSelectionZip IDs are outside the corpus', async () => {
 		await exportSelectionZip(new Set(['missing']), deps);
 		expect(services.exportZip).not.toHaveBeenCalled();
 	});
 
-	it('exportAllZip : no-op si aucun fichier', async () => {
+	it('does nothing when exportAllZip has no files', async () => {
 		const emptyDeps = { getFiles: () => [] as readonly FileItem[], scheduleSave: () => {} };
 		await exportAllZip(emptyDeps);
 		expect(services.exportZip).not.toHaveBeenCalled();
 	});
 
-	it('exportHTML : no-op si id inconnu', async () => {
+	it('does nothing when exportHTML receives an unknown ID', async () => {
 		await exportHTML('missing', deps);
 		expect(services.exportHTML).not.toHaveBeenCalled();
 	});
 
-	it('exportMarkdown : no-op si id inconnu', async () => {
+	it('does nothing when exportMarkdown receives an unknown ID', async () => {
 		await exportMarkdown('missing', deps);
 		expect(services.exportMarkdown).not.toHaveBeenCalled();
 	});
 
-	it('exportMarkdown : annulation desktop ne clear pas dirty ni ne toast', async () => {
+	it('keeps dirty state and hides success after desktop exportMarkdown cancellation', async () => {
 		const files = [file('a')];
 		const scheduleSave = vi.fn();
 		const localDeps = {
@@ -132,7 +131,7 @@ describe('export-ops - feedback notify (§J3)', () => {
 		expect(notify.toasts).toHaveLength(0);
 	});
 
-	it('exportMarkdown : succès clear dirty et scheduleSave', async () => {
+	it('clears dirty state and schedules a save after exportMarkdown success', async () => {
 		const files = [file('a')];
 		const scheduleSave = vi.fn();
 		const localDeps = {
@@ -145,13 +144,13 @@ describe('export-ops - feedback notify (§J3)', () => {
 		expect(scheduleSave).toHaveBeenCalledWith('a');
 	});
 
-	it('exportHTML : annulation desktop ne toast pas succès', async () => {
+	it('does not report success after desktop exportHTML cancellation', async () => {
 		vi.mocked(services.exportHTML).mockResolvedValue(false);
 		await exportHTML('a', deps);
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(false);
 	});
 
-	it('demande le consentement avant de relancer un export avec accès réseau', async () => {
+	it('requests consent before it retries an export with network access', async () => {
 		vi.spyOn(promptStore, 'confirm').mockResolvedValue(true);
 		vi.mocked(services.exportHTML)
 			.mockRejectedValueOnce(
@@ -165,7 +164,7 @@ describe('export-ops - feedback notify (§J3)', () => {
 		});
 	});
 
-	it('une annulation du consentement n’exporte rien et n’annonce aucun succès', async () => {
+	it('exports nothing and reports no success after consent cancellation', async () => {
 		vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
 		vi.mocked(services.exportPDF).mockRejectedValue(
 			new MediaPreparationError([{ source: 'relative.png', reason: 'blocked' }])
@@ -175,7 +174,7 @@ describe('export-ops - feedback notify (§J3)', () => {
 		expect(notify.toasts.some((toast) => toast.level === 'success')).toBe(false);
 	});
 
-	it('ne marque pas une saisie concurrente comme exportée', async () => {
+	it('does not mark a concurrent edit as exported', async () => {
 		const files = [file('a')];
 		let finish: (value: boolean) => void = () => {};
 		vi.mocked(services.exportMarkdown).mockImplementation(
@@ -193,7 +192,7 @@ describe('export-ops - feedback notify (§J3)', () => {
 		expect(scheduleSave).not.toHaveBeenCalled();
 	});
 
-	it('exportAllZip : annulation desktop ne toast pas et ne clear pas dirty', async () => {
+	it('keeps dirty state and hides success after desktop exportAllZip cancellation', async () => {
 		const files = [file('a'), file('b')];
 		const scheduleSave = vi.fn();
 		const localDeps = {
@@ -208,14 +207,14 @@ describe('export-ops - feedback notify (§J3)', () => {
 	});
 });
 
-describe('exports face aux erreurs et modifications concurrentes', () => {
+describe('exports during errors and concurrent changes', () => {
 	beforeEach(() => {
 		notify.clear();
 		vi.clearAllMocks();
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 	});
 
-	it('affiche les sources illisibles sans demander de consentement réseau', async () => {
+	it('shows unreadable sources without a network consent request', async () => {
 		vi.spyOn(promptStore, 'confirm').mockResolvedValue(true);
 		vi.mocked(services.exportHTML).mockRejectedValue(
 			new MediaPreparationError([{ source: 'figure.png', reason: 'unreadable' }])
@@ -225,7 +224,7 @@ describe('exports face aux erreurs et modifications concurrentes', () => {
 		expect(notify.toasts.find((toast) => toast.level === 'error')?.message).toContain('figure.png');
 	});
 
-	it('signale une erreur Markdown et une erreur ZIP sélection sans succès', async () => {
+	it('reports Markdown and selection ZIP errors without success', async () => {
 		vi.mocked(services.exportMarkdown).mockRejectedValue(new Error('write failed'));
 		vi.mocked(services.exportZip).mockRejectedValue(new Error('zip failed'));
 		await exportMarkdown('a', deps);
@@ -234,27 +233,24 @@ describe('exports face aux erreurs et modifications concurrentes', () => {
 		expect(notify.toasts.some((toast) => toast.level === 'success')).toBe(false);
 	});
 
-	it('ne lance aucun PDF pour un identifiant disparu', async () => {
+	it('does not start a PDF export for a missing ID', async () => {
 		await exportPDF('missing', deps);
 		expect(services.exportPDF).not.toHaveBeenCalled();
 	});
 
-	it.each(['rename', 'remove'])(
-		'conserve les modifications lors d’un export Markdown : %s',
-		async (change) => {
-			const files = [file('a')];
-			const scheduleSave = vi.fn();
-			vi.mocked(services.exportMarkdown).mockImplementation(async () => {
-				if (change === 'rename') files[0]!.name = 'new.md';
-				else files.pop();
-				return true;
-			});
-			await exportMarkdown('a', { getFiles: () => files, scheduleSave });
-			expect(scheduleSave).not.toHaveBeenCalled();
-		}
-	);
+	it.each(['rename', 'remove'])('keeps changes during a Markdown export: %s', async (change) => {
+		const files = [file('a')];
+		const scheduleSave = vi.fn();
+		vi.mocked(services.exportMarkdown).mockImplementation(async () => {
+			if (change === 'rename') files[0]!.name = 'new.md';
+			else files.pop();
+			return true;
+		});
+		await exportMarkdown('a', { getFiles: () => files, scheduleSave });
+		expect(scheduleSave).not.toHaveBeenCalled();
+	});
 
-	it('un ZIP confirme uniquement les snapshots encore identiques', async () => {
+	it('confirms only unchanged snapshots after a ZIP export', async () => {
 		const files = [file('a'), file('b'), file('c'), file('d')];
 		const scheduleSave = vi.fn();
 		vi.mocked(services.exportZip).mockImplementation(async (snapshot) => {
@@ -269,7 +265,7 @@ describe('exports face aux erreurs et modifications concurrentes', () => {
 		expect(files.slice(0, 2).every((item) => item.dirty)).toBe(true);
 	});
 
-	it('une annulation du ZIP sélection ne produit pas de succès', async () => {
+	it('does not report success after selection ZIP cancellation', async () => {
 		vi.mocked(services.exportZip).mockResolvedValue(false);
 		await exportSelectionZip(new Set(['a']), deps);
 		expect(notify.toasts).toHaveLength(0);

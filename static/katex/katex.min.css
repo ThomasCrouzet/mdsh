@@ -19,7 +19,7 @@
 	font-weight: 400;
 	src: url(fonts/KaTeX_Caligraphic-Regular.woff2) format('woff2');
 }
-/* @font-face Fraktur (Bold, Regular) supprimés : `\mathfrak{}` rare, fallback navigateur. */
+/* @font-face Fraktur (Bold, Regular) removed: `\mathfrak{}` uses the browser fallback. */
 @font-face {
 	font-display: block;
 	font-family: KaTeX_Main;
@@ -62,9 +62,9 @@
 	font-weight: 400;
 	src: url(fonts/KaTeX_Math-Italic.woff2) format('woff2');
 }
-/* @font-face SansSerif (Bold, Italic, Regular) supprimés : `\textsf{}` rare, fallback navigateur. */
+/* @font-face SansSerif (Bold, Italic, Regular) removed: `\textsf{}` uses the browser fallback. */
 
-/* @font-face Script (Regular) supprimé : `\mathscr{}` rare, fallback navigateur. */
+/* @font-face Script (Regular) removed: `\mathscr{}` uses the browser fallback. */
 @font-face {
 	font-display: block;
 	font-family: KaTeX_Size1;

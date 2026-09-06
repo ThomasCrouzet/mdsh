@@ -119,14 +119,14 @@ export function getTitle(data: Record<string, unknown>, content: string, fallbac
 }
 
 /**
- * Normalizes `data.tags` into an array of strings:
+ * Converts `data.tags` to an array of strings:
  *   - YAML array: `tags: [a, b]` → `['a', 'b']`
  *   - inline CSV: `tags: a, b, c` → `['a', 'b', 'c']`
  *   - single string: `tags: foo` → `['foo']`
  *   - other / absent: `[]`
  *
- * Trims + dedupes + filters empties. Preserves case (a tag is an opaque string
- * for the user).
+ * Trims values, removes duplicates and empty values, and preserves case.
+ * Tags are opaque user strings.
  */
 export function getTags(data: Record<string, unknown>): string[] {
 	const raw = data.tags;

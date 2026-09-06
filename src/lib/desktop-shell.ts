@@ -1,6 +1,6 @@
 /**
- * Desktop shell wiring (Tauri): native menu, window-state is plugin-side,
- * argv / file-association open, and menu events → existing frontend handlers.
+ * Connects the Tauri native menu, argv and file-association open events, and
+ * menu events to frontend handlers. The window-state plugin manages window state.
  *
  * All `@tauri-apps/*` imports are dynamic - never static from the boot graph.
  */
@@ -65,10 +65,10 @@ export async function initDesktopShell(handlers: DesktopShellHandlers): Promise<
 	try {
 		await updateMenu();
 	} catch (err) {
-		reportWarning('initialisation du menu desktop', err);
+		reportWarning('initialize desktop menu', err);
 	}
 	const onLocaleChange = () => {
-		void updateMenu().catch((err: unknown) => reportWarning('langue du menu desktop', err));
+		void updateMenu().catch((err: unknown) => reportWarning('update desktop menu locale', err));
 	};
 	window.addEventListener('mdsh:locale-change', onLocaleChange);
 	unsubs.push(() => window.removeEventListener('mdsh:locale-change', onLocaleChange));
@@ -100,7 +100,7 @@ export async function initDesktopShell(handlers: DesktopShellHandlers): Promise<
 						.slice(0, 5)
 						.map(({ path, reason }) => `${path}: ${reason}`)
 						.join('\n');
-					reportError('fichiers desktop refusés', new Error(details), {
+					reportError('rejected desktop files', new Error(details), {
 						notifyUser: t('page.openFromDiskError')
 					});
 					await invoke('ack_pending_open_paths', {
@@ -135,19 +135,19 @@ export async function initDesktopShell(handlers: DesktopShellHandlers): Promise<
 		const unlistenOpen = await listenOpenPaths(drainPending);
 		unsubs.push(unlistenOpen);
 	} catch (err) {
-		reportWarning("initialisation de l'écoute des fichiers desktop", err);
+		reportWarning('initialize desktop file listener', err);
 	}
 
 	try {
 		await drainPending();
 	} catch (err) {
-		reportWarning('lecture des fichiers desktop en attente', err);
+		reportWarning('read pending desktop files', err);
 	}
 	if (handlers.onBeforeClose) {
 		try {
 			unsubs.push(await installCloseGuard(handlers.onBeforeClose));
 		} catch (err) {
-			reportError('protection de fermeture desktop', err, {
+			reportError('install desktop close guard', err, {
 				notifyUser: t('desktop.closeFailed')
 			});
 		}
@@ -164,11 +164,10 @@ async function installAppMenu(
 ): Promise<void> {
 	const { Menu, MenuItem, PredefinedMenuItem, Submenu } = await import('@tauri-apps/api/menu');
 
-	// No `accelerator` on custom items: the SPA already owns these chords via
-	// `buildKeydownHandler`. On Windows/Linux, native menu accelerators and the
-	// webview keydown both fire → double New/Open/Export. macOS usually consumes
-	// the chord in NSMenu, but dropping accelerators keeps all platforms single-fire.
-	// Users still see shortcuts in the command palette / toolbar tooltips.
+	// Do not set `accelerator` on custom items. `buildKeydownHandler` handles these
+	// shortcuts in the SPA. On Windows and Linux, native and webview handlers can
+	// both run New, Open, or Export. macOS usually consumes the shortcut in NSMenu.
+	// The command palette and toolbar tooltips show shortcuts on all platforms.
 	const item = async (id: DesktopMenuAction, text: string) =>
 		MenuItem.new({
 			id,
@@ -177,7 +176,7 @@ async function installAppMenu(
 				void Promise.resolve()
 					.then(() => onAction(id))
 					.catch((err: unknown) => {
-						reportError(`action du menu desktop "${id}"`, err);
+						reportError(`desktop menu action "${id}"`, err);
 					});
 			}
 		});
@@ -225,7 +224,7 @@ async function listenOpenPaths(drainPending: () => Promise<void>): Promise<() =>
 	const { listen } = await import('@tauri-apps/api/event');
 	const unlisten = await listen('mdsh://open-paths-pending', () => {
 		void drainPending().catch((err: unknown) => {
-			reportError('ouverture depuis un événement desktop', err);
+			reportError('open from desktop event', err);
 		});
 	});
 	return unlisten;
@@ -238,11 +237,11 @@ async function installCloseGuard(onBeforeClose: () => void | Promise<void>): Pro
 	]);
 	let closing: Promise<void> | null = null;
 	const reportCloseError = (err: unknown) => {
-		reportError('fermeture desktop', err, { notifyUser: t('desktop.closeFailed') });
+		reportError('desktop close', err, { notifyUser: t('desktop.closeFailed') });
 	};
 	const unlisten = await listen<number>('mdsh://close-request', ({ payload: requestId }) => {
-		// Accuser réception même pendant une sauvegarde évite de rejouer une
-		// demande déjà traitée après un échec de persistance suivi d'un reload.
+		// Acknowledge requests during a save. This prevents a processed request
+		// from running again after a persistence failure and reload.
 		const acknowledge = () => invoke<void>('desktop_ack_close_request', { requestId });
 		if (closing) {
 			void Promise.resolve().then(acknowledge).catch(reportCloseError);
@@ -279,14 +278,14 @@ function installExternalLinkHandler(): () => void {
 			url = new URL(anchor.href, window.location.href);
 		} catch (err) {
 			event.preventDefault();
-			reportError('lien desktop', err, { notifyUser: t('desktop.linkFailed') });
+			reportError('desktop link', err, { notifyUser: t('desktop.linkFailed') });
 			return;
 		}
 		if (url.origin === window.location.origin && url.pathname === window.location.pathname) return;
 		event.preventDefault();
 		event.stopPropagation();
 		if (!/^https?:$/.test(url.protocol) || url.origin === window.location.origin) {
-			reportError('lien desktop', new Error('Unsupported external link'), {
+			reportError('desktop link', new Error('Unsupported external link'), {
 				notifyUser: t('desktop.linkFailed')
 			});
 			return;
@@ -294,7 +293,7 @@ function installExternalLinkHandler(): () => void {
 		void import('@tauri-apps/api/core')
 			.then(({ invoke }) => invoke('desktop_open_external', { url: url.href }))
 			.catch((err: unknown) => {
-				reportError('lien desktop', err, { notifyUser: t('desktop.linkFailed') });
+				reportError('desktop link', err, { notifyUser: t('desktop.linkFailed') });
 			});
 	};
 	document.addEventListener('click', onClick, true);

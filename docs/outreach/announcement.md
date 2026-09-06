@@ -1,8 +1,8 @@
 # Announcement draft
 
-I built mdsh editor as a local-first Markdown workspace that runs entirely in the browser and an optional Tauri Desktop Beta shell. It supports WYSIWYG, source, and reading modes, plus math, diagrams, wiki links, workspaces, local history, and self-contained exports.
+I built mdsh editor as a local-first Markdown workspace. It runs in the browser or an optional Tauri Desktop Beta shell. It supports WYSIWYG, source, and reading modes. It also supports math, diagrams, wiki links, workspaces, local history, and self-contained exports.
 
-The interesting part is the boundary work: IndexedDB durability barriers fail closed, remote document images require consent, user CSS cannot issue network requests, and native file access uses opaque Rust-owned capabilities with atomic conflict-checked writes. The initial bundle also has blocking size budgets, so rendering libraries stay behind lazy boundaries.
+IndexedDB durability barriers fail closed. Remote document images require consent, and user CSS cannot make network requests. Native file access uses opaque Rust-owned capabilities and atomic, conflict-checked writes. Blocking size budgets keep rendering libraries behind lazy boundaries.
 
 There is no account, cloud synchronization, collaboration service, telemetry, or runtime CDN. Feedback on the storage, sanitizer, accessibility, and native capability design is especially welcome.
 

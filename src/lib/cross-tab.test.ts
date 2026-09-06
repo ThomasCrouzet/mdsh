@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createCrossTab, type CrossTabMessage } from './cross-tab';
 
-// jsdom n'implémente pas BroadcastChannel → polyfill en mémoire qui relie les
-// instances par nom de canal (et ne renvoie jamais à l'émetteur, comme le vrai).
+// jsdom does not implement BroadcastChannel. Use an in-memory polyfill that connects channels by name.
+// As with the browser API, the polyfill does not send a message back to its sender.
 class FakeBroadcastChannel {
 	static channels = new Map<string, Set<FakeBroadcastChannel>>();
 	onmessage: ((ev: { data: unknown }) => void) | null = null;
@@ -29,7 +29,7 @@ describe('createCrossTab', () => {
 		FakeBroadcastChannel.channels.clear();
 	});
 
-	it('délivre un message aux AUTRES onglets, jamais à l’émetteur', async () => {
+	it('delivers a message to other tabs but not the sender', async () => {
 		vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
 		const onA = vi.fn();
 		const onB = vi.fn();
@@ -44,12 +44,12 @@ describe('createCrossTab', () => {
 		b.close();
 	});
 
-	it('ignore un message au format inattendu (pas d’objet typé)', async () => {
+	it('ignores a message with an unexpected format', async () => {
 		vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
 		const onB = vi.fn();
 		const a = createCrossTab(() => {});
 		const b = createCrossTab(onB);
-		// On poste un payload brut non conforme directement via le canal sous-jacent.
+		// Post an invalid raw payload through the underlying channel.
 		new FakeBroadcastChannel('mdsh').postMessage('pas-un-message');
 		await tick();
 		expect(onB).not.toHaveBeenCalled();
@@ -57,7 +57,7 @@ describe('createCrossTab', () => {
 		b.close();
 	});
 
-	it('un handler qui throw ne casse pas le canal (message suivant délivré)', async () => {
+	it('keeps the channel active after a handler throws', async () => {
 		vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
 		const received: CrossTabMessage[] = [];
 		let first = true;
@@ -78,15 +78,15 @@ describe('createCrossTab', () => {
 		b.close();
 	});
 
-	it('no-op silencieux si BroadcastChannel est indisponible', () => {
+	it('does nothing when BroadcastChannel is unavailable', () => {
 		vi.stubGlobal('BroadcastChannel', undefined);
 		const ct = createCrossTab(() => {});
-		// Aucune exception, même sans canal réel.
+		// The operation must not throw when no real channel exists.
 		expect(() => ct.post({ type: 'reorder' })).not.toThrow();
 		expect(() => ct.close()).not.toThrow();
 	});
 
-	it('post après close ne throw pas', async () => {
+	it('does not throw when post follows close', async () => {
 		vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
 		const ct = createCrossTab(() => {});
 		ct.close();

@@ -13,7 +13,7 @@ export function isMarkdownFile(f: { name: string; type?: string }): boolean {
 	);
 }
 
-/** Live-locale untitled filename (`Untitled.md` / `Sans titre.md`). */
+/** Localized untitled filename: `Untitled.md` or `Sans titre.md`. */
 export function untitledFilename(): string {
 	return t('files.untitledFilename');
 }

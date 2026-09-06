@@ -7,35 +7,34 @@ test.describe('Command palette', () => {
 		await createFirstFile(page);
 	});
 
-	test("s'ouvre, filtre, se ferme avec Escape", async ({ page }) => {
+	test('opens, filters, and closes with Escape', async ({ page }) => {
 		await openPalette(page);
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
 
-		// L'input est focusé
+		// The input has focus.
 		const input = dialog.locator('input[type="text"]');
 		await expect(input).toBeFocused();
 
-		// Filtre "wysiwyg" → exactement 1 commande (Mode WYSIWYG)
+		// The "wysiwyg" filter returns only the WYSIWYG mode command.
 		await input.fill('wysiwyg');
 		await expect(dialog.getByRole('option')).toHaveCount(1);
 
-		// Escape ferme
+		// Escape closes the palette.
 		await page.keyboard.press('Escape');
 		await expect(dialog).not.toBeVisible();
 	});
 
-	test('change le mode en mode lecture via la palette', async ({ page }) => {
+	test('changes to read mode from the command palette', async ({ page }) => {
 		await openPalette(page);
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
-		// Clic direct par name pour disambiguer (plusieurs commandes contiennent
-		// « mode » depuis l'ajout de typewriter / focus).
+		// Select the exact name because several commands contain "mode".
 		await dialog.getByRole('option', { name: /Mode lecture/i }).click();
 
-		// Mode lecture → le rendu preview doit apparaître
+		// Read mode must show the preview.
 		await expect(page.locator('.mdsh-preview')).toBeVisible({ timeout: 15_000 });
 	});
 
-	test('bascule le mode focus via la palette', async ({ page }) => {
+	test('toggles focus mode from the command palette', async ({ page }) => {
 		await openPalette(page);
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
 		await dialog.getByRole('option', { name: /Activer le mode focus/i }).click();

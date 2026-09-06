@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import { focusTrap } from './focusTrap';
 
-// jsdom ne calcule pas de layout : `getClientRects` est toujours vide, ce qui
-// ferait filtrer TOUS les focusables. On le mocke pour refléter la visibilité
-// (un élément connecté au document est considéré visible).
+// jsdom does not calculate layout, so `getClientRects` is always empty.
+// This would filter all focusable elements.
+// Mock it so that an element connected to the document is visible.
 let original: PropertyDescriptor | undefined;
 beforeAll(() => {
 	original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getClientRects');
@@ -47,7 +47,7 @@ function tab(node: HTMLElement, shift = false): KeyboardEvent {
 }
 
 describe('focusTrap', () => {
-	it('restaure le focus au déclencheur à la destruction', () => {
+	it('restores focus to the trigger on destroy', () => {
 		const trigger = document.createElement('button');
 		document.body.appendChild(trigger);
 		trigger.focus();
@@ -60,7 +60,7 @@ describe('focusTrap', () => {
 		expect(document.activeElement).toBe(trigger);
 	});
 
-	it('Tab depuis le dernier élément reboucle au premier', () => {
+	it('wraps Tab from the last element to the first element', () => {
 		const { container, buttons } = makeContainer(3);
 		focusTrap(container);
 		buttons[2]!.focus();
@@ -69,7 +69,7 @@ describe('focusTrap', () => {
 		expect(document.activeElement).toBe(buttons[0]);
 	});
 
-	it('Shift+Tab depuis le premier reboucle au dernier', () => {
+	it('wraps Shift+Tab from the first element to the last element', () => {
 		const { container, buttons } = makeContainer(3);
 		focusTrap(container);
 		buttons[0]!.focus();
@@ -78,7 +78,7 @@ describe('focusTrap', () => {
 		expect(document.activeElement).toBe(buttons[2]);
 	});
 
-	it('Tab au milieu laisse le navigateur gérer (pas de preventDefault)', () => {
+	it('lets the browser handle Tab from a middle element', () => {
 		const { container, buttons } = makeContainer(3);
 		focusTrap(container);
 		buttons[1]!.focus();
@@ -86,7 +86,7 @@ describe('focusTrap', () => {
 		expect(e.defaultPrevented).toBe(false);
 	});
 
-	it('conteneur sans focusable : Tab est annulé sans crash', () => {
+	it('prevents Tab without an error when the container has no focusable element', () => {
 		const container = document.createElement('div');
 		document.body.appendChild(container);
 		focusTrap(container);
@@ -94,7 +94,7 @@ describe('focusTrap', () => {
 		expect(e.defaultPrevented).toBe(true);
 	});
 
-	it('ignore les touches autres que Tab', () => {
+	it('ignores keys other than Tab', () => {
 		const { container } = makeContainer(2);
 		focusTrap(container);
 		const e = new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true });
@@ -102,7 +102,7 @@ describe('focusTrap', () => {
 		expect(e.defaultPrevented).toBe(false);
 	});
 
-	it('active:false : aucun piège ni restauration', () => {
+	it('does not trap or restore focus when active is false', () => {
 		const trigger = document.createElement('button');
 		document.body.appendChild(trigger);
 		trigger.focus();
@@ -114,7 +114,7 @@ describe('focusTrap', () => {
 		expect(document.activeElement).toBe(trigger);
 	});
 
-	it('update bascule le trap : false->true attache, true->false détache sans restaurer', () => {
+	it('attaches and detaches the trap when active changes', () => {
 		const trigger = document.createElement('button');
 		document.body.appendChild(trigger);
 		trigger.focus();
@@ -133,7 +133,7 @@ describe('focusTrap', () => {
 		expect(e2.defaultPrevented).toBe(false); // listener retiré
 	});
 
-	it('update sans changement d’état est un no-op', () => {
+	it('does nothing when an update does not change active', () => {
 		const { container, buttons } = makeContainer(2);
 		const trap = focusTrap(container, { active: true });
 		trap.update({ active: true });
@@ -143,7 +143,7 @@ describe('focusTrap', () => {
 	});
 });
 
-it('ne compte pas les résultats tabindex=-1 comme dernière cible Tab', () => {
+it('excludes tabindex=-1 results from the last Tab target', () => {
 	const { container, buttons } = makeContainer(3);
 	buttons[2]!.tabIndex = -1;
 	focusTrap(container);
@@ -152,7 +152,7 @@ it('ne compte pas les résultats tabindex=-1 comme dernière cible Tab', () => {
 	expect(document.activeElement).toBe(buttons[0]);
 });
 
-it('restaure le déclencheur après fermeture du drawer', () => {
+it('restores the trigger after the drawer closes', () => {
 	const trigger = document.createElement('button');
 	document.body.append(trigger);
 	trigger.focus();

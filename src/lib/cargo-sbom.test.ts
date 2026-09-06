@@ -54,8 +54,8 @@ afterEach(() => {
 	for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true });
 });
 
-describe('Provenance CycloneDX du correctif glib', () => {
-	it('conserve la vraie version, les identités, les autres composants et toutes les métadonnées', () => {
+describe('CycloneDX provenance for the glib patch', () => {
+	it('keeps the actual version, identities, components, and metadata', () => {
 		const input = fixture();
 		const original = structuredClone(input);
 		const output = annotateCargoSbom(input, patch, sourceSha);
@@ -105,7 +105,7 @@ describe('Provenance CycloneDX du correctif glib', () => {
 		expect(annotateCargoSbom(output, patch, sourceSha)).toEqual(output);
 	});
 
-	it('accepte le PURL encodé et retrouve les composants imbriqués', () => {
+	it('accepts an encoded PURL and finds nested components', () => {
 		const target = {
 			...component(),
 			purl: 'pkg:cargo/glib@0.18.5?download_url=file%3A%2F%2Fvendor%2Fglib'
@@ -119,7 +119,7 @@ describe('Provenance CycloneDX du correctif glib', () => {
 		expect(JSON.stringify(output)).toContain(target.purl);
 	});
 
-	it('préserve un autre correctif et ses références existantes', () => {
+	it('keeps another patch and its existing references', () => {
 		const input = fixture();
 		const otherPatch = { type: 'backport', diff: { text: { content: 'correctif existant' } } };
 		Object.assign(input.components[0]!, {
@@ -130,12 +130,14 @@ describe('Provenance CycloneDX du correctif glib', () => {
 		expect((target.pedigree as { patches: unknown[] }).patches[0]).toEqual(otherPatch);
 	});
 
-	it.each(['absent', 'doublon', 'doublon metadata'])('refuse une cible %s', (kind) => {
+	it.each(['missing', 'duplicate', 'duplicate metadata'])('rejects a %s target', (kind) => {
 		const input = fixture();
-		if (kind === 'absent') input.components.shift();
-		else if (kind === 'doublon') input.components.push(component());
+		if (kind === 'missing') input.components.shift();
+		else if (kind === 'duplicate') input.components.push(component());
 		else Object.assign(input.metadata, { component: component() });
-		expect(() => annotateCargoSbom(input, patch, sourceSha)).toThrow('unique composant');
+		expect(() => annotateCargoSbom(input, patch, sourceSha)).toThrow(
+			'Exactly one glib 0.18.5 component is required.'
+		);
 	});
 
 	it.each([
@@ -147,19 +149,23 @@ describe('Provenance CycloneDX du correctif glib', () => {
 		{ 'bom-ref': 'registry+https://github.com/rust-lang/crates.io-index#glib@0.18.5' },
 		{ type: 'application' },
 		{ group: 'other' }
-	])('refuse une identité incohérente %j', (change) => {
+	])('rejects inconsistent identity %j', (change) => {
 		const input = fixture();
 		Object.assign(input.components[0]!, change);
-		expect(() => annotateCargoSbom(input, patch, sourceSha)).toThrow('Identité locale');
+		expect(() => annotateCargoSbom(input, patch, sourceSha)).toThrow(
+			'The local glib component identity is inconsistent.'
+		);
 	});
 
-	it('refuse une référence partagée par deux composants', () => {
+	it('rejects a reference shared by two components', () => {
 		const input = fixture();
 		input.components[1]!['bom-ref'] = component()['bom-ref'];
-		expect(() => annotateCargoSbom(input, patch, sourceSha)).toThrow('Identité locale');
+		expect(() => annotateCargoSbom(input, patch, sourceSha)).toThrow(
+			'The local glib component identity is inconsistent.'
+		);
 	});
 
-	it('refuse un patch altéré, un SHA ambigu, un format différent ou une signature invalidée', () => {
+	it('rejects a modified patch, ambiguous SHA, different format, or invalid signature', () => {
 		expect(() => annotateCargoSbom(fixture(), Buffer.from('autre patch'), sourceSha)).toThrow(
 			'SHA256'
 		);
@@ -168,33 +174,33 @@ describe('Provenance CycloneDX du correctif glib', () => {
 			'1.5'
 		);
 		expect(() => annotateCargoSbom({ ...fixture(), signature: {} }, patch, sourceSha)).toThrow(
-			'signé'
+			'signed SBOM'
 		);
 	});
 
-	it.each(['patch', 'référence', 'propriété', 'autre source'])(
-		'refuse la provenance contradictoire : %s',
+	it.each(['patch', 'reference', 'property', 'other source'])(
+		'rejects conflicting provenance: %s',
 		(kind) => {
 			const output = annotateCargoSbom(fixture(), patch, sourceSha);
 			const target = annotatedComponent(output);
 			if (kind === 'patch')
 				(target.pedigree as { patches: { type: string }[] }).patches[0]!.type = 'unofficial';
-			if (kind === 'référence')
+			if (kind === 'reference')
 				(target.externalReferences as { hashes?: unknown[] }[])[1]!.hashes = [];
-			if (kind === 'propriété') (target.properties as { value: string }[])[1]!.value = 'incorrect';
+			if (kind === 'property') (target.properties as { value: string }[])[1]!.value = 'incorrect';
 			expect(() =>
-				annotateCargoSbom(output, patch, kind === 'autre source' ? '0'.repeat(40) : sourceSha)
-			).toThrow(/contradictoire/);
+				annotateCargoSbom(output, patch, kind === 'other source' ? '0'.repeat(40) : sourceSha)
+			).toThrow(/conflict/i);
 		}
 	);
 
-	it('refuse les listes malformées au lieu de perdre des métadonnées', () => {
+	it('rejects invalid lists without metadata loss', () => {
 		const input = fixture();
 		Object.assign(input.components[0]!, { pedigree: { patches: {} } });
-		expect(() => annotateCargoSbom(input, patch, sourceSha)).toThrow('Liste CycloneDX');
+		expect(() => annotateCargoSbom(input, patch, sourceSha)).toThrow('Expected a CycloneDX list.');
 	});
 
-	it('CLI : vérifie le commit suivi, écrit en place et laisse le fichier intact après un refus', () => {
+	it('CLI verifies the tracked commit and keeps the file unchanged after rejection', () => {
 		const directory = mkdtempSync(join(tmpdir(), 'mdsh-sbom-test-'));
 		temporaryDirectories.push(directory);
 		const sbomPath = join(directory, 'sbom.json');
@@ -213,7 +219,7 @@ describe('Provenance CycloneDX du correctif glib', () => {
 		expect(readFileSync(sbomPath, 'utf8')).toBe(annotated);
 		const wrongPatch = join(directory, 'wrong.patch');
 		writeFileSync(wrongPatch, 'altéré');
-		expect(run(sourceSha, wrongPatch).stderr).toContain('diffère');
+		expect(run(sourceSha, wrongPatch).stderr).toContain('differs');
 		expect(readFileSync(sbomPath, 'utf8')).toBe(annotated);
 	});
 });

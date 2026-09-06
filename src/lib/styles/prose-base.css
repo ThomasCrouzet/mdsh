@@ -1,15 +1,11 @@
 /* ==========================================================================
-   Prose base - règles typographiques partagées entre l'éditeur Milkdown
-   (WYSIWYG) et la vue lecture (.mdsh-preview). Tout ce qui est purement
-   structurel (tailles de headings, marges, bordures, code inline, tables)
-   est défini ici une seule fois.
+   Shared typography for the Milkdown editor and the .mdsh-preview reading view.
+   Define structural styles such as sizes, margins, borders, inline code, and
+   tables only once.
 
-   Particularités :
-   - Sélecteur `:where(...)` pour ne pas ajouter de spécificité - chaque
-     consommateur peut surcharger sans `!important`.
-   - Variables CSS (--color-*) résolues via le thème global dans app.css.
-   - `print.css` N'EST PAS concerné : il utilise une palette light A4 avec
-     des tailles en `pt` et des `@page` rules - extraction à part.
+   Use `:where(...)` to avoid added specificity. Each consumer can override
+   rules without `!important`. app.css resolves the --color-* variables.
+   print.css is separate because it uses an A4 light palette, sizes in `pt`, and `@page` rules.
    ========================================================================== */
 
 :where(.milkdown .ProseMirror, .mdsh-preview) h1 {
@@ -44,15 +40,13 @@
 
 :where(.milkdown .ProseMirror, .mdsh-preview) p {
 	margin: 0.6em 0;
-	/* Pas de justify (WCAG 1.4.8 F88 : rivières de blanc). hyphens + break-word
-	   pour gérer les URLs et mots longs sans débordement. */
+	/* Do not justify text (WCAG 1.4.8 F88). Wrap URLs and long words to prevent overflow. */
 	text-align: left;
 	hyphens: auto;
 	overflow-wrap: break-word;
 }
 
-/* Gras : compensation du poids appliquée pour compenser la halation dark
-   (620 au lieu de 700). */
+/* Use weight 620 instead of 700 to offset halation: bold text appears heavier on dark surfaces. */
 :where(.milkdown .ProseMirror, .mdsh-preview) :is(strong, b) {
 	font-weight: 620;
 }

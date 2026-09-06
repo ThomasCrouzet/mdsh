@@ -15,10 +15,11 @@ Offline PWA, no account, no telemetry. https://thomascrouzet.github.io/mdsh/
 
 **Body (short):**
 
-I built mdsh because I wanted a markdown workspace that stays in the browser:
-WYSIWYG (Milkdown), source (CodeMirror), reading mode, wiki-links + backlinks,
-link graph, encrypted backups, and exports (md / HTML / PDF / ZIP) - all
-client-side, installable as a PWA, with a hard bundle budget and a strict CSP.
+I built mdsh because I wanted a Markdown workspace that stays in the browser.
+It provides Milkdown WYSIWYG, CodeMirror source mode, reading mode, wiki links,
+backlinks, a link graph, and encrypted backups. It exports Markdown, HTML, PDF,
+and ZIP files. All features run on the client. The app is an installable PWA
+with a blocking bundle budget and a strict CSP.
 
 - Live demo: https://thomascrouzet.github.io/mdsh/
 - Source: https://github.com/ThomasCrouzet/mdsh

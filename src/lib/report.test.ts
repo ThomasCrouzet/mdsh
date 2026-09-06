@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { reportError, reportWarning } from './report';
 import { notify } from './notify.svelte';
 
-// §1.3 - Garantit le contrat du sink de journalisation : console TOUJOURS,
-// toast utilisateur UNIQUEMENT si `notifyUser` est fourni, niveau respecté.
+// Section 1.3: Verify the logging sink contract. Always write to the console.
+// Show a user toast only when `notifyUser` is present. Keep the requested level.
 
 describe('reportError', () => {
 	beforeEach(() => {
@@ -15,30 +15,30 @@ describe('reportError', () => {
 		notify.clear();
 	});
 
-	it('journalise toujours en console avec le scope préfixé', () => {
+	it('always logs the prefixed scope to the console', () => {
 		const err = new Error('boom');
 		reportError('export ZIP', err);
 		expect(console.error).toHaveBeenCalledWith('[mdsh] export ZIP :', err);
 	});
 
-	it('ne dépose aucun toast sans notifyUser', () => {
+	it('does not show a toast without notifyUser', () => {
 		reportError('chargement IndexedDB', new Error('x'));
 		expect(notify.toasts).toHaveLength(0);
 	});
 
-	it('dépose un toast erreur quand notifyUser est fourni', () => {
+	it('shows an error toast when notifyUser is present', () => {
 		reportError('export PDF', new Error('x'), { notifyUser: "L'export PDF a échoué." });
 		expect(notify.toasts).toHaveLength(1);
 		expect(notify.toasts[0]?.level).toBe('error');
 		expect(notify.toasts[0]?.message).toBe("L'export PDF a échoué.");
 	});
 
-	it('respecte le niveau info', () => {
+	it('keeps the info level', () => {
 		reportError('màj', new Error('x'), { notifyUser: 'Info', level: 'info' });
 		expect(notify.toasts[0]?.level).toBe('info');
 	});
 
-	it('accepte une valeur thrown non-Error', () => {
+	it('accepts a thrown value that is not an Error', () => {
 		reportError('scope', 'just a string');
 		expect(console.error).toHaveBeenCalledWith('[mdsh] scope :', 'just a string');
 	});
@@ -54,17 +54,17 @@ describe('reportWarning', () => {
 		notify.clear();
 	});
 
-	it('journalise un warning avec détail', () => {
+	it('logs a warning with details', () => {
 		reportWarning('front-matter invalide', 'bad indent');
 		expect(console.warn).toHaveBeenCalledWith('[mdsh] front-matter invalide :', 'bad indent');
 	});
 
-	it('journalise un warning sans détail (forme courte)', () => {
+	it('logs a short warning without details', () => {
 		reportWarning('quelque chose');
 		expect(console.warn).toHaveBeenCalledWith('[mdsh] quelque chose');
 	});
 
-	it('ne dépose jamais de toast', () => {
+	it('never shows a toast', () => {
 		reportWarning('discret', 'x');
 		expect(notify.toasts).toHaveLength(0);
 	});

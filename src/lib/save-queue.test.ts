@@ -22,7 +22,7 @@ describe('SaveQueue', () => {
 		vi.restoreAllMocks();
 	});
 
-	it('écrit la row après le debounce (400 ms) et signale onSaved', async () => {
+	it('writes the row after 400 ms and calls onSaved', async () => {
 		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('a' as never);
 		const onSaved = vi.fn();
 		const q = createQueue({ ...noopCb, onSaved });
@@ -33,7 +33,7 @@ describe('SaveQueue', () => {
 		expect(onSaved).toHaveBeenCalledOnce();
 	});
 
-	it('un re-schedule rapproché annule le précédent (un seul write)', async () => {
+	it('replaces a pending schedule with one write', async () => {
 		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('a' as never);
 		const q = createQueue(noopCb);
 		q.schedule('a', () => row('a'));
@@ -45,7 +45,7 @@ describe('SaveQueue', () => {
 		expect(put).toHaveBeenCalledOnce();
 	});
 
-	it('route un échec de write vers onError au lieu de l’avaler', async () => {
+	it('sends a write failure to onError', async () => {
 		vi.spyOn(db.drafts, 'put').mockRejectedValue(new DOMException('plein', 'QuotaExceededError'));
 		const onError = vi.fn();
 		const q = createQueue({ ...noopCb, onError });
@@ -54,7 +54,7 @@ describe('SaveQueue', () => {
 		await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
 	});
 
-	it('cancel() empêche le write programmé', async () => {
+	it('prevents a scheduled write with cancel', async () => {
 		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('a' as never);
 		const q = createQueue(noopCb);
 		q.schedule('a', () => row('a'));
@@ -63,7 +63,7 @@ describe('SaveQueue', () => {
 		expect(put).not.toHaveBeenCalled();
 	});
 
-	it('cancelAll / discardAll / invalidateAll couvrent plusieurs ids', async () => {
+	it('applies cancelAll, discardAll, and invalidateAll to multiple IDs', async () => {
 		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 		const q = createQueue(noopCb);
 		q.schedule('a', () => row('a'));
@@ -83,7 +83,7 @@ describe('SaveQueue', () => {
 		expect(put).not.toHaveBeenCalled();
 	});
 
-	it('reverse-delete route les erreurs delete vers onError', async () => {
+	it('sends reverse-delete errors to onError', async () => {
 		vi.useRealTimers();
 		let resolvePut: ((value: string) => void) | undefined;
 		const pendingPut = new Promise<string>((resolve) => {
@@ -110,7 +110,7 @@ describe('SaveQueue', () => {
 		}
 	});
 
-	it('un getRow renvoyant null n’écrit pas (fichier disparu entre-temps)', async () => {
+	it('does not write when getRow returns null', async () => {
 		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 		const q = createQueue(noopCb);
 		q.schedule('gone', () => null);
@@ -118,7 +118,7 @@ describe('SaveQueue', () => {
 		expect(put).not.toHaveBeenCalled();
 	});
 
-	it('flush() écrit immédiatement toutes les rows en attente', () => {
+	it('writes all pending rows immediately with flush', () => {
 		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 		const q = createQueue(noopCb);
 		q.schedule('a', () => row('a'));
@@ -127,7 +127,7 @@ describe('SaveQueue', () => {
 		expect(put).toHaveBeenCalledTimes(2);
 	});
 
-	it('flush() garde l’indicateur pending jusqu’à la fin réelle du write', async () => {
+	it('keeps the pending indicator until a flushed write finishes', async () => {
 		let resolvePut: ((value: string) => void) | undefined;
 		const pendingPut = new Promise<string>((resolve) => {
 			resolvePut = resolve;
@@ -144,7 +144,7 @@ describe('SaveQueue', () => {
 		await vi.waitFor(() => expect(states.at(-1)).toBe(false));
 	});
 
-	it('onPendingChange : true au schedule, false une fois le write terminé', async () => {
+	it('sets onPendingChange during a scheduled write', async () => {
 		vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 		const states: boolean[] = [];
 		const q = createQueue({ ...noopCb, onPendingChange: (p) => states.push(p) });
@@ -154,7 +154,7 @@ describe('SaveQueue', () => {
 		await vi.waitFor(() => expect(states.at(-1)).toBe(false));
 	});
 
-	it('schedule notifie onDraftSaved (id, updatedAt) après succès du write (§M3)', async () => {
+	it('calls onDraftSaved after a scheduled write succeeds', async () => {
 		vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 		const onDraftSaved = vi.fn();
 		const q = createQueue({ ...noopCb, onDraftSaved });
@@ -163,7 +163,7 @@ describe('SaveQueue', () => {
 		await vi.waitFor(() => expect(onDraftSaved).toHaveBeenCalledWith('a', 42));
 	});
 
-	it('has(id) reste vrai pendant un put in-flight (apres le timer)', async () => {
+	it('keeps has true while put is active', async () => {
 		let resolvePut: ((value: string) => void) | undefined;
 		const pendingPut = new Promise<string>((resolve) => {
 			resolvePut = resolve;
@@ -179,7 +179,7 @@ describe('SaveQueue', () => {
 		await vi.waitFor(() => expect(q.has('a')).toBe(false));
 	});
 
-	it('flushAwait écrit et attend la fin des puts', async () => {
+	it('writes and waits for put calls with flushAwait', async () => {
 		vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 		const q = createQueue(noopCb);
 		q.schedule('a', () => row('a'));
@@ -227,7 +227,7 @@ describe('SaveQueue', () => {
 		expect(q.hasDurabilityFailure('a')).toBe(false);
 	});
 
-	it('serialise les puts : un put lent v1 ne peut pas ecraser v2', async () => {
+	it('serializes put calls so a slow v1 cannot overwrite v2', async () => {
 		const resolvers: Array<(value: string) => void> = [];
 		const put = vi.spyOn(db.drafts, 'put').mockImplementation(() => {
 			return new Promise<string>((resolve) => {
@@ -260,7 +260,7 @@ describe('SaveQueue', () => {
 		expect(contents.at(-1)).toBe('v2');
 	});
 
-	it('discard(id) empeche un put in-flight de ressusciter le draft', async () => {
+	it('prevents an active put from restoring a discarded draft', async () => {
 		let resolvePut: ((value: string) => void) | undefined;
 		const pendingPut = new Promise<string>((resolve) => {
 			resolvePut = resolve;
@@ -281,7 +281,7 @@ describe('SaveQueue', () => {
 		expect(onSaved).not.toHaveBeenCalled();
 	});
 
-	it('invalidate(id) saute le write sans supprimer la row (reload/backup)', async () => {
+	it('skips a write without deleting the row after invalidate', async () => {
 		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('a' as never);
 		const del = vi.spyOn(db.drafts, 'delete').mockResolvedValue(undefined as never);
 		const onSaved = vi.fn();
@@ -295,7 +295,7 @@ describe('SaveQueue', () => {
 		expect(onSaved).not.toHaveBeenCalled();
 	});
 
-	it('settleAndRearm apres discard empeche reverse-delete de la row restauree', async () => {
+	it('prevents reverse-delete of a restored row after discard and rearm', async () => {
 		// Race: discard mid-put → restore rewrites drafts → put settles and must
 		// NOT delete the restored row (Undo trash while put was in flight).
 		// Real timers: await chain + deferred put must not hang under fake timers.
@@ -339,7 +339,7 @@ describe('SaveQueue', () => {
 		}
 	});
 
-	it('un put supersede ignore le snapshot stalle sans ecrire', async () => {
+	it('ignores a stale snapshot from a superseded put', async () => {
 		const order: string[] = [];
 		let gate: Promise<void> = Promise.resolve();
 		let releaseGate: (() => void) | undefined;
@@ -374,8 +374,8 @@ describe('SaveQueue', () => {
 		}
 	});
 
-	describe('flushPending (§M1 - anti-perte de frappe au reorder)', () => {
-		it('écrit immédiatement les ids ayant un timer armé, sans attendre le debounce', () => {
+	describe('flushPending (§M1 - prevents edit loss during reorder)', () => {
+		it('writes IDs with an active timer immediately', () => {
 			const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 			const q = createQueue(noopCb);
 			q.schedule('a', () => row('a'));
@@ -384,7 +384,7 @@ describe('SaveQueue', () => {
 			expect(put).toHaveBeenCalledTimes(2); // écrit avant les 400 ms
 		});
 
-		it('ignore un id SANS timer armé (rien à flusher)', () => {
+		it('ignores an ID without an active timer', () => {
 			const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 			const q = createQueue(noopCb);
 			q.schedule('a', () => row('a'));
@@ -392,7 +392,7 @@ describe('SaveQueue', () => {
 			expect(put).toHaveBeenCalledTimes(1);
 		});
 
-		it('appelle onSaved + onDraftSaved après le write réussi', async () => {
+		it('calls onSaved and onDraftSaved after a successful write', async () => {
 			vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 			const onSaved = vi.fn();
 			const onDraftSaved = vi.fn();
@@ -405,7 +405,7 @@ describe('SaveQueue', () => {
 			});
 		});
 
-		it('ignore un id dont getRow renvoie null (fichier disparu)', () => {
+		it('ignores an ID when getRow returns null', () => {
 			const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
 			const q = createQueue(noopCb);
 			q.schedule('a', () => row('a'));
@@ -413,7 +413,7 @@ describe('SaveQueue', () => {
 			expect(put).not.toHaveBeenCalled();
 		});
 
-		it('route un échec de write vers onError', async () => {
+		it('sends a write failure to onError', async () => {
 			vi.spyOn(db.drafts, 'put').mockRejectedValue(new Error('boom'));
 			const onError = vi.fn();
 			const q = createQueue({ ...noopCb, onError });
@@ -424,7 +424,7 @@ describe('SaveQueue', () => {
 	});
 });
 
-describe('SaveQueue avec IndexedDB et conflits réels', () => {
+describe('SaveQueue with IndexedDB and actual conflicts', () => {
 	beforeEach(async () => {
 		vi.useRealTimers();
 		await Promise.all([db.drafts.clear(), db.versions.clear()]);
@@ -434,7 +434,7 @@ describe('SaveQueue avec IndexedDB et conflits réels', () => {
 		await Promise.all([db.drafts.clear(), db.versions.clear()]);
 	});
 
-	it('préserve les deux branches concurrentes et leur copie dans les documents durables', async () => {
+	it('keeps concurrent branches and their durable document copies', async () => {
 		const initial = { ...row('a'), content: 'initial', updatedAt: 1 };
 		await db.drafts.put(initial);
 		const preserved = vi.fn();
@@ -456,7 +456,7 @@ describe('SaveQueue avec IndexedDB et conflits réels', () => {
 		expect((await db.versions.toArray()).map((version) => version.content)).toContain('REMOTE A');
 	});
 
-	it('refuse l’écrasement si la conservation de la branche distante échoue', async () => {
+	it('rejects overwrite when remote branch preservation fails', async () => {
 		const initial = { ...row('a'), content: 'initial', updatedAt: 1 };
 		await db.drafts.put(initial);
 		const q = new SaveQueue(noopCb);
@@ -478,8 +478,8 @@ describe('SaveQueue avec IndexedDB et conflits réels', () => {
 	});
 });
 
-describe('barrière face aux écritures continues', () => {
-	it('échoue de façon bornée si une modification suit chaque écriture', async () => {
+describe('barrier during continuous writes', () => {
+	it('fails within a limit when each write has a later change', async () => {
 		let writing = true;
 		const current = row('continuous');
 		const queue = new SaveQueue(

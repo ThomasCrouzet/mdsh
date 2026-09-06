@@ -86,7 +86,7 @@ pub fn run() {
     #[cfg(feature = "native-smoke")]
     let builder = builder
         .setup(move |_| {
-            // Tauri crée les fenêtres configurées avant ce callback utilisateur.
+            // Tauri creates the configured windows before this user callback.
             smoke_startup_phase(started, "user-setup");
             Ok(())
         })

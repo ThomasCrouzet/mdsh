@@ -1,8 +1,8 @@
-# Code owners - auto-assigné aux reviews PR.
+# Code owners receive automatic pull request review assignments.
 # Cf. https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
 #
-# Note : ce fichier ne s'applique qu'au mirror GitHub. Si le projet est hébergé
-# ailleurs (ex. Gitea), le mécanisme d'assignation peut différer ou ne pas exister.
+# This file applies only to the GitHub mirror.
+# Other hosts, such as Gitea, can use different assignment rules or have no assignment support.
 
 # Maintainer principal sur tout le repo.
 * @ThomasCrouzet

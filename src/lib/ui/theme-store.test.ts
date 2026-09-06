@@ -2,9 +2,8 @@ import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import { themeStore } from './theme.svelte';
 import { THEME_STORAGE_KEY, THEME_COLORS } from '$lib/theme';
 
-// jsdom n'implémente pas matchMedia : on injecte un MediaQueryList contrôlable
-// pour piloter la préférence système (clair / sombre) et déclencher l'événement
-// `change` que `themeStore` écoute quand la préférence vaut `system`.
+// jsdom does not implement matchMedia. Provide a controllable MediaQueryList to
+// set the light or dark system preference and dispatch its `change` event.
 let mqlMatches = false;
 const listeners = new Set<(e: MediaQueryListEvent) => void>();
 const mql = {
@@ -44,7 +43,7 @@ beforeEach(() => {
 });
 
 describe('themeStore', () => {
-	it('load sans préférence persistée : suit le système (sombre par défaut)', () => {
+	it('follows the system without a stored preference', () => {
 		themeStore.load();
 		expect(themeStore.pref).toBe('system');
 		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
@@ -52,14 +51,14 @@ describe('themeStore', () => {
 		expect(metaContent('color-scheme')).toBe('dark');
 	});
 
-	it('load : système en clair applique le thème clair', () => {
+	it('applies the light theme for a light system setting', () => {
 		mqlMatches = true;
 		themeStore.load();
 		expect(document.documentElement.getAttribute('data-theme')).toBe('light');
 		expect(metaContent('theme-color')).toBe(THEME_COLORS.light);
 	});
 
-	it('load : une préférence persistée absolue prime sur le système', () => {
+	it('uses a stored explicit preference before the system setting', () => {
 		localStorage.setItem(THEME_STORAGE_KEY, 'dark');
 		mqlMatches = true; // système clair, mais pref dark absolue
 		themeStore.load();
@@ -67,13 +66,13 @@ describe('themeStore', () => {
 		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 	});
 
-	it('load : une valeur localStorage invalide est ignorée (reste system)', () => {
+	it('ignores an invalid localStorage value', () => {
 		localStorage.setItem(THEME_STORAGE_KEY, 'rainbow');
 		themeStore.load();
 		expect(themeStore.pref).toBe('system');
 	});
 
-	it('set : applique, persiste et met à jour les metas', () => {
+	it('applies and persists a theme and updates metadata', () => {
 		themeStore.set('light');
 		expect(themeStore.pref).toBe('light');
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
@@ -85,7 +84,7 @@ describe('themeStore', () => {
 		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 	});
 
-	it('cycle : système -> clair -> sombre -> système', () => {
+	it('cycles through system, light, dark, and system', () => {
 		themeStore.pref = 'system';
 		themeStore.cycle();
 		expect(themeStore.pref).toBe('light');
@@ -95,7 +94,7 @@ describe('themeStore', () => {
 		expect(themeStore.pref).toBe('system');
 	});
 
-	it("suit les bascules de l'OS quand la préférence vaut system", () => {
+	it('follows operating system changes for the system preference', () => {
 		themeStore.load();
 		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 		setSystemLight(true);
@@ -104,7 +103,7 @@ describe('themeStore', () => {
 		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 	});
 
-	it("ignore les bascules de l'OS quand une préférence absolue est fixée", () => {
+	it('ignores operating system changes for an explicit preference', () => {
 		themeStore.load();
 		themeStore.set('dark');
 		setSystemLight(true); // l'OS passe en clair

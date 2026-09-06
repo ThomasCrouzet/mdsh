@@ -1,21 +1,19 @@
 // @vitest-environment jsdom
 //
-// Benchmark de régression perf pour `renderMarkdown`. On mesure le rendu d'un
-// markdown de ~50 000 caractères contenant 10 diagrammes Mermaid + tables +
-// blocs de code highlightés + math KaTeX. Le seuil est volontairement large
-// (2 s) pour éviter le flake sur les runners CI partagés ; le but est de
-// détecter une régression majeure (> 2x), pas de garantir le P50.
+// Performance regression benchmark for `renderMarkdown`.
+// Render about 50,000 Markdown characters with 10 Mermaid diagrams, tables, highlighted code, and KaTeX math.
+// The 2-second threshold prevents flakes on shared CI runners. It detects major regressions over 2x.
 //
-// La sortie console `[bench]` permet de suivre le drift au fil des PRs.
+// The `[bench]` console output tracks performance changes across pull requests.
 
 import { describe, it, expect } from 'vitest';
 import { renderMarkdown } from './markdown';
 
 function buildLargeMarkdown(): string {
-	// Construit ~50 000 caractères de markdown réaliste : headings, paragraphes,
-	// listes, tables, code blocks, math inline, et 10 diagrammes Mermaid intercalés.
+	// Build about 50,000 characters of realistic Markdown.
+	// Include headings, paragraphs, lists, tables, code blocks, inline math, and 10 Mermaid diagrams.
 	const sections: string[] = [];
-	// Mélange de contenu pour exercer tous les renderers.
+	// Mix content to exercise all renderers.
 	const para =
 		'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ' +
 		'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. '.repeat(3);
@@ -23,7 +21,7 @@ function buildLargeMarkdown(): string {
 	for (let i = 0; i < 50; i++) {
 		sections.push(`## Section ${i + 1}\n\n${para}\n`);
 		if (i % 5 === 0) {
-			// Bloc Mermaid tous les 5 sections (10 au total : i = 0,5,10,...,45).
+			// Add a Mermaid block every five sections, for 10 blocks in total.
 			sections.push(
 				'```mermaid\nflowchart LR\n  A[Start] --> B{Decision}\n  B -->|Yes| C[OK]\n  B -->|No| D[KO]\n```\n\n'
 			);
@@ -37,8 +35,7 @@ function buildLargeMarkdown(): string {
 		sections.push('- item 1\n- item 2 with `inline` code\n- item 3\n\n');
 	}
 
-	// Padder pour atteindre ≥ 50k chars (on recalcule à chaque tour, car le
-	// contenu de `sections` change).
+	// Add text until the document reaches at least 50,000 characters.
 	const target = 50_000;
 	const filler = '\n\nFiller sentence to reach target length. '.repeat(20);
 	let current = sections.join('').length;
@@ -49,17 +46,17 @@ function buildLargeMarkdown(): string {
 	return sections.join('');
 }
 
-describe('renderMarkdown - benchmark perf', () => {
-	it('rend 50k chars avec 10 mermaid en moins de 2s (warm-up + 3 runs)', async () => {
+describe('renderMarkdown - performance benchmark', () => {
+	it('renders 50,000 characters with 10 Mermaid diagrams in less than 2 seconds', async () => {
 		const md = buildLargeMarkdown();
 		expect(md.length).toBeGreaterThanOrEqual(50_000);
 
-		// Warm-up : premier appel charge dynamiquement marked + KaTeX + DOMPurify
-		// + Mermaid (et initialise le singleton thème). Mesurer ce run inclurait
-		// le coût d'import qui n'est pas représentatif d'un rendu en régime.
+		// The first call dynamically loads marked, KaTeX, and DOMPurify.
+		// Warm Mermaid and initialize the theme singleton.
+		// Exclude import cost because it does not represent steady-state rendering.
 		await renderMarkdown(md);
 
-		// 3 runs, on prend le min (le moins bruité par GC ou autre activité).
+		// Run three times and use the minimum to reduce noise from garbage collection and other activity.
 		const times: number[] = [];
 		for (let i = 0; i < 3; i++) {
 			const t0 = performance.now();
@@ -67,14 +64,14 @@ describe('renderMarkdown - benchmark perf', () => {
 			times.push(performance.now() - t0);
 		}
 		const min = Math.min(...times);
-		// Log pour visibilité CI : trace l'évolution du coût au fil des PRs.
+		// Log the result so CI can show performance changes across pull requests.
 		console.log(
 			`[bench] renderMarkdown 50k+10mermaid: min=${min.toFixed(0)}ms (runs: ${times.map((t) => t.toFixed(0)).join('/')}ms)`
 		);
 
-		// Seuil large pour ne pas flake en CI shared runners (Mermaid est lent
-		// en jsdom - pas de canvas natif, mesure de bbox simulée). Le but est
-		// de détecter une régression majeure (> 2x), pas de garantir le P50.
+		// Use a wide threshold because Mermaid is slow on shared CI runners.
+		// jsdom has no native canvas and uses simulated bounding boxes.
+		// Detect major regressions over 2x. Do not use this benchmark as a P50 guarantee.
 		expect(min).toBeLessThan(2_000);
-	}, 30_000); // timeout 30s - Mermaid peut être lent au warm-up
+	}, 30_000); // Use a 30-second timeout because the Mermaid warm-up can be slow.
 });

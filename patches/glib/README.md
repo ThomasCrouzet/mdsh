@@ -1,61 +1,60 @@
-# Backport de sécurité glib 0.18.5
+# glib 0.18.5 security backport
 
-GTK3 impose encore glib 0.18 dans la chaîne Tauri Linux. Cette copie applique le
-correctif officiel de GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429 sans modifier l'API,
-la version du paquet ni ses licences. Les métadonnées amont décrivent la source
-initiale ; le présent fichier documente sa modification locale.
+GTK3 still requires glib 0.18 in the Linux Tauri toolchain. This copy applies the
+official fix for GHSA-wrw7-89jp-8q8g and RUSTSEC-2024-0429. It does not change
+the API, package version, or licenses. Upstream metadata describes the original
+source. This file describes the local change.
 
-- Archive : https://static.crates.io/crates/glib/glib-0.18.5.crate
-- SHA256 : `233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5`
-- Source du paquet : https://github.com/gtk-rs/gtk-rs-core/tree/42b9caf98e03ded086362d9653ca58fe94dc8658/glib
-- Correctif : https://github.com/gtk-rs/gtk-rs-core/commit/b5a4071e439bef2b5eea76c3aa25e5ae84839e34
-- Revue amont : https://github.com/gtk-rs/gtk-rs-core/pull/1343
-- Backport officiel sur la branche 0.19 : https://github.com/gtk-rs/gtk-rs-core/commit/44ff04449535135aa82507ff492883bba77a9b75
-- Avis : https://rustsec.org/advisories/RUSTSEC-2024-0429.html
-- Licence : MIT, notices originales conservées dans `src-tauri/vendor/glib/LICENSE`
-  et `src-tauri/vendor/glib/COPYRIGHT`.
+- Archive: https://static.crates.io/crates/glib/glib-0.18.5.crate
+- SHA256: `233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5`
+- Package source: https://github.com/gtk-rs/gtk-rs-core/tree/42b9caf98e03ded086362d9653ca58fe94dc8658/glib
+- Fix: https://github.com/gtk-rs/gtk-rs-core/commit/b5a4071e439bef2b5eea76c3aa25e5ae84839e34
+- Upstream review: https://github.com/gtk-rs/gtk-rs-core/pull/1343
+- Official backport on the 0.19 branch: https://github.com/gtk-rs/gtk-rs-core/commit/44ff04449535135aa82507ff492883bba77a9b75
+- Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0429.html
+- License: MIT. Original notices remain in `src-tauri/vendor/glib/LICENSE`
+  and `src-tauri/vendor/glib/COPYRIGHT`.
 
-`variant-str-iter.patch` est le diff officiel, avec ses chemins adaptés à la
-racine du paquet publié. Il rend mutable le pointeur de sortie fourni à GLib :
-écrire par la référence immuable précédente constituait un comportement indéfini.
-Seules ces deux lignes diffèrent de l'archive publiée. Aucun fichier amont n'est
-reformaté ou supprimé.
+`variant-str-iter.patch` is the official diff with paths adjusted for the
+published package root. It makes the output pointer given to GLib mutable.
+Writing through the former immutable reference caused undefined behavior. Only
+these two lines differ from the published archive. No upstream file is
+reformatted or removed.
 
-Depuis la racine du dépôt, avec Node 22, Git et tar :
+From the repository root, use Node 22, Git, and tar:
 
 ```sh
 node scripts/vendor-glib.mjs --write
 node scripts/vendor-glib.mjs --check
 ```
 
-Les deux modes vérifient le SHA256 avant extraction. `--check` reconstruit en
-répertoire temporaire et compare l'inventaire complet et chaque fichier octet par
-octet. Pour utiliser une archive déjà téléchargée, ajouter `--archive chemin.crate`.
-Modifier le patch canonique puis régénérer ; ne pas éditer la copie vendor.
+Both modes verify the SHA256 before extraction. `--check` rebuilds the copy in a
+temporary directory. It compares the full inventory and each file byte for
+byte. To use a downloaded archive, add `--archive chemin.crate`. Modify the
+canonical patch and regenerate the copy. Do not edit the vendored copy.
 
-Les tests amont pertinents sont `variant_iter::tests::test_variant_iter_array`,
-`test_variant_str_iter_nth` et `test_variant_str_iter_last`. Les exécuter avec
+The applicable upstream tests are `variant_iter::tests::test_variant_iter_array`,
+`test_variant_str_iter_nth`, and `test_variant_str_iter_last`. Run them with
 `cargo test --release --manifest-path chemin-vers-copie-temporaire/Cargo.toml variant_iter::tests::`.
-Le mode optimisé est essentiel pour reproduire le défaut ; le processus qui
-exécute la version non corrigée doit être isolé car il peut terminer par SIGSEGV.
-Tester une copie temporaire préserve l'inventaire vendor de tout fichier généré.
+The optimized mode is necessary to reproduce the defect. Isolate the process
+that runs the unpatched version because it can terminate with SIGSEGV. Test a
+temporary copy to keep generated files out of the vendored inventory.
 
-La CI Linux et la publication Desktop exécutent aussi les six régressions sur le
-graphe de dépendances livré, après installation des bibliothèques système Tauri :
+Linux CI and Desktop publishing also run the six regression tests on the shipped
+dependency graph. They first install the Tauri system libraries:
 
 ```sh
 cargo test --manifest-path src-tauri/Cargo.toml --release --locked --test glib_variant_regression
 cargo audit --file src-tauri/Cargo.lock --deny unsound
 ```
 
-Le contrôle d'inventaire est exécuté sur les quatre plateformes Desktop. Les
-attributs Git préservent les octets des fichiers amont et du patch sous Windows.
-Le SBOM Cargo décrit le backport, le SHA256 du patch et les références amont, en
-conservant la version réelle 0.18.5.
+The inventory check runs on all four Desktop platforms. Git attributes preserve
+upstream and patch bytes on Windows. The Cargo SBOM describes the backport,
+patch SHA256, and upstream references. It keeps the actual 0.18.5 version.
 
-La version reste 0.18.5. `cargo-audit 0.22.2` utilise RustSec 0.33.0, dont
-`Database::query_vulnerabilities` écarte les paquets sans source de registre,
-notamment les dépendances locales. Son absence d'alerte pour cette copie ne
-constitue donc pas une preuve de correction. La preuve repose sur l'origine
-vérifiée, le diff et les tests optimisés. Retirer le backport lorsque la chaîne
-GTK permet une version officiellement corrigée.
+The version remains 0.18.5. `cargo-audit 0.22.2` uses RustSec 0.33.0.
+`Database::query_vulnerabilities` excludes packages without a registry source,
+including local dependencies. Thus, no alert for this copy does not prove that
+the defect is fixed. The verified origin, diff, and optimized tests provide the
+evidence. Remove the backport when the GTK toolchain permits an officially fixed
+version.

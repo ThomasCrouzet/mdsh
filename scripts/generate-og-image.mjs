@@ -1,20 +1,17 @@
 #!/usr/bin/env node
 /**
- * Génère `static/og-image.png` (1200×630) à partir de `static/og-image.svg`.
+ * Create static/og-image.png (1200x630) from static/og-image.svg.
  *
- * Pourquoi un PNG ? Twitter/X et Slack acceptent SVG, mais Facebook et
- * LinkedIn ne supportent que PNG/JPEG pour les Open Graph cards. On garde
- * donc les deux : SVG = source de vérité éditable, PNG = format universel.
+ * Twitter/X and Slack accept SVG. Facebook and LinkedIn require PNG/JPEG for Open Graph cards.
+ * Keep SVG as the editable source and PNG for use across platforms.
  *
- * Dépendance : `@resvg/resvg-js` (rendu SVG natif Rust, ~5 Mo, hors deps
- * runtime du projet - installer manuellement avant la prochaine release
- * publique si on veut régénérer le PNG depuis le SVG) :
+ * The script needs @resvg/resvg-js for native Rust SVG rendering (about 5 MB).
+ * It is not a runtime dependency. Install it before a public release if the PNG needs regeneration:
  *
  *   npm install --no-save --legacy-peer-deps @resvg/resvg-js
  *   node scripts/generate-og-image.mjs
  *
- * En l'absence de cette dépendance, le script affiche un message clair
- * et exit 0 (non bloquant pour le build).
+ * If the dependency is absent, report it and exit with status 0. Do not block the build.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -30,9 +27,9 @@ try {
 	({ Resvg } = await import('@resvg/resvg-js'));
 } catch {
 	console.error(
-		'[og-image] @resvg/resvg-js manquant - installer via :\n' +
+		'[og-image] @resvg/resvg-js is missing. Install it with:\n' +
 			'  npm install --no-save --legacy-peer-deps @resvg/resvg-js\n' +
-			'Puis relancer : node scripts/generate-og-image.mjs'
+			'Then run: node scripts/generate-og-image.mjs'
 	);
 	process.exit(0);
 }
@@ -43,9 +40,8 @@ const resvg = new Resvg(svg, {
 	background: '#14161a',
 	fitTo: { mode: 'width', value: 1200 },
 	font: {
-		// Le serveur GitHub n'aura aucune des polices system-ui / SF Mono ;
-		// on laisse resvg utiliser les fallbacks du système où on génère
-		// l'image (idéalement une machine macOS pour le rendu SF Mono).
+		// The GitHub server does not have system-ui or SF Mono fonts.
+		// Let resvg use local system fallbacks. Prefer macOS for SF Mono rendering.
 		loadSystemFonts: true
 	}
 });
@@ -53,4 +49,4 @@ const resvg = new Resvg(svg, {
 const pngData = resvg.render().asPng();
 writeFileSync(pngPath, pngData);
 
-console.log(`[og-image] PNG 1200×630 écrit : ${pngPath} (${pngData.byteLength} octets)`);
+console.log(`[og-image] PNG 1200×630 written: ${pngPath} (${pngData.byteLength} bytes)`);

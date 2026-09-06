@@ -29,16 +29,16 @@ const excludedFamilies = [
 	{
 		family: 'KaTeX_Fraktur',
 		comment:
-			'/* @font-face Fraktur (Bold, Regular) supprimés : `\\mathfrak{}` rare, fallback navigateur. */'
+			'/* @font-face Fraktur (Bold, Regular) removed: `\\mathfrak{}` uses the browser fallback. */'
 	},
 	{
 		family: 'KaTeX_SansSerif',
 		comment:
-			'/* @font-face SansSerif (Bold, Italic, Regular) supprimés : `\\textsf{}` rare, fallback navigateur. */'
+			'/* @font-face SansSerif (Bold, Italic, Regular) removed: `\\textsf{}` uses the browser fallback. */'
 	},
 	{
 		family: 'KaTeX_Script',
-		comment: '/* @font-face Script (Regular) supprimé : `\\mathscr{}` rare, fallback navigateur. */'
+		comment: '/* @font-face Script (Regular) removed: `\\mathscr{}` uses the browser fallback. */'
 	}
 ];
 
@@ -54,7 +54,7 @@ function stripExcludedFontFaces(sourceCss) {
 		css = css.replace(familyPattern, () => (occurrence++ === 0 ? `\n${comment}\n` : ''));
 
 		if (occurrence === 0) {
-			throw new Error(`Famille KaTeX introuvable dans le CSS source : ${family}`);
+			throw new Error(`KaTeX family missing from source CSS: ${family}`);
 		}
 	}
 
@@ -73,7 +73,7 @@ function keepWoff2Sources(sourceCss) {
 
 	if (replacementCount !== fontFiles.length) {
 		throw new Error(
-			`Nombre de déclarations de polices KaTeX inattendu : ${replacementCount} au lieu de ${fontFiles.length}`
+			`Unexpected number of KaTeX font declarations: ${replacementCount} instead of ${fontFiles.length}`
 		);
 	}
 
@@ -113,14 +113,12 @@ async function checkAssets(expectedCss) {
 
 	if (!cssMatches || mismatchedFonts.length > 0) {
 		const details = [
-			!cssMatches ? 'CSS statique différent du paquet installé' : null,
-			mismatchedFonts.length > 0 ? `polices différentes : ${mismatchedFonts.join(', ')}` : null
+			!cssMatches ? 'Static CSS differs from the installed package' : null,
+			mismatchedFonts.length > 0 ? `fonts differ: ${mismatchedFonts.join(', ')}` : null
 		]
 			.filter(Boolean)
 			.join(' ; ');
-		throw new Error(
-			`Ressources KaTeX désynchronisées (${details}). Lancez npm run sync:katex-assets.`
-		);
+		throw new Error(`KaTeX assets do not match (${details}). Run npm run sync:katex-assets.`);
 	}
 }
 
@@ -139,8 +137,8 @@ const expectedCss = await buildCss();
 
 if (checkOnly) {
 	await checkAssets(expectedCss);
-	console.log('Ressources KaTeX synchronisées.');
+	console.log('KaTeX assets match.');
 } else {
 	await writeAssets(expectedCss);
-	console.log('Ressources KaTeX mises à jour.');
+	console.log('KaTeX assets updated.');
 }

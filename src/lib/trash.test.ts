@@ -11,8 +11,7 @@ import {
 } from './trash';
 import { recordVersion } from './version-history';
 
-// Horodatage de référence fixe (ms epoch) pour rendre les calculs de fenêtre
-// d'undo déterministes - jamais de `Date.now()` dans les assertions.
+// Use a fixed epoch timestamp to make undo calculations deterministic.
 const T0 = 1_000_000_000_000;
 
 /** Fabrique une row `drafts` minimale. */
@@ -45,12 +44,12 @@ afterEach(async () => {
 });
 
 describe('loadTrashRows', () => {
-	it('corbeille vide → tableau vide', async () => {
+	it('returns an empty array for empty trash', async () => {
 		expect(await loadTrashRows(T0)).toEqual([]);
 	});
 
-	it('conserve une entrée encore dans la fenêtre d’undo avec le remainingMs exact', async () => {
-		// Mise en corbeille il y a 2000 ms → il reste 5000 - 2000 = 3000 ms.
+	it('keeps an entry during the undo period with exact remainingMs', async () => {
+		// The item entered the trash 2000 ms ago, so 5000 - 2000 = 3000 ms remain.
 		await db.trashed.put(trashedRow('keep', T0 - 2000, 1));
 		const now = T0;
 
@@ -60,11 +59,11 @@ describe('loadTrashRows', () => {
 		expect(results[0]!.remainingMs).toBe(TIMERS.trashRetentionMs - 2000); // 3000
 		expect(results[0]!.entry.order).toBe(1);
 		expect(results[0]!.entry.trashedAt).toBe(T0 - 2000);
-		// L'entrée DB n'est pas purgée - toujours présente.
+		// The database entry is still present.
 		expect(await db.trashed.get('keep')).toBeTruthy();
 	});
 
-	it('reconstruit le FileItem (dirty/linkedToDisk réinitialisés) depuis la row stockée', async () => {
+	it('rebuilds FileItem from the stored row with reset state', async () => {
 		await db.trashed.put(trashedRow('f1', T0 - 1000, 3));
 
 		const { entry } = (await loadTrashRows(T0))[0]!;
@@ -80,8 +79,8 @@ describe('loadTrashRows', () => {
 		});
 	});
 
-	it('purge en base une entrée expirée (fenêtre d’undo dépassée) et l’exclut du résultat', async () => {
-		// Mise en corbeille il y a exactement trashRetentionMs → remainingMs = 0 → purge.
+	it('deletes an expired entry from the database and result', async () => {
+		// The item entered the trash exactly trashRetentionMs ago, so remainingMs = 0 and it is purged.
 		await db.trashed.put(trashedRow('expired', T0 - TIMERS.trashRetentionMs, 0));
 
 		const results = await loadTrashRows(T0);
@@ -90,7 +89,7 @@ describe('loadTrashRows', () => {
 		expect(await db.trashed.get('expired')).toBeUndefined();
 	});
 
-	it('purge une entrée largement expirée mais garde une entrée récente (tri par trashedAt)', async () => {
+	it('deletes an old entry and keeps a recent entry', async () => {
 		await db.trashed.bulkPut([
 			trashedRow('old', T0 - TIMERS.trashRetentionMs - 10_000, 0),
 			trashedRow('fresh', T0 - 1000, 1)
@@ -104,7 +103,7 @@ describe('loadTrashRows', () => {
 		expect(await db.trashed.get('fresh')).toBeTruthy();
 	});
 
-	it('renvoie les entrées dans l’ordre de trashedAt croissant', async () => {
+	it('returns entries in ascending trashedAt order', async () => {
 		await db.trashed.bulkPut([
 			trashedRow('b', T0 - 1000, 0),
 			trashedRow('a', T0 - 3000, 1),
@@ -113,13 +112,13 @@ describe('loadTrashRows', () => {
 
 		const results = await loadTrashRows(T0);
 
-		// orderBy('trashedAt') → 'a' (-3000) puis 'c' (-2000) puis 'b' (-1000).
+		// orderBy('trashedAt') gives 'a' (-3000), then 'c' (-2000), then 'b' (-1000).
 		expect(results.map((r) => r.entry.file.id)).toEqual(['a', 'c', 'b']);
 	});
 });
 
 describe('moveToTrash', () => {
-	it('retire le fichier de drafts et l’ajoute à trashed (transactionnel)', async () => {
+	it('moves a file from drafts to trashed in one transaction', async () => {
 		await db.drafts.put(draftRow('d1', 2));
 		const row = await db.drafts.get('d1');
 		expect(row).toBeTruthy();
@@ -132,7 +131,7 @@ describe('moveToTrash', () => {
 		expect(trashed).toEqual({ id: 'd1', file: row, order: 2, trashedAt: T0 });
 	});
 
-	it('n’affecte pas les autres drafts', async () => {
+	it('does not change other drafts', async () => {
 		await db.drafts.bulkPut([draftRow('d1', 0), draftRow('d2', 1)]);
 
 		await moveToTrash('d1', draftRow('d1', 0), 0, T0);
@@ -142,7 +141,7 @@ describe('moveToTrash', () => {
 		expect(await db.trashed.count()).toBe(1);
 	});
 
-	it('round-trip : un fichier déplacé est rechargé par loadTrashRows', async () => {
+	it('reloads a moved file through loadTrashRows', async () => {
 		await db.drafts.put(draftRow('rt', 0));
 		await moveToTrash('rt', draftRow('rt', 0), 0, T0 - 500);
 
@@ -155,7 +154,7 @@ describe('moveToTrash', () => {
 });
 
 describe('restoreFromTrash', () => {
-	it('conserve une variante durable si le même identifiant existe déjà', async () => {
+	it('keeps a durable variant when the same ID exists', async () => {
 		await db.trashed.put(trashedRow('r', T0));
 		await db.drafts.put({ ...draftRow('r'), content: 'nouvelle branche' });
 		await restoreFromTrash('r', draftRow('r'));
@@ -165,7 +164,7 @@ describe('restoreFromTrash', () => {
 		expect(variant?.open).toBe(false);
 	});
 
-	it('réécrit la row drafts ET supprime trashed dans une transaction atomique', async () => {
+	it('writes the draft row and deletes the trash row in one transaction', async () => {
 		await db.trashed.put(trashedRow('r1', T0, 0));
 		const row = draftRow('r1', 0);
 
@@ -176,17 +175,17 @@ describe('restoreFromTrash', () => {
 		expect(await db.drafts.get('r1')).toEqual(row);
 	});
 
-	it('aucune fenêtre où le fichier n’est dans aucune table (drafts présent après restore)', async () => {
+	it('keeps the file in a table during restore', async () => {
 		await db.trashed.put(trashedRow('r2', T0, 1));
 		await restoreFromTrash('r2', draftRow('r2', 1));
-		// L'entrée a quitté trashed ET est présente dans drafts (pas de trou).
+		// The entry leaves trashed and exists in drafts without a gap.
 		expect(await db.drafts.count()).toBe(1);
 		expect(await db.trashed.count()).toBe(0);
 	});
 });
 
 describe('purgePermanently', () => {
-	it('ne purge pas l’historique d’un document encore vivant avec le même identifiant', async () => {
+	it('keeps history for a live document with the same ID', async () => {
 		await db.trashed.put(trashedRow('shared', T0));
 		await db.drafts.put(draftRow('shared'));
 		await recordVersion({ id: 'shared', name: 'shared.md', content: 'vivant' }, T0);
@@ -195,7 +194,7 @@ describe('purgePermanently', () => {
 		expect(await db.versions.where('draftId').equals('shared').count()).toBe(1);
 	});
 
-	it('supprime définitivement l’entrée de trashed', async () => {
+	it('deletes the trash entry permanently', async () => {
 		await db.trashed.bulkPut([trashedRow('p1', T0, 0), trashedRow('p2', T0, 1)]);
 
 		await purgePermanently('p1');
@@ -205,7 +204,7 @@ describe('purgePermanently', () => {
 		expect(await db.trashed.count()).toBe(1);
 	});
 
-	it('purge aussi l’historique de versions du fichier (pas de snapshots orphelins)', async () => {
+	it('also deletes file history without orphan snapshots', async () => {
 		await db.trashed.put(trashedRow('p3', T0, 0));
 		await recordVersion({ id: 'p3', name: 'p3.md', content: 'du contenu' }, T0);
 		expect(await db.versions.where('draftId').equals('p3').count()).toBe(1);
@@ -216,17 +215,17 @@ describe('purgePermanently', () => {
 		expect(await db.versions.where('draftId').equals('p3').count()).toBe(0);
 	});
 
-	it('id inexistant → no-op silencieux (pas d’erreur)', async () => {
+	it('does nothing for an unknown ID', async () => {
 		await expect(purgePermanently('ghost')).resolves.toBeUndefined();
 		expect(await db.trashed.count()).toBe(0);
 	});
 });
 
 describe('persistReorder', () => {
-	it('réécrit le champ order de chaque draft selon l’index du tableau', async () => {
+	it('writes each draft order from its array index', async () => {
 		await db.drafts.bulkPut([draftRow('a', 0), draftRow('b', 1), draftRow('c', 2)]);
 
-		// Nouvel ordre : c, a, b → orders 0, 1, 2.
+		// Set the new order to c, a, b, with order values 0, 1, and 2.
 		await persistReorder(['c', 'a', 'b']);
 
 		expect((await db.drafts.get('c'))!.order).toBe(0);
@@ -234,7 +233,7 @@ describe('persistReorder', () => {
 		expect((await db.drafts.get('b'))!.order).toBe(2);
 	});
 
-	it('ne touche que le champ order (contenu/nom préservés)', async () => {
+	it('changes only order and keeps content and name', async () => {
 		await db.drafts.put(draftRow('a', 5));
 
 		await persistReorder(['a']);
@@ -250,7 +249,7 @@ describe('persistReorder', () => {
 		});
 	});
 
-	it('renvoie un timestamp ≥ à l’instant d’appel (pour lastSavedAt)', async () => {
+	it('returns a timestamp at or after the call time', async () => {
 		await db.drafts.put(draftRow('a', 0));
 		const before = Date.now();
 
@@ -260,18 +259,18 @@ describe('persistReorder', () => {
 		expect(ts).toBeLessThanOrEqual(Date.now());
 	});
 
-	it('un id inexistant dans la liste est ignoré sans erreur', async () => {
+	it('ignores an unknown ID in the list', async () => {
 		await db.drafts.put(draftRow('a', 0));
 
-		// 'ghost' n'existe pas : Dexie update() renvoie 0 ligne modifiée, pas d'erreur.
+		// Dexie update returns zero changed rows without an error for unknown `ghost`.
 		await expect(persistReorder(['ghost', 'a'])).resolves.toBeGreaterThan(0);
 		expect((await db.drafts.get('a'))!.order).toBe(1);
 		expect(await db.drafts.get('ghost')).toBeUndefined();
 	});
 });
 
-describe('échecs et collisions durables de corbeille', () => {
-	it('conserve les deux branches lorsque la suppression rencontre une écriture distante', async () => {
+describe('trash persistence failures and conflicts', () => {
+	it('keeps both branches when deletion meets a remote write', async () => {
 		await db.drafts.put({ ...draftRow('same'), content: 'remote' });
 		expect(await moveToTrash('same', { ...draftRow('same'), content: 'local' }, 0, T0)).toBe(true);
 		expect((await db.trashed.get('same'))?.file.content).toBe('local');
@@ -279,7 +278,7 @@ describe('échecs et collisions durables de corbeille', () => {
 			expect.objectContaining({ content: 'remote', open: false })
 		]);
 	});
-	it('conserve la branche courante avant restauration de la corbeille', async () => {
+	it('keeps the current branch before trash restoration', async () => {
 		await db.drafts.put({ ...draftRow('same'), content: 'remote' });
 		await db.trashed.put(trashedRow('same', T0));
 		expect(await restoreFromTrash('same', draftRow('same'))).toBe(true);
@@ -288,21 +287,21 @@ describe('échecs et collisions durables de corbeille', () => {
 			'remote'
 		]);
 	});
-	it('annule toute suppression si la transaction de corbeille échoue', async () => {
+	it('cancels all deletion when the trash transaction fails', async () => {
 		await db.drafts.put(draftRow('safe'));
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		vi.spyOn(db.trashed, 'put').mockRejectedValue(new Error('quota'));
 		expect(await moveToTrash('safe', draftRow('safe'), 0, T0)).toBe(false);
 		expect(await db.drafts.get('safe')).toBeDefined();
 	});
-	it('garde la corbeille si sa restauration échoue', async () => {
+	it('keeps the trash entry when restoration fails', async () => {
 		await db.trashed.put(trashedRow('safe', T0));
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		vi.spyOn(db.drafts, 'put').mockRejectedValue(new Error('quota'));
 		expect(await restoreFromTrash('safe', draftRow('safe'))).toBe(false);
 		expect(await db.trashed.get('safe')).toBeDefined();
 	});
-	it('la purge expirée défaillante reste récupérable au chargement', async () => {
+	it('keeps a failed expired purge recoverable during load', async () => {
 		await db.trashed.put(trashedRow('safe', T0));
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		vi.spyOn(db.trashed, 'delete').mockRejectedValue(new Error('storage'));
@@ -310,13 +309,13 @@ describe('échecs et collisions durables de corbeille', () => {
 		expect(result.map((row) => row.entry.file.id)).toEqual(['safe']);
 		expect(await db.trashed.get('safe')).toBeDefined();
 	});
-	it('un réordonnancement échoué ne renvoie pas de faux timestamp', async () => {
+	it('does not return a false timestamp after reorder failure', async () => {
 		await db.drafts.put(draftRow('safe'));
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		vi.spyOn(db.drafts, 'update').mockRejectedValue(new Error('storage'));
 		expect(await persistReorder(['safe'])).toBeNull();
 	});
-	it('la purge conserve historique et document vivant partageant cet id', async () => {
+	it('keeps history and a live document that share the purged ID', async () => {
 		await db.drafts.put(draftRow('safe'));
 		await db.trashed.put(trashedRow('safe', T0));
 		await recordVersion({ id: 'safe', name: 'safe.md', content: 'history' }, T0);

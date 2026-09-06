@@ -1,4 +1,4 @@
-# Lecture seule du runner : aucun argument de processus ni environnement global.
+# Read runner state only. Do not collect process arguments or the global environment.
 param(
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
     [Parameter(Mandatory = $true)][int]$ApplicationPid,
@@ -33,7 +33,7 @@ function Read-Diagnostic([string]$Name, [scriptblock]$Action) {
             message = $_.Exception.Message
         })
     }
-    # Sauvegarde progressive si le parent interrompt la collecte au délai maximal.
+    # Save results incrementally in case the parent stops collection at the timeout.
     Save-Report
 }
 
@@ -122,7 +122,7 @@ Read-Diagnostic 'directories' {
 }
 
 Read-Diagnostic 'browserOverrides' {
-    # Les arguments pourraient contenir des informations sensibles : présence seule.
+    # Arguments can contain sensitive data. Record only whether they exist.
     [ordered]@{
         additionalArgumentsPresent = -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'))
         releaseChannels = [Environment]::GetEnvironmentVariable('WEBVIEW2_RELEASE_CHANNELS')
@@ -131,9 +131,9 @@ Read-Diagnostic 'browserOverrides' {
 }
 
 Read-Diagnostic 'screenshot' {
-    # Le bureau complet n'est capturé que sur le runner éphémère de la CI.
+    # Capture the full desktop only on the temporary CI runner.
     if ($env:GITHUB_ACTIONS -ne 'true') {
-        return [ordered]@{ skipped = 'Collecte du bureau réservée à la CI.' }
+        return [ordered]@{ skipped = 'Desktop capture is available only in CI.' }
     }
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing

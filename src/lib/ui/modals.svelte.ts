@@ -18,15 +18,12 @@ import { reportError } from '$lib/report';
 import { t, type MessageKey } from '$lib/i18n';
 
 /**
- * Builds a memoized loader for a lazy modal. If the `import()` fails
- * (chunk unavailable offline, stale PWA cache after a deployment), we
- * RESET the memo (retry possible), close the modal (`close`) and notify
- * the user - instead of a modal that silently never appears. The re-throw
- * lets the template's `{:catch}` avoid trying to mount an undefined
- * component.
+ * Builds a memoized loader for a lazy modal. An import can fail offline or with
+ * a stale PWA cache. Reset the memo to permit a retry, close the modal, and
+ * notify the user. Rethrow the error so the template's `{:catch}` does not mount an
+ * undefined component. The stale cache case can occur after a deployment.
  *
- * The component's typing is inferred from the `import()` - so we keep the
- * lazy-load with no static import (bundle constraint).
+ * Infer the component type from the dynamic import to preserve lazy loading.
  */
 /** Exported for unit tests (failure path: close + report + rethrow). */
 export function makeLazyLoader<T>(

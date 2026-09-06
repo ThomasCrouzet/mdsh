@@ -29,8 +29,7 @@ async function fullPurge(id: string): Promise<void> {
 		if (!current) await db.versions.where('draftId').equals(id).delete();
 		return Boolean(current);
 	});
-	if (!hasDraft)
-		await deleteHandle(id).catch((err) => reportError('suppression du lien disque', err));
+	if (!hasDraft) await deleteHandle(id).catch((err) => reportError('delete disk link', err));
 }
 
 async function preserveCurrentVariant(

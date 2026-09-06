@@ -1,5 +1,5 @@
-# Hooks Git locaux - installés via `npm run prepare` (qui appelle lefthook install).
-# Contributeurs externes : exécution opt-in, aucun blocage silencieux.
+# Install local Git hooks with `npm run prepare`, which calls lefthook install.
+# External contributors must opt in. Do not silently block their work.
 
 pre-commit:
   parallel: true
@@ -15,8 +15,8 @@ pre-commit:
       run: npx eslint --fix {staged_files}
       stage_fixed: true
 
-# Pre-push : vérifs plus lourdes (évite les PR rouges pour des erreurs TS
-# ou des tests cassés qu'un simple lint n'aurait pas attrapés).
+# Before push, check types and tests.
+# These checks catch failures that lint alone cannot detect.
 pre-push:
   parallel: false
   commands:

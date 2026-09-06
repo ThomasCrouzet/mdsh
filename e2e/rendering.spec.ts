@@ -28,12 +28,12 @@ async function expectMermaidLabels(page: Page, selector: string) {
 	await expect(diagram.locator('style, foreignObject')).toHaveCount(0);
 }
 
-test.describe('Rendu KaTeX + Mermaid en mode lecture', () => {
+test.describe('KaTeX and Mermaid rendering in read mode', () => {
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page);
 	});
 
-	test('KaTeX rendu en mode lecture', async ({ page }) => {
+	test('renders KaTeX in read mode', async ({ page }) => {
 		await seedFiles(page, [
 			{
 				name: 'math',
@@ -41,13 +41,13 @@ test.describe('Rendu KaTeX + Mermaid en mode lecture', () => {
 			}
 		]);
 		await page.locator('button[data-mode="read"]').click();
-		// `.katex` est posé par le rendu KaTeX une fois le module lazy chargé.
+		// The KaTeX renderer adds `.katex` after the lazy module loads.
 		await expect(page.locator('.mdsh-preview .katex').first()).toBeVisible({
 			timeout: 15_000
 		});
 	});
 
-	test('Mermaid conserve ses labels et couleurs en lecture, HTML hors ligne et PDF', async ({
+	test('keeps Mermaid labels and colors in read mode, offline HTML, and PDF', async ({
 		page,
 		browser
 	}, testInfo) => {
@@ -109,7 +109,7 @@ test.describe('Rendu KaTeX + Mermaid en mode lecture', () => {
 		await offline.close();
 	});
 
-	test('Mermaid refuse les images et styles réseau avant toute requête', async ({ page }) => {
+	test('rejects Mermaid network images and styles before a request starts', async ({ page }) => {
 		const requests: string[] = [];
 		await page.route('**/mermaid-beacon*', async (route) => {
 			requests.push(route.request().url());
@@ -131,7 +131,7 @@ test.describe('Rendu KaTeX + Mermaid en mode lecture', () => {
 		expect(requests).toEqual([]);
 	});
 
-	test('checklist sans puce superposée et permalien limité à la lecture', async ({ page }) => {
+	test('shows clean checklist markers and limits permalinks to read mode', async ({ page }) => {
 		await seedFiles(page, [
 			{
 				name: 'tasks',

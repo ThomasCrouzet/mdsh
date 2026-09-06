@@ -12,8 +12,8 @@ import { en } from './messages/en';
 import { fr } from './messages/fr';
 import { i18n, t } from './i18n.svelte';
 
-describe('locale - logique pure', () => {
-	it('isLocale valide en/fr et rejette le reste', () => {
+describe('locale - pure logic', () => {
+	it('accepts English and French locales and rejects other values', () => {
 		expect(isLocale('en')).toBe(true);
 		expect(isLocale('fr')).toBe(true);
 		expect(isLocale('de')).toBe(false);
@@ -21,12 +21,12 @@ describe('locale - logique pure', () => {
 		expect(isLocale(42)).toBe(false);
 	});
 
-	it('detectLocale : un choix persisté valide prime sur la langue du navigateur', () => {
+	it('uses a valid stored locale before the browser language', () => {
 		expect(detectLocale('fr-FR', 'en')).toBe('en');
 		expect(detectLocale('en-US', 'fr')).toBe('fr');
 	});
 
-	it("detectLocale : suit navigator.language quand rien n'est persisté", () => {
+	it('uses navigator.language without a stored locale', () => {
 		expect(detectLocale('fr-FR', null)).toBe('fr');
 		expect(detectLocale('fr', undefined)).toBe('fr');
 		expect(detectLocale('en-GB', null)).toBe('en');
@@ -34,12 +34,12 @@ describe('locale - logique pure', () => {
 		expect(detectLocale(undefined, null)).toBe('en');
 	});
 
-	it('detectLocale : un choix persisté invalide est ignoré', () => {
+	it('ignores an invalid stored locale', () => {
 		expect(detectLocale('fr-FR', 'klingon')).toBe('fr');
 		expect(detectLocale('en-US', 123)).toBe('en');
 	});
 
-	it('interpolate : remplit les placeholders, laisse les inconnus intacts', () => {
+	it('fills known placeholders and keeps unknown placeholders', () => {
 		expect(interpolate('Hello {name}', { name: 'world' })).toBe('Hello world');
 		expect(interpolate('{n} file(s)', { n: 3 })).toBe('3 file(s)');
 		expect(interpolate('no params')).toBe('no params');
@@ -47,17 +47,17 @@ describe('locale - logique pure', () => {
 		expect(interpolate('{a} {b} {a}', { a: 'x', b: 'y' })).toBe('x y x');
 	});
 
-	it('LOCALE_LABELS couvre toutes les locales livrées', () => {
+	it('provides a label for each shipped locale', () => {
 		for (const l of LOCALES) expect(LOCALE_LABELS[l]).toBeTruthy();
 	});
 });
 
-describe('dictionnaires de messages', () => {
-	it('en et fr ont exactement les mêmes clés', () => {
+describe('message dictionaries', () => {
+	it('uses the same keys in English and French', () => {
 		expect(Object.keys(fr).sort()).toEqual(Object.keys(en).sort());
 	});
 
-	it('aucune valeur vide dans les deux locales', () => {
+	it('has no empty value in either locale', () => {
 		for (const dict of [en, fr]) {
 			for (const [key, value] of Object.entries(dict)) {
 				expect(value, `clé vide: ${key}`).toBeTruthy();
@@ -65,7 +65,7 @@ describe('dictionnaires de messages', () => {
 		}
 	});
 
-	it('DEFAULT_LOCALE est livrée', () => {
+	it('ships DEFAULT_LOCALE', () => {
 		expect(LOCALES).toContain(DEFAULT_LOCALE);
 	});
 });
@@ -75,13 +75,13 @@ describe('i18nStore.t', () => {
 		i18n.locale = 'en';
 	});
 
-	it('traduit dans la locale courante et réagit au changement', () => {
+	it('translates in the current locale and reacts to changes', () => {
 		expect(t('welcome.newFile')).toBe('New file');
 		i18n.locale = 'fr';
 		expect(t('welcome.newFile')).toBe('Nouveau fichier');
 	});
 
-	it('garde une chaîne non vide pour toute clé connue, dans chaque locale', () => {
+	it('returns a non-empty string for each known key in each locale', () => {
 		for (const locale of LOCALES) {
 			i18n.locale = locale;
 			for (const key of Object.keys(en) as (keyof typeof en)[]) {
@@ -100,14 +100,14 @@ describe('i18nStore.load / set (browser)', () => {
 		localStorage.clear();
 	});
 
-	it('load : applique la locale persistée et met à jour <html lang>', () => {
+	it('loads the stored locale and updates the HTML language', () => {
 		localStorage.setItem(LOCALE_STORAGE_KEY, 'fr');
 		i18n.load();
 		expect(i18n.locale).toBe('fr');
 		expect(document.documentElement.lang).toBe('fr');
 	});
 
-	it('load : sans choix persisté, suit navigator.language', () => {
+	it('uses navigator.language without a stored locale', () => {
 		const orig = Object.getOwnPropertyDescriptor(navigator, 'language');
 		Object.defineProperty(navigator, 'language', { value: 'fr-FR', configurable: true });
 		try {
@@ -118,7 +118,7 @@ describe('i18nStore.load / set (browser)', () => {
 		}
 	});
 
-	it('set : change la locale, persiste le choix et met à jour <html lang>', () => {
+	it('sets and persists the locale and updates the HTML language', () => {
 		i18n.set('fr');
 		expect(i18n.locale).toBe('fr');
 		expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('fr');
@@ -128,7 +128,7 @@ describe('i18nStore.load / set (browser)', () => {
 	});
 });
 
-it('annonce le changement de langue au menu natif', () => {
+it('reports a language change to the native menu', () => {
 	let detail: unknown;
 	const listener = (event: Event) => {
 		detail = (event as CustomEvent).detail;

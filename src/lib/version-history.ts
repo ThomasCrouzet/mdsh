@@ -140,9 +140,9 @@ export async function deleteVersionsFor(draftId: string): Promise<void> {
 }
 
 /**
- * "Light" diff: counts the lines added / removed between two contents, by
- * line multiset (not a real LCS - O(n) memory, sufficient for a "+X / -Y"
- * indicator in the history, without a heavy diff lib).
+ * Counts added and removed lines with a line multiset. This uses O(n) memory.
+ * It supplies the history's "+X / -Y" indicator without a heavy diff library.
+ * This is not an LCS diff.
  */
 export function lineDiffStats(from: string, to: string): { added: number; removed: number } {
 	const count = (s: string): Map<string, number> => {

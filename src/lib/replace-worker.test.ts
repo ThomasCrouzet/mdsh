@@ -12,9 +12,9 @@ const opts = { caseSensitive: true, wholeWord: false, useRegex: true };
 
 afterEach(() => vi.useRealTimers());
 
-describe('remplacement isolé dans un worker', () => {
+describe('replacement in an isolated worker', () => {
 	it.each(['(a+){10}$', '^(a{1,3})+$'])(
-		'termine le worker bloqué par %s sans résultat partiel',
+		'stops a worker blocked by %s without a partial result',
 		async (query) => {
 			vi.useFakeTimers();
 			const worker = new FakeWorker();
@@ -30,7 +30,7 @@ describe('remplacement isolé dans un worker', () => {
 		}
 	);
 
-	it('utilise un nouveau worker après expiration et libère celui qui a réussi', async () => {
+	it('uses a new worker after timeout and releases the successful worker', async () => {
 		vi.useFakeTimers();
 		const stuck = new FakeWorker();
 		const first = replaceInFilesAsync(files, '(a+){10}$', 'x', opts, { createWorker: () => stuck });
@@ -48,7 +48,7 @@ describe('remplacement isolé dans un worker', () => {
 		expect(next.terminate).toHaveBeenCalledOnce();
 	});
 
-	it('rapporte une erreur de chargement sans modifier le corpus', async () => {
+	it('reports a load error without changing the corpus', async () => {
 		const worker = new FakeWorker();
 		const result = replaceInFilesAsync(files, 'a+', 'x', opts, { createWorker: () => worker });
 		worker.dispatchEvent(new Event('error'));
@@ -60,7 +60,7 @@ describe('remplacement isolé dans un worker', () => {
 		expect(files[0]?.content).toBe(`${'a'.repeat(60)}!`);
 	});
 
-	it('garde le remplacement littéral sans moteur regex utilisateur', async () => {
+	it('keeps literal replacement without a user regular expression engine', async () => {
 		const createWorker = vi.fn();
 		const result = await replaceInFilesAsync(
 			[{ id: 'a', name: 'a.md', content: 'foo foo' }],

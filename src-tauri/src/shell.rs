@@ -31,7 +31,7 @@ impl CloseState {
     }
 
     fn acknowledge(&self, request_id: u64) {
-        // Un accusé tardif ne doit pas effacer une demande plus récente.
+        // A late acknowledgement must not clear a newer request.
         let _ = self.pending_request.compare_exchange(
             request_id,
             0,
@@ -74,8 +74,8 @@ pub fn desktop_open_external(app: tauri::AppHandle, url: String) -> Result<(), S
 
 #[tauri::command]
 pub fn desktop_arm_close_guard(app: tauri::AppHandle, state: tauri::State<'_, CloseState>) {
-    // Le frontend s'abonne avant cet appel. Une demande perdue pendant son
-    // rechargement reste disponible jusqu'à son accusé de réception explicite.
+    // The frontend subscribes before this call. Keep a request lost during reload
+    // available until the frontend explicitly acknowledges it.
     if let Some(request_id) = state.arm() {
         let _ = app.emit("mdsh://close-request", request_id);
     }

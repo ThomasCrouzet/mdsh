@@ -10,7 +10,7 @@
   <rect x="246" y="94" width="56" height="3" fill="#5a5348"/>
   <text x="96" y="152" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" letter-spacing="5" fill="#c79a55">LOCAL DOCUMENT SYSTEM</text>
   <text x="82" y="344" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="172" font-weight="700" letter-spacing="-14" fill="#e6dfd1"><tspan fill="#c79a55">M</tspan>DSH</text>
-  <text x="96" y="412" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="30" font-weight="500" fill="#bbb1a2">Markdown, sous contrôle.</text>
+  <text x="96" y="412" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="30" font-weight="500" fill="#bbb1a2">Control your Markdown.</text>
   <text x="96" y="461" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="19" letter-spacing="2" fill="#82786b">WYSIWYG  /  PWA  /  100 % OFFLINE</text>
   <path d="M96 520h1008" stroke="#30302e"/>
   <text x="96" y="560" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="16" letter-spacing="2" fill="#82786b">MDSH // PRIVATE BY DEFAULT</text>

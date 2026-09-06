@@ -228,14 +228,14 @@ describe('read path vs WYSIWYG Mermaid preview sanitizer', () => {
 	});
 });
 
-describe('styles du SVG Mermaid généré', () => {
-	// jsdom ne crée pas de CSSOM dans createHTMLDocument, contrairement aux
-	// navigateurs. La feuille temporaire est retirée par le helper testé.
+describe('generated Mermaid SVG styles', () => {
+	// Unlike browsers, jsdom does not create a CSSOM in createHTMLDocument.
+	// The tested helper removes the temporary style sheet.
 	beforeEach(() => {
 		vi.spyOn(document.implementation, 'createHTMLDocument').mockReturnValue(document);
 	});
 	afterEach(() => vi.restoreAllMocks());
-	it('conserve labels SVG, remplissages, spécificité et styles explicites après sanitation', async () => {
+	it('keeps SVG labels, fills, specificity, and explicit styles after sanitization', async () => {
 		const { inlineMermaidStyles, sanitizeHtml, MARKDOWN_PURIFY } = await import('./sanitize-html');
 		const svg = `<svg id="diagram" xmlns="http://www.w3.org/2000/svg"><style>
 #diagram .node rect { fill: #ececff; stroke: #9370db; }
@@ -259,7 +259,7 @@ describe('styles du SVG Mermaid généré', () => {
 		expect(container.querySelector('style')).toBeNull();
 	});
 
-	it('ignore règles réseau et effets hors SVG tout en conservant les marqueurs internes', async () => {
+	it('removes network and non-SVG rules but keeps internal markers', async () => {
 		const { inlineMermaidStyles, sanitizeHtml, MARKDOWN_PURIFY } = await import('./sanitize-html');
 		const svg = `<svg id="diagram"><style>
 @import url("https://tracker.invalid/import.css");
@@ -277,7 +277,7 @@ body { color:red; }
 		expect(html).toContain('marker-end: url(#arrow)');
 	});
 
-	it('ne réautorise ni les styles ni les labels HTML dans les contenus utilisateur', async () => {
+	it('does not allow styles or HTML labels in user content', async () => {
 		const { sanitizeHtml, MARKDOWN_PURIFY, sanitizeMermaidPreviewHtml } =
 			await import('./sanitize-html');
 		const hostile =
@@ -293,7 +293,7 @@ body { color:red; }
 	});
 });
 
-describe('précontrôle Mermaid avant création DOM', () => {
+describe('Mermaid checks before DOM creation', () => {
 	it.each([
 		'flowchart TD\nA@{ img: "https://tracker.invalid/image.png" }',
 		'flowchart TD\nA@{ "i\\u006dg": "./image.png" }',
@@ -307,7 +307,7 @@ describe('précontrôle Mermaid avant création DOM', () => {
 		await expect(assertMermaidMediaSafe(code)).rejects.toThrow();
 	});
 
-	it('accepte formes récentes, couleurs explicites et fragments SVG locaux', async () => {
+	it('accepts current shapes, explicit colors, and local SVG fragments', async () => {
 		const { assertMermaidMediaSafe } = await import('./sanitize-html');
 		await expect(
 			assertMermaidMediaSafe(
@@ -328,7 +328,7 @@ describe('précontrôle Mermaid avant création DOM', () => {
 		}
 	);
 
-	it('sérialise les thèmes et reprend après un rendu rejeté', async () => {
+	it('serializes themes and resumes after a rejected render', async () => {
 		const { renderMermaidSvg } = await import('./sanitize-html');
 		const { default: mermaid } = await import('mermaid');
 		const initialize = vi.spyOn(mermaid, 'initialize').mockImplementation(() => undefined);

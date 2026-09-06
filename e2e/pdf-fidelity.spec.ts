@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resetAppState, seedFiles } from './helpers';
 
-test('PDF A4 : typographie et contenu Markdown multipage préservés', async ({
+test('preserves typography and multipage Markdown content in an A4 PDF', async ({
 	page,
 	browser
 }, testInfo) => {
@@ -108,7 +108,7 @@ FIN DU DOCUMENT VISIBLE.
 	await expect.poll(() => captured.length).toBeGreaterThan(100);
 	const printable = await browser.newPage({ viewport: { width: 673, height: 970 } });
 	try {
-		// Une navigation neuve évite que les effets de l'app contaminent le document imprimable.
+		// Use a new navigation so app effects cannot change the printable document.
 		await printable.route('**/api/__pdf_fidelity__', (route) =>
 			route.fulfill({ contentType: 'text/html', body: `<!doctype html>${captured}` })
 		);

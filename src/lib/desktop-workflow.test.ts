@@ -50,7 +50,7 @@ describe('desktop release supply-chain contract', () => {
 		expect(publishJob).toContain('DESKTOP_TAG: desktop-${{ env.RELEASE_TAG }}');
 		expect(publishJob).toContain('git/ref/tags/$DESKTOP_TAG');
 		expect(publishJob).toContain('release_target_sha');
-		expect(publishJob).toContain('Artefacts inattendus dans la release existante');
+		expect(publishJob).toContain('Unexpected artifacts in the existing release');
 		expect(publishJob).toContain('--prerelease');
 	});
 });

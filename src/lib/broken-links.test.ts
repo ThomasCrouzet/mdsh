@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { FileItem } from './types';
 import { computeBrokenLinks, canCheckBrokenLinks } from './broken-links';
 
-// Helper pour créer un FileItem minimal
+// Create a minimal FileItem.
 function makeFile(overrides: Partial<FileItem> & { id: string }): FileItem {
 	return {
 		name: 'test.md',
@@ -16,7 +16,7 @@ function makeFile(overrides: Partial<FileItem> & { id: string }): FileItem {
 }
 
 describe('computeBrokenLinks', () => {
-	it('ignore les fichiers non liés au disque (linkedToDisk false)', async () => {
+	it('ignores files with linkedToDisk set to false', async () => {
 		const files = [makeFile({ id: 'f1', linkedToDisk: false })];
 		const getHandleFn = vi.fn().mockResolvedValue(null);
 		const checkHandleFn = vi.fn();
@@ -32,7 +32,7 @@ describe('computeBrokenLinks', () => {
 		expect(getHandleFn).not.toHaveBeenCalled();
 	});
 
-	it('ignore les fichiers sans linkedToDisk défini (undefined)', async () => {
+	it('ignores files without a linkedToDisk value', async () => {
 		const files = [makeFile({ id: 'f1' })]; // linkedToDisk non défini
 		const getHandleFn = vi.fn().mockResolvedValue(null);
 		const checkHandleFn = vi.fn();
@@ -62,7 +62,7 @@ describe('computeBrokenLinks', () => {
 		expect(checkHandleFn).not.toHaveBeenCalled();
 	});
 
-	it('path link broken → brokenLink true sans handle FSA', async () => {
+	it('sets brokenLink for a broken path link without an FSA handle', async () => {
 		const files = [makeFile({ id: 'p1', linkedToDisk: true })];
 		const updates = await computeBrokenLinks(files, {
 			getHandleFn: vi.fn(),
@@ -73,7 +73,7 @@ describe('computeBrokenLinks', () => {
 		expect(updates[0]).toEqual({ id: 'p1', brokenLink: true, handleMissing: false });
 	});
 
-	it("handle présent mais checkHandleFn retourne 'broken' → brokenLink: true, handleMissing: false", async () => {
+	it('marks an existing broken handle as broken but not missing', async () => {
 		const fakeHandle = {} as FileSystemFileHandle;
 		const files = [makeFile({ id: 'f2', linkedToDisk: true })];
 		const getHandleFn = vi.fn().mockResolvedValue(fakeHandle);
@@ -89,7 +89,7 @@ describe('computeBrokenLinks', () => {
 		expect(updates[0]).toEqual({ id: 'f2', brokenLink: true, handleMissing: false });
 	});
 
-	it("handle présent et checkHandleFn retourne 'ok' → brokenLink: false, handleMissing: false", async () => {
+	it('marks an existing valid handle as available', async () => {
 		const fakeHandle = {} as FileSystemFileHandle;
 		const files = [makeFile({ id: 'f3', linkedToDisk: true })];
 		const getHandleFn = vi.fn().mockResolvedValue(fakeHandle);
@@ -105,11 +105,11 @@ describe('computeBrokenLinks', () => {
 		expect(updates[0]).toEqual({ id: 'f3', brokenLink: false, handleMissing: false });
 	});
 
-	it("handle présent et checkHandleFn retourne 'permission-needed' → brokenLink: false (pas 'broken')", async () => {
+	it('does not mark a handle as broken when it needs permission', async () => {
 		const fakeHandle = {} as FileSystemFileHandle;
 		const files = [makeFile({ id: 'f4', linkedToDisk: true })];
 		const getHandleFn = vi.fn().mockResolvedValue(fakeHandle);
-		// 'permission-needed' n'est pas 'broken' → brokenLink doit être false
+		// permission-needed is not broken, so brokenLink must be false.
 		const checkHandleFn = vi.fn().mockResolvedValue('permission-needed');
 
 		const updates = await computeBrokenLinks(files, {
@@ -123,7 +123,7 @@ describe('computeBrokenLinks', () => {
 		expect(updates[0]!.handleMissing).toBe(false);
 	});
 
-	it('traite plusieurs fichiers en parallèle et filtre correctement', async () => {
+	it('processes multiple files in parallel and filters them', async () => {
 		const fakeHandle = {} as FileSystemFileHandle;
 		const files = [
 			makeFile({ id: 'linked-ok', linkedToDisk: true }),
@@ -144,7 +144,7 @@ describe('computeBrokenLinks', () => {
 			getPathLinkFn: vi.fn().mockResolvedValue(null)
 		});
 
-		// Seuls les 2 fichiers linkedToDisk sont vérifiés
+		// Check only the two files that are linked to disk.
 		expect(updates).toHaveLength(2);
 		const ids = updates.map((u) => u.id);
 		expect(ids).toContain('linked-ok');
@@ -152,7 +152,7 @@ describe('computeBrokenLinks', () => {
 		expect(ids).not.toContain('not-linked');
 	});
 
-	it('retourne un tableau vide si aucun fichier linkedToDisk', async () => {
+	it('returns an empty array when no file is linked to disk', async () => {
 		const files = [
 			makeFile({ id: 'a', linkedToDisk: false }),
 			makeFile({ id: 'b', linkedToDisk: false })
@@ -169,20 +169,20 @@ describe('computeBrokenLinks', () => {
 		expect(updates).toHaveLength(0);
 	});
 
-	it('retourne un tableau vide sur liste de fichiers vide', async () => {
+	it('returns an empty array for an empty file list', async () => {
 		const updates = await computeBrokenLinks([], {});
 		expect(updates).toHaveLength(0);
 	});
 });
 
 describe('canCheckBrokenLinks', () => {
-	it('retourne un booléen', () => {
+	it('returns a boolean', () => {
 		const result = canCheckBrokenLinks();
 		expect(typeof result).toBe('boolean');
 	});
 
-	it('retourne false dans jsdom (showOpenFilePicker absent)', () => {
-		// jsdom ne dispose pas de l'API File System Access
+	it('returns false in jsdom when showOpenFilePicker is absent', () => {
+		// jsdom does not provide the File System Access API.
 		expect(canCheckBrokenLinks()).toBe(false);
 	});
 });

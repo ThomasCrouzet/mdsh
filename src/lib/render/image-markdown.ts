@@ -1,5 +1,5 @@
-// Le backslash appartient uniquement à la branche échappement : les branches
-// disjointes évitent le backtracking exponentiel des alternatives et légendes.
+// Match the backslash only in the escape branch. Separate branches prevent
+// exponential backtracking in alternatives and captions.
 const IMAGE_LINE =
 	/^!\[((?:\\.|[^\]\\])*)\]\((<[^>]+>|\S+?)(?:\s+(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|\(((?:\\.|[^)\\])*)\)))?\)\s*$/;
 const IMAGE_META_LINE = /^<!-- mdsh:image ratio=([0-9]+(?:\.[0-9]+)?) -->$/;

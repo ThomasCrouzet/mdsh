@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 /**
- * Enregistre le GIF de démo du README via Playwright + ffmpeg.
+ * Record the README demo GIF with Playwright and ffmpeg.
  *
- * Scénario scripté (reproductible d'une version à l'autre) : écrire du
- * markdown en WYSIWYG, basculer en source (⌘/), ouvrir la palette (⌘⇧P) et
- * le graphe de liens, cliquer un [[wiki-link]] en mode lecture.
+ * Use the same scenario for each version: write Markdown in WYSIWYG and switch to source (⌘/).
+ * Open the command palette (⌘⇧P) and link graph. Click a [[wiki-link]] in reading mode.
  *
- * Pré-requis :
+ * Prerequisites:
  *   npm run build
- *   ffmpeg installé (`brew install ffmpeg` / `apt install ffmpeg`)
- *   (le serveur preview est lancé automatiquement ci-dessous)
+ *   Install ffmpeg (`brew install ffmpeg` / `apt install ffmpeg`).
+ * The script starts the preview server automatically.
  *
- * Usage :
+ * Usage:
  *   node scripts/capture-demo-gif.mjs
  */
 import { chromium } from '@playwright/test';
@@ -129,11 +128,9 @@ Back to [[Welcome]].
 `;
 
 /**
- * The mode restored from `localStorage` at boot races with the app's own
- * boot-time persistence effect (observed while building this script: the
- * very first file created can silently land back in WYSIWYG even though
- * `mdsh:mode` was set to `source` before load). Clicking the toggle
- * explicitly, instead of trusting the pre-seeded value, sidesteps the race.
+ * At startup, localStorage mode restoration can race with the persistence effect.
+ * The first new file can open in WYSIWYG despite a saved source mode.
+ * Click the mode toggle explicitly to avoid this race.
  */
 async function ensureMode(page, mode) {
 	await page.locator(`button[data-mode="${mode}"]`).click();
@@ -233,7 +230,9 @@ async function record() {
 	return dst;
 }
 
-/** Two-pass palette conversion - much better quality/size than a naive `-vf gif`. */
+/**
+ * Use two-pass palette conversion for better quality and smaller files than `-vf gif`.
+ */
 function convertToGif(webmPath) {
 	const palette = join(dirname(webmPath), 'palette.png');
 	const gen = spawnSync('ffmpeg', [
@@ -262,12 +261,14 @@ function convertToGif(webmPath) {
 async function main() {
 	const ffmpegExists = spawnSync('which', ['ffmpeg']).status === 0;
 	if (!ffmpegExists) {
-		console.error('[mdsh] ffmpeg introuvable - `brew install ffmpeg` puis relancer.');
+		console.error(
+			'[mdsh] ffmpeg is missing. Run `brew install ffmpeg`, then run this script again.'
+		);
 		process.exit(1);
 	}
 
 	await mkdir(OUT_DIR, { recursive: true });
-	console.log('[mdsh] démarrage du serveur preview...');
+	console.log('[mdsh] starting the preview server...');
 	const preview = startPreview();
 	process.on('exit', () => preview.kill());
 	process.on('SIGINT', () => {
@@ -278,11 +279,11 @@ async function main() {
 	let webmPath;
 	try {
 		await waitForServer(BASE_URL);
-		console.log('[mdsh] enregistrement du scénario...');
+		console.log('[mdsh] recording the scenario...');
 		webmPath = await record();
-		console.log('[mdsh] conversion en GIF...');
+		console.log('[mdsh] converting to GIF...');
 		convertToGif(webmPath);
-		console.log(`[mdsh] GIF écrit dans ${OUT_GIF}`);
+		console.log(`[mdsh] GIF written to ${OUT_GIF}`);
 	} finally {
 		preview.kill();
 		if (webmPath) await rm(dirname(webmPath), { recursive: true, force: true });

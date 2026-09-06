@@ -1,16 +1,16 @@
-<!-- Thanks for your PR. Fill out this template before requesting a review. -->
+<!-- Complete this template before you request a review. -->
 
 ## Summary
 
-<!-- What does this PR do, in 1-3 lines. -->
+<!-- Describe the change in one to three lines. -->
 
 ## Why
 
-<!-- What problem it solves, or which issue it closes (`Closes #123`). -->
+<!-- Describe the problem or add `Closes #123`. -->
 
 ## Notable changes
 
-<!-- List behavior, shortcut, convention or internal API changes. -->
+<!-- List changes to behavior, shortcuts, conventions, or internal APIs. -->
 
 - [ ] Internal API change
 - [ ] New keyboard shortcut
@@ -21,7 +21,7 @@
 
 ## Test plan
 
-<!-- How to verify it works? Check what has been tested. -->
+<!-- Select each completed check. -->
 
 - [ ] `npm run check` passes without error
 - [ ] `npm run lint` passes without error
@@ -39,7 +39,7 @@
 
 ## Checklist
 
-- [ ] I followed the conventions in [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md)
+- [ ] I followed [CONTRIBUTING.md](https://github.com/ThomasCrouzet/mdsh/blob/main/CONTRIBUTING.md)
 - [ ] Comments and identifiers in English; UI strings go through the i18n layer
 - [ ] Svelte 5 runes only (no `$:` or legacy reactive `let`)
 - [ ] `if (browser)` or `onMount` around any `window`/`localStorage` access

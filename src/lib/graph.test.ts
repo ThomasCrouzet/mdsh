@@ -8,7 +8,7 @@ const files = [
 ];
 
 describe('buildGraph', () => {
-	it('crée un nœud par fichier', () => {
+	it('creates one node per file', () => {
 		const g = buildGraph(
 			files,
 			() => [],
@@ -18,7 +18,7 @@ describe('buildGraph', () => {
 		expect(g.edges).toEqual([]);
 	});
 
-	it('résout les wiki-links en arêtes', () => {
+	it('converts wiki links to edges', () => {
 		const targets: Record<string, string[]> = { a: ['Beta'], b: ['Gamma'], c: [] };
 		const resolve = (t: string) => ({ Alpha: 'a', Beta: 'b', Gamma: 'c' })[t] ?? null;
 		const g = buildGraph(files, (id) => targets[id] ?? [], resolve);
@@ -28,14 +28,14 @@ describe('buildGraph', () => {
 		]);
 	});
 
-	it('ignore les self-loops et les cibles non résolues / externes', () => {
+	it('ignores self-loops and unresolved or external targets', () => {
 		const targets: Record<string, string[]> = { a: ['Alpha', 'Inconnu', 'Beta'], b: [], c: [] };
 		const resolve = (t: string) => ({ Alpha: 'a', Beta: 'b' })[t] ?? null;
 		const g = buildGraph(files, (id) => targets[id] ?? [], resolve);
 		expect(g.edges).toEqual([{ source: 'a', target: 'b' }]); // pas a→a, pas Inconnu
 	});
 
-	it('déduplique les arêtes bidirectionnelles', () => {
+	it('removes duplicate bidirectional edges', () => {
 		const targets: Record<string, string[]> = { a: ['Beta'], b: ['Alpha'], c: [] };
 		const resolve = (t: string) => ({ Alpha: 'a', Beta: 'b' })[t] ?? null;
 		const g = buildGraph(files, (id) => targets[id] ?? [], resolve);
@@ -50,13 +50,13 @@ describe('computeLayout', () => {
 		(t) => (t === 'Beta' ? 'b' : null)
 	);
 
-	it('positionne chaque nœud', () => {
+	it('positions each node', () => {
 		const pos = computeLayout(data, { width: 400, height: 300, iterations: 20 });
 		expect(pos).toHaveLength(3);
 		expect(pos.map((p) => p.id).sort()).toEqual(['a', 'b', 'c']);
 	});
 
-	it('garde les positions dans le cadre', () => {
+	it('keeps positions in the frame', () => {
 		const pos = computeLayout(data, { width: 400, height: 300, iterations: 50 });
 		for (const p of pos) {
 			expect(p.x).toBeGreaterThanOrEqual(8);
@@ -66,13 +66,13 @@ describe('computeLayout', () => {
 		}
 	});
 
-	it('est déterministe (mêmes entrées → mêmes positions)', () => {
+	it('returns the same positions for the same input', () => {
 		const a = computeLayout(data, { width: 400, height: 300, iterations: 30 });
 		const b = computeLayout(data, { width: 400, height: 300, iterations: 30 });
 		expect(a).toEqual(b);
 	});
 
-	it('graphe vide → aucune position', () => {
+	it('returns no positions for an empty graph', () => {
 		expect(computeLayout({ nodes: [], edges: [] }, { width: 100, height: 100 })).toEqual([]);
 	});
 });

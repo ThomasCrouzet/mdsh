@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { MetaIndex } from './meta-index';
 import type { FileItem } from './types';
 
-// Fabrique minimale d'un FileItem pour les tests.
+// Create a minimal FileItem for tests.
 function makeFile(partial: Partial<FileItem> & { id: string; name: string }): FileItem {
 	return {
 		content: '',
@@ -13,7 +13,7 @@ function makeFile(partial: Partial<FileItem> & { id: string; name: string }): Fi
 	};
 }
 
-// Fabrique un MetaIndex avec une liste de fichiers mutable (pattern store-like).
+// Create a MetaIndex with a mutable file list that behaves like a store.
 function makeIndex(initial: FileItem[] = []) {
 	const files: FileItem[] = [...initial];
 	const index = new MetaIndex(() => files);
@@ -23,14 +23,14 @@ function makeIndex(initial: FileItem[] = []) {
 // ───── displayTitle ──────────────────────────────────────────────────────────
 
 describe('MetaIndex - displayTitle', () => {
-	it('retourne le nom sans extension quand pas de front-matter ni H1', () => {
+	it('returns the file name without its extension when there is no front matter or H1', () => {
 		const { index, files } = makeIndex();
 		const f = makeFile({ id: '1', name: 'mon-doc.md', content: 'paragraphe simple' });
 		files.push(f);
 		expect(index.displayTitle('1')).toBe('mon-doc');
 	});
 
-	it('retourne le title du front-matter (YAML)', () => {
+	it('returns the title from YAML front matter', () => {
 		const { index, files } = makeIndex();
 		const f = makeFile({
 			id: '2',
@@ -41,16 +41,16 @@ describe('MetaIndex - displayTitle', () => {
 		expect(index.displayTitle('2')).toBe('Mon Titre YAML');
 	});
 
-	it('retourne le filename (sans .md) si pas de front-matter, même avec un H1', () => {
-		// Contrat du store : sans front-matter, le fallback est le filename.
-		// Le H1 n'est utilisé que quand un front-matter est présent sans `title:`.
+	it('returns the file name without .md when front matter is absent', () => {
+		// The store contract uses the file name when there is no front matter.
+		// Use the H1 only when front matter exists without `title:`.
 		const { index, files } = makeIndex();
 		const f = makeFile({ id: '3', name: 'note.md', content: '# Premier Titre\n\nbody' });
 		files.push(f);
 		expect(index.displayTitle('3')).toBe('note');
 	});
 
-	it('retourne le H1 quand front-matter présent sans title:', () => {
+	it('returns the H1 when front matter has no title', () => {
 		const { index, files } = makeIndex();
 		const f = makeFile({
 			id: '3b',
@@ -61,7 +61,7 @@ describe('MetaIndex - displayTitle', () => {
 		expect(index.displayTitle('3b')).toBe('Mon Titre H1');
 	});
 
-	it('priorité : YAML title > H1 > filename', () => {
+	it('uses YAML title before H1 and file name', () => {
 		const { index, files } = makeIndex();
 		const f = makeFile({
 			id: '4',
@@ -72,12 +72,12 @@ describe('MetaIndex - displayTitle', () => {
 		expect(index.displayTitle('4')).toBe('YAML gagne');
 	});
 
-	it('retourne chaîne vide pour un id inconnu', () => {
+	it('returns an empty string for an unknown ID', () => {
 		const { index } = makeIndex();
 		expect(index.displayTitle('inexistant')).toBe('');
 	});
 
-	it('gère les guillemets simples/doubles dans le title YAML', () => {
+	it('supports single and double quotes in a YAML title', () => {
 		const { index, files } = makeIndex();
 		const f = makeFile({ id: '5', name: 'q.md', content: "---\ntitle: 'Mon titre'\n---\n" });
 		files.push(f);
@@ -88,13 +88,13 @@ describe('MetaIndex - displayTitle', () => {
 // ───── getTags ───────────────────────────────────────────────────────────────
 
 describe('MetaIndex - getTags', () => {
-	it('retourne [] pour un fichier sans tags', () => {
+	it('returns [] for a file without tags', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'a', name: 'a.md', content: 'pas de fm' }));
 		expect(index.getTags('a')).toEqual([]);
 	});
 
-	it('parse les tags en liste YAML [a, b]', () => {
+	it('parses tags from a YAML list', () => {
 		const { index, files } = makeIndex();
 		files.push(
 			makeFile({ id: 'b', name: 'b.md', content: '---\ntags: [svelte, typescript]\n---\n' })
@@ -102,13 +102,13 @@ describe('MetaIndex - getTags', () => {
 		expect(index.getTags('b')).toEqual(['svelte', 'typescript']);
 	});
 
-	it('parse les tags en CSV a, b', () => {
+	it('parses comma-separated tags', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'c', name: 'c.md', content: '---\ntags: foo, bar\n---\n' }));
 		expect(index.getTags('c')).toEqual(['foo', 'bar']);
 	});
 
-	it('retourne [] pour id inconnu', () => {
+	it('returns [] for an unknown ID', () => {
 		const { index } = makeIndex();
 		expect(index.getTags('nope')).toEqual([]);
 	});
@@ -117,21 +117,21 @@ describe('MetaIndex - getTags', () => {
 // ───── allTags ───────────────────────────────────────────────────────────────
 
 describe('MetaIndex - allTags', () => {
-	it('liste tous les tags uniques, triés alpha', () => {
+	it('lists all unique tags in alphabetical order', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'x', name: 'x.md', content: '---\ntags: [svelte, dev]\n---\n' }));
 		files.push(makeFile({ id: 'y', name: 'y.md', content: '---\ntags: [dev, typescript]\n---\n' }));
 		expect(index.allTags).toEqual(['dev', 'svelte', 'typescript']);
 	});
 
-	it('dédoublonne les tags présents dans plusieurs fichiers', () => {
+	it('removes duplicate tags from multiple files', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'p', name: 'p.md', content: '---\ntags: [tag-a]\n---\n' }));
 		files.push(makeFile({ id: 'q', name: 'q.md', content: '---\ntags: [tag-a, tag-b]\n---\n' }));
 		expect(index.allTags).toEqual(['tag-a', 'tag-b']);
 	});
 
-	it('retourne [] si aucun fichier', () => {
+	it('returns [] when there are no files', () => {
 		const { index } = makeIndex();
 		expect(index.allTags).toEqual([]);
 	});
@@ -140,7 +140,7 @@ describe('MetaIndex - allTags', () => {
 // ───── wikiLinkTargets ───────────────────────────────────────────────────────
 
 describe('MetaIndex - wikiLinkTargets', () => {
-	it('extrait les cibles [[...]] de façon dédoublonnée', () => {
+	it('gets unique wiki link targets', () => {
 		const { index, files } = makeIndex();
 		files.push(
 			makeFile({
@@ -155,7 +155,7 @@ describe('MetaIndex - wikiLinkTargets', () => {
 		expect(targets).toHaveLength(2);
 	});
 
-	it('retourne [] si pas de wiki-links', () => {
+	it('returns [] when there are no wiki links', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'e', name: 'e.md', content: 'rien' }));
 		expect(index.wikiLinkTargets('e')).toEqual([]);
@@ -165,7 +165,7 @@ describe('MetaIndex - wikiLinkTargets', () => {
 // ───── backlinks ─────────────────────────────────────────────────────────────
 
 describe('MetaIndex - backlinks', () => {
-	it('retourne les fichiers qui pointent vers la cible (par nom)', () => {
+	it('returns files that point to the named target', () => {
 		const { index, files } = makeIndex();
 		const target = makeFile({ id: 'tgt', name: 'Cible.md', content: '' });
 		const linker = makeFile({ id: 'src', name: 'Source.md', content: 'Voir [[Cible]].' });
@@ -175,14 +175,14 @@ describe('MetaIndex - backlinks', () => {
 		expect(bl.map((f) => f.id)).not.toContain('tgt');
 	});
 
-	it('exclut les self-links', () => {
+	it('excludes self-links', () => {
 		const { index, files } = makeIndex();
 		const self = makeFile({ id: 's', name: 'Self.md', content: '[[Self]]' });
 		files.push(self);
 		expect(index.backlinks('s')).toEqual([]);
 	});
 
-	it('lookup insensible à la casse du nom', () => {
+	it('finds names without case sensitivity', () => {
 		const { index, files } = makeIndex();
 		const target = makeFile({ id: 'ci', name: 'CasseSens.md', content: '' });
 		const linker = makeFile({ id: 'li', name: 'Linker.md', content: '[[cassesens]]' });
@@ -191,13 +191,13 @@ describe('MetaIndex - backlinks', () => {
 		expect(bl.map((f) => f.id)).toContain('li');
 	});
 
-	it('retourne [] si personne ne pointe vers la cible', () => {
+	it('returns [] when no file points to the target', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'lone', name: 'Seul.md', content: 'aucun lien' }));
 		expect(index.backlinks('lone')).toEqual([]);
 	});
 
-	it('retourne [] pour id inconnu', () => {
+	it('returns [] for an unknown ID', () => {
 		const { index } = makeIndex();
 		expect(index.backlinks('nope')).toEqual([]);
 	});
@@ -206,25 +206,25 @@ describe('MetaIndex - backlinks', () => {
 // ───── resolveWikiLink ───────────────────────────────────────────────────────
 
 describe('MetaIndex - resolveWikiLink', () => {
-	it('résout par id exact (priorité)', () => {
+	it('uses an exact ID first', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'abc-123', name: 'note.md', content: '' }));
 		expect(index.resolveWikiLink('abc-123')).toBe('abc-123');
 	});
 
-	it('résout par nom (sans extension, case-insensitive)', () => {
+	it('finds a name without its extension or case sensitivity', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'n1', name: 'Mon Document.md', content: '' }));
 		expect(index.resolveWikiLink('mon document')).toBe('n1');
 	});
 
-	it('retourne null si aucune correspondance', () => {
+	it('returns null when there is no match', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'n2', name: 'autre.md', content: '' }));
 		expect(index.resolveWikiLink('inexistant')).toBeNull();
 	});
 
-	it('retourne null pour cible vide', () => {
+	it('returns null for an empty target', () => {
 		const { index } = makeIndex();
 		expect(index.resolveWikiLink('   ')).toBeNull();
 	});
@@ -232,41 +232,41 @@ describe('MetaIndex - resolveWikiLink', () => {
 
 // ───── invalidateMeta ────────────────────────────────────────────────────────
 
-describe('MetaIndex - invalidateMeta (réactivité du cache)', () => {
-	it('recalcule le titre après invalidation (ex: rename)', () => {
+describe('MetaIndex - invalidateMeta cache updates', () => {
+	it('calculates the title again after invalidation', () => {
 		const { index, files } = makeIndex();
 		const f = makeFile({ id: 'r', name: 'initial.md', content: '' });
 		files.push(f);
-		// Warm-up du cache
+		// Warm the cache.
 		expect(index.displayTitle('r')).toBe('initial');
-		// Simule un rename + invalidation - files[0]! : le push précédent garantit l'index 0.
+		// Simulate a rename and invalidation. The previous push guarantees files[0].
 		files[0]!.name = 'renommé.md';
 		index.invalidateMeta('r');
 		expect(index.displayTitle('r')).toBe('renommé');
 	});
 
-	it("invalide l'index backlinks (rebuild au prochain accès)", () => {
+	it('invalidates the backlinks index until the next access', () => {
 		const { index, files } = makeIndex();
 		const target = makeFile({ id: 't', name: 'Target.md', content: '' });
 		const src = makeFile({ id: 's', name: 'Src.md', content: '[[Target]]' });
 		files.push(target, src);
-		// Warm-up de l'index
+		// Warm the index.
 		expect(index.backlinks('t').map((f) => f.id)).toContain('s');
-		// Supprime le lien + invalidation - files[1]! : les deux push précédents garantissent l'index 1.
+		// Remove the link and invalidate it. The previous pushes guarantee files[1].
 		files[1]!.content = 'plus de lien';
 		index.invalidateMeta('s');
-		// L'index doit être rebuild : le backlink doit avoir disparu
+		// The rebuilt index must not contain the backlink.
 		expect(index.backlinks('t')).toEqual([]);
 	});
 
-	it('invalidateBacklinksIndex seul ne touche pas le metaCache', () => {
+	it('keeps metaCache when only invalidateBacklinksIndex runs', () => {
 		const { index, files } = makeIndex();
 		files.push(makeFile({ id: 'x', name: 'x.md', content: '---\ntitle: Fixe\n---\n' }));
-		// Warm le cache méta
+		// Warm the metadata cache.
 		expect(index.displayTitle('x')).toBe('Fixe');
-		// Invalide seulement l'index backlinks → le cache méta reste intact
+		// Invalidate only the backlink index. Keep the metadata cache.
 		index.invalidateBacklinksIndex();
-		// displayTitle doit toujours fonctionner (et rester en cache)
+		// displayTitle must continue to work and remain cached.
 		expect(index.displayTitle('x')).toBe('Fixe');
 	});
 });
@@ -274,22 +274,22 @@ describe('MetaIndex - invalidateMeta (réactivité du cache)', () => {
 // ───── getMeta (cache hit/miss) ───────────────────────────────────────────────
 
 describe('MetaIndex - getMeta (invariants cache)', () => {
-	it("réutilise le cache si content n'a pas changé", () => {
+	it('reuses the cache when content is unchanged', () => {
 		const { index, files } = makeIndex();
 		const f = makeFile({ id: 'c1', name: 'doc.md', content: '---\ntitle: Stable\n---\n' });
 		files.push(f);
 		const first = index.getMeta(f);
 		const second = index.getMeta(f);
-		// Même référence d'objet - pas de recalcul
+		// The same object reference must not cause a recalculation.
 		expect(first).toBe(second);
 	});
 
-	it('recalcule si content change (invalidation implicite par content)', () => {
+	it('recalculates after content changes', () => {
 		const { index, files } = makeIndex();
 		const f = makeFile({ id: 'c2', name: 'doc.md', content: '---\ntitle: Ancien\n---\n' });
 		files.push(f);
 		const before = index.getMeta(f);
-		// Simule une édition (updateContent + invalidateMeta dans le store)
+		// Simulate an edit with updateContent and invalidateMeta in the store.
 		f.content = '---\ntitle: Nouveau\n---\n';
 		index.invalidateMeta('c2');
 		const after = index.getMeta(f);
