@@ -4,13 +4,13 @@ import { extractWikiLinkTargets } from './wiki-links';
 import { stripMdExtension } from './file-utils';
 
 describe('DEMO_DOCS', () => {
-	it('a des noms de fichiers .md uniques', () => {
+	it('has unique .md file names', () => {
 		const names = DEMO_DOCS.map((d) => d.name);
 		expect(new Set(names).size).toBe(names.length);
 		for (const name of names) expect(name.endsWith('.md')).toBe(true);
 	});
 
-	it('chaque wiki-link cible un autre document de la démo par son nom exact', () => {
+	it('targets another demo document by exact name from each wiki link', () => {
 		const titles = new Set(DEMO_DOCS.map((d) => stripMdExtension(d.name).toLowerCase()));
 		for (const doc of DEMO_DOCS) {
 			for (const target of extractWikiLinkTargets(doc.content)) {
@@ -19,7 +19,7 @@ describe('DEMO_DOCS', () => {
 		}
 	});
 
-	it('le premier document est bien la cible de backlinks des deux autres', () => {
+	it('targets the first document from the two other documents', () => {
 		const [welcome, ...rest] = DEMO_DOCS;
 		const welcomeTitle = stripMdExtension(welcome!.name).toLowerCase();
 		for (const doc of rest) {
@@ -28,7 +28,7 @@ describe('DEMO_DOCS', () => {
 		}
 	});
 
-	it('ne contient aucun tiret typographique (convention du depot)', () => {
+	it('does not contain typographic dashes', () => {
 		for (const doc of DEMO_DOCS) {
 			expect(doc.content).not.toMatch(/[\u2013\u2014]/);
 		}

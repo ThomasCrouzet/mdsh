@@ -10,21 +10,21 @@ describe('isoDate', () => {
 });
 
 describe('applyTemplateVars', () => {
-	it('substitue {{date}} par la date du jour', () => {
+	it('replaces {{date}} with the current date', () => {
 		expect(applyTemplateVars('Aujourd’hui : {{date}}', FIXED)).toBe('Aujourd’hui : 2026-06-16');
 	});
 
-	it('substitue toutes les occurrences', () => {
+	it('replaces all occurrences', () => {
 		expect(applyTemplateVars('{{date}} / {{date}}', FIXED)).toBe('2026-06-16 / 2026-06-16');
 	});
 
-	it('laisse le contenu intact sans variable', () => {
+	it('keeps content unchanged when it has no variable', () => {
 		expect(applyTemplateVars('# Titre', FIXED)).toBe('# Titre');
 	});
 });
 
 describe('BUILTIN_TEMPLATES', () => {
-	it('ont des ids stables préfixés builtin:', () => {
+	it('have stable IDs with the builtin prefix', () => {
 		for (const t of BUILTIN_TEMPLATES) {
 			expect(t.id).toMatch(/^builtin:/);
 			expect(t.name.length).toBeGreaterThan(0);
@@ -32,14 +32,14 @@ describe('BUILTIN_TEMPLATES', () => {
 		}
 	});
 
-	it('le journal et la réunion contiennent la variable {{date}}', () => {
+	it('include the date variable in journal and meeting templates', () => {
 		const journal = BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:journal');
 		const meeting = BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:meeting');
 		expect(journal?.content).toContain('{{date}}');
 		expect(meeting?.content).toContain('{{date}}');
 	});
 
-	it('après substitution, plus aucune variable ne subsiste', () => {
+	it('replace all variables', () => {
 		for (const t of BUILTIN_TEMPLATES) {
 			expect(applyTemplateVars(t.content, FIXED)).not.toContain('{{date}}');
 		}
@@ -47,19 +47,19 @@ describe('BUILTIN_TEMPLATES', () => {
 });
 
 describe('templateFileName', () => {
-	it('le journal prend la date comme nom', () => {
+	it('uses the date as the journal name', () => {
 		expect(templateFileName({ id: 'builtin:journal', name: 'Journal' }, FIXED)).toBe(
 			'2026-06-16.md'
 		);
 	});
 
-	it('la réunion préfixe par « Meeting » + date', () => {
+	it('prefixes a meeting with Meeting and its date', () => {
 		expect(templateFileName({ id: 'builtin:meeting', name: 'Note' }, FIXED)).toBe(
 			'Meeting 2026-06-16.md'
 		);
 	});
 
-	it('les autres modèles prennent leur nom', () => {
+	it('uses the template name for other templates', () => {
 		expect(templateFileName({ id: 'builtin:todo', name: 'To do' }, FIXED)).toBe('To do.md');
 	});
 });

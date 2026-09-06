@@ -21,9 +21,9 @@ export default [
 		}
 	},
 	{
-		// Composants `.svelte` ET modules runes `.svelte.ts` (stores) : tous deux
-		// parsés par svelte-eslint-parser (conscience des runes `$state`/`$derived`/
-		// `$effect`), avec typescript-eslint pour le TypeScript embarqué.
+		// Parse `.svelte` components and `.svelte.ts` stores with svelte-eslint-parser.
+		// It supports `$state`, `$derived`, and `$effect`.
+		// Use typescript-eslint for embedded TypeScript.
 		files: ['**/*.svelte', '**/*.svelte.ts'],
 		languageOptions: {
 			parser: svelteParser,
@@ -38,20 +38,16 @@ export default [
 				'warn',
 				{ argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
 			],
-			// `error` (et non `warn`) : les stores `.svelte.ts` sont désormais lintés
-			// (l'ignore global a été retiré) et doivent rester exempts de `any`.
+			// Lint `.svelte.ts` stores and reject `any`. The former global exclusion is removed.
 			'@typescript-eslint/no-explicit-any': 'error',
-			// §1.3 - Toute journalisation passe par `report.ts` (reportError /
-			// reportWarning) ou `storage.ts` (reportPersistenceError), seuls
-			// fichiers autorisés à appeler `console` (cf. override ci-dessous).
-			// Empêche la réapparition de `console.error` muets ailleurs.
+			// §1.3 - Route logs through report.ts (reportError/reportWarning) or storage.ts (reportPersistenceError).
+			// Only these modules can call `console`. See the override below.
+			// This prevents console errors that do not notify the user.
 			'no-console': 'error',
-			// §A4.3 - Bloque les imports statiques des libs lourdes prescrites en
-			// lazy : un import statique fait tomber la lib dans le page chunk
-			// (cf. budget size-limit à 60 KB gz et ARCHITECTURE.md, section bundle
-			// budget). Les fichiers déjà lazy-loadés (cf. overrides ci-dessous)
-			// peuvent les importer statiquement : ils tombent alors dans leur
-			// propre chunk lazy.
+			// §A4.3 - Prevent static imports of heavy libraries that must load on demand.
+			// Static imports add these libraries to the page chunk (60 KB gzip limit).
+			// See the bundle budget in ARCHITECTURE.md.
+			// Modules that load on demand can use static imports in their own separate chunks.
 			'no-restricted-imports': [
 				'error',
 				{
@@ -74,27 +70,25 @@ export default [
 		}
 	},
 	{
-		// §1.3 - Les deux sinks de journalisation sanctionnés : ils sont seuls
-		// autorisés à appeler `console` directement (tout le reste route via eux).
+		// §1.3 - Only these two logging modules can call `console` directly.
+		// All other application modules send logs through them.
 		files: ['src/lib/report.ts', 'src/lib/storage.ts'],
 		rules: {
 			'no-console': 'off'
 		}
 	},
 	{
-		// Les tests (spy sur console) et les benchmarks (sortie console assumée)
-		// ne sont pas du code de prod - `no-console` n'y a pas de sens.
+		// Tests inspect console calls. Benchmarks use console output.
+		// The production no-console rule does not apply to these files.
 		files: ['**/*.test.ts', '**/*.spec.ts', '**/*.bench.test.ts'],
 		rules: {
 			'no-console': 'off'
 		}
 	},
 	{
-		// §A4.3 - Whitelist : ces fichiers sont eux-mêmes lazy-loadés (cf. les
-		// dynamic imports dans `services/export.ts`, `Editor.svelte`,
-		// `ReadView.svelte`, `+page.svelte` prefetch). Leurs imports statiques
-		// tombent donc dans des chunks séparés du page chunk - pas de violation
-		// du budget initial.
+		// §A4.3 - These modules load on demand.
+		// See dynamic imports in services/export.ts, Editor.svelte, ReadView.svelte, and +page.svelte prefetch.
+		// Their static imports enter separate chunks and do not exceed the initial bundle budget.
 		files: [
 			'src/lib/render/**/*.ts',
 			'src/lib/services/export.ts',
@@ -105,9 +99,8 @@ export default [
 		}
 	},
 	{
-		// Scripts Node utilitaires (capture screenshots, OG image, preview Pages) :
-		// CLI hors-app où `console` EST la sortie voulue. `no-console: error` ne
-		// vise que le code applicatif de `src/`.
+		// Node CLI scripts use console output for screenshots, OG images, and Pages preview.
+		// The no-console rule applies to application code in src/.
 		files: ['scripts/**/*.mjs', 'scripts/**/*.js'],
 		rules: {
 			'no-console': 'off'

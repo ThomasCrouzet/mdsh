@@ -16,8 +16,8 @@ beforeEach(() =>
 );
 afterEach(() => vi.unstubAllGlobals());
 
-describe('ressources Markdown sélectionnées', () => {
-	it('trouve chemins Unicode, espaces encadrés et parenthèses sans toucher au code', () => {
+describe('selected Markdown resources', () => {
+	it('finds Unicode paths, enclosed spaces, and parentheses outside code', () => {
 		const markdown =
 			'![Été](<images/été 2026.png>)\n\n![Parenthèse](images/a(b).png)\n\n`![Code](ignore.png)`\n\n```md\n![Code](ignore2.png)\n```';
 		expect(markdownImageDestinations(markdown).map((item) => item.source)).toEqual([
@@ -26,7 +26,7 @@ describe('ressources Markdown sélectionnées', () => {
 		]);
 	});
 
-	it('incorpore uniquement le fichier explicitement sélectionné qui correspond au chemin', async () => {
+	it('embeds only the selected file that matches the path', async () => {
 		const file = new File([PNG_BYTES], 'été 2026.png', { type: 'image/png' });
 		Object.defineProperty(file, 'webkitRelativePath', { value: 'rapport/images/été 2026.png' });
 		const fetchSpy = vi.fn();
@@ -41,7 +41,7 @@ describe('ressources Markdown sélectionnées', () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
-	it('refuse une traversée et un choix ambigu au lieu de lire un voisin implicite', async () => {
+	it('rejects traversal and an ambiguous choice without reading an adjacent file', async () => {
 		const first = new File([PNG_BYTES], 'figure.png', { type: 'image/png' });
 		const second = new File([PNG_BYTES], 'figure.png', { type: 'image/png' });
 		const traversal = await incorporateDocumentImages('![Figure](../figure.png)', {
@@ -57,8 +57,8 @@ describe('ressources Markdown sélectionnées', () => {
 	});
 });
 
-describe('parcours de ressources mixtes', () => {
-	it('analyse HTML, SVG, alternatives imbriquées et destinations échappées sans inclure le code', () => {
+describe('mixed resource traversal', () => {
+	it('finds HTML, SVG, nested alternatives, and escaped destinations outside code', () => {
 		const source =
 			'<img href="ignored" src="a.png?x=1&amp;y=2"><image xlink:href=svg.png /><img src=\'single.png\'><img src="">\n![a [b] \\]]( a\\(b\\).png "title")\n\\![escaped](skip.png) ![empty]() ![broken]\n``![code](skip.png) ` nested``\n~~~md\n![code](skip2.png)\n```\n~~~\n![last](last.png)';
 		expect(markdownImageDestinations(source).map(({ source }) => source)).toEqual([
@@ -70,7 +70,7 @@ describe('parcours de ressources mixtes', () => {
 		]);
 	});
 
-	it('ne lance rien sans consentement, ignore data et fragments', async () => {
+	it('does not start without consent and ignores data URLs and fragments', async () => {
 		const fetchSpy = vi.fn();
 		vi.stubGlobal('fetch', fetchSpy);
 		const result = await incorporateDocumentImages(
@@ -81,7 +81,7 @@ describe('parcours de ressources mixtes', () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
-	it('remplace HTML et Markdown identiques à partir d’un seul téléchargement explicite', async () => {
+	it('replaces matching HTML and Markdown from one explicit download', async () => {
 		const fetchSpy = vi.fn(async () => ({
 			ok: true,
 			headers: new Headers({ 'content-type': 'image/png' }),
@@ -102,7 +102,7 @@ describe('parcours de ressources mixtes', () => {
 		expect(result.markdown.match(/data:image\/png;base64,/g)).toHaveLength(2);
 	});
 
-	it('préserve le texte lors d’une erreur de téléchargement', async () => {
+	it('keeps text after a download error', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => {
@@ -136,7 +136,7 @@ describe('parcours de ressources mixtes', () => {
 		}
 	);
 
-	it('borne le cumul de fichiers choisis et conserve les sources au-delà de la limite', async () => {
+	it('limits selected files and keeps sources beyond the limit', async () => {
 		const bytes = new Uint8Array(2 * 1024 * 1024);
 		bytes.set(PNG_BYTES);
 		const files = Array.from(
@@ -153,8 +153,8 @@ describe('parcours de ressources mixtes', () => {
 	});
 });
 
-describe('schémas locaux indépendants de la casse', () => {
-	it('récupère une URL BLOB et laisse une URL DATA déjà durable intacte', async () => {
+describe('case-insensitive local schemes', () => {
+	it('loads a BLOB URL and keeps an existing DATA URL', async () => {
 		const fetchSpy = vi.fn(async () => ({
 			ok: true,
 			headers: new Headers({ 'content-type': 'image/png' }),

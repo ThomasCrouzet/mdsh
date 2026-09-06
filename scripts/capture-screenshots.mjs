@@ -1,23 +1,21 @@
 #!/usr/bin/env node
 /**
- * Capture des screenshots du README via Playwright.
+ * Capture README screenshots with Playwright.
+ * Start the production preview server, run each scenario, and write PNG files to docs/screenshots/.
  *
- * Démarre le serveur de preview (build prod), navigue dans chaque scénario
- * et écrit les PNG dans docs/screenshots/.
- *
- * Pré-requis :
+ * Prerequisite:
  *   npm run build
- *   (le serveur preview est lancé automatiquement ci-dessous)
+ * The script starts the preview server automatically.
  *
- * Usage :
+ * Usage:
  *   node scripts/capture-screenshots.mjs
  *
- * Idempotence des captures :
- *   - viewport fixe 1280×800, DPR 2 (PNG retina) ;
- *   - animations CSS désactivées (transitions, caret CodeMirror, spinner) ;
- *   - IndexedDB nettoyée puis seed déterministe de 3 fichiers via l'UI ;
- *   - mode forcé via `localStorage` avant le reload pour éviter le flash
- *     d'écran d'accueil avant le seed (utilisé par les tests E2E aussi).
+ * For repeatable screenshots:
+ * - Use a fixed 1280x800 viewport and DPR 2 (retina PNG).
+ * - Disable CSS animations, transitions, the CodeMirror cursor, and the spinner.
+ * - Clear IndexedDB and create the same three files through the UI.
+ * - Set the mode in localStorage before reload to prevent the welcome screen flash.
+ * The e2e tests also use this mode setup.
  */
 import { chromium } from '@playwright/test';
 import { spawn, spawnSync } from 'node:child_process';
@@ -36,9 +34,8 @@ const BASE_URL = `http://localhost:${PREVIEW_PORT}`;
 const VIEWPORT = { width: 1280, height: 800 };
 const DEVICE_SCALE_FACTOR = 2;
 
-// Stylesheet injectée après chaque seed pour figer les rendus dynamiques.
-// On vise les animations qui font baver les diffs : caret CodeMirror,
-// spinner toast, transitions Tailwind, animation `animate-fade-in` des modaux.
+// Inject this stylesheet after each seed to stop dynamic visual changes.
+// Freeze the CodeMirror cursor, spinner toast, Tailwind transitions, and modal animate-fade-in.
 const FREEZE_ANIMATIONS_CSS = `
 	*, *::before, *::after {
 		transition-duration: 0s !important;
@@ -49,7 +46,9 @@ const FREEZE_ANIMATIONS_CSS = `
 	.animate-fade-in, .animate-spin { animation: none !important; }
 `;
 
-/** Attend que le serveur preview réponde (avec timeout). */
+/**
+ * Wait for the preview server response, with a timeout.
+ */
 async function waitForServer(url, timeoutMs = 60_000) {
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
@@ -57,14 +56,16 @@ async function waitForServer(url, timeoutMs = 60_000) {
 			const res = await fetch(url);
 			if (res.ok) return;
 		} catch {
-			// pas encore prêt
+			// The server is not ready yet.
 		}
 		await delay(500);
 	}
-	throw new Error(`Le serveur ${url} n'a pas démarré dans les temps`);
+	throw new Error(`The server at ${url} did not start before the timeout`);
 }
 
-/** Démarre Vite preview directement en sous-processus. */
+/**
+ * Start Vite preview as a child process.
+ */
 function startPreview() {
 	const child = spawn(
 		process.execPath,
@@ -80,9 +81,8 @@ function startPreview() {
 }
 
 /**
- * Reset complet : IndexedDB + localStorage, puis force la locale française
- * utilisée par les sélecteurs et le mode source pour que les nouveaux fichiers
- * s'ouvrent dans CodeMirror (insertText déterministe).
+ * Clear IndexedDB and localStorage. Set the French locale required by selectors.
+ * Set source mode so new files open in CodeMirror for repeatable insertText calls.
  */
 async function resetState(page) {
 	await page.goto(BASE_URL);
@@ -107,23 +107,22 @@ async function resetState(page) {
 }
 
 /**
- * Renomme le fichier actif via l'input toolbar (toujours présent dès qu'un
- * fichier est actif). On fill puis blur pour valider - le pattern "Enter"
- * fonctionne aussi mais peut envoyer le focus dans l'éditeur source juste
- * après, ce qui parasite l'enchaînement.
+ * Rename the active file through the toolbar input, which exists when a file is active.
+ * Fill the input, then blur it to confirm.
+ * Enter also works, but can move focus into the source editor and disrupt subsequent actions.
  */
 async function renameActive(page, newName) {
 	const input = page.locator('input[aria-label^="Nom du fichier"]');
 	await input.waitFor({ timeout: 5000 });
 	await input.fill(newName);
 	await input.press('Enter');
-	// Laisse le store propager + flash 800 ms de l'accent border disparaître.
+	// Wait for store updates and the 800 ms accent border flash to finish.
 	await delay(900);
 }
 
 /**
- * Écrit du contenu dans le mode source (CodeMirror) du fichier actif. On
- * remplace tout : sélection complète + Delete + insertText.
+ * Replace all content in the active CodeMirror source editor.
+ * Select all, press Delete, then call insertText.
  */
 async function writeContent(page, content) {
 	await page.locator('button[data-mode="source"]').click();
@@ -133,11 +132,13 @@ async function writeContent(page, content) {
 	await page.keyboard.press('ControlOrMeta+a');
 	await page.keyboard.press('Delete');
 	await page.keyboard.insertText(content);
-	// Laisse le debounce save (400 ms) propager avant la prochaine action.
+	// Wait for the 400 ms save debounce before the next action.
 	await delay(500);
 }
 
-/** Crée le 1er fichier via le bouton Welcome (en `<main>`). */
+/**
+ * Create the first file through the Welcome button in `<main>`.
+ */
 async function createFirstFile(page, name, content) {
 	const welcomeBtn = page.locator('main').getByRole('button', { name: /Nouveau fichier/ });
 	await welcomeBtn.waitFor({ timeout: 5000 });
@@ -147,23 +148,21 @@ async function createFirstFile(page, name, content) {
 }
 
 /**
- * Crée un fichier supplémentaire via la sidebar (le clic active automatiquement
- * le nouveau fichier, l'éditeur source se vide → on peut écrire directement).
+ * Create another file through the sidebar.
+ * The click activates the new empty file, ready for input.
  */
 async function createSubsequentFile(page, name, content) {
-	// L'aria-label sidebar inclut le raccourci formatté : "Nouveau fichier, raccourci …".
+	// The sidebar aria-label includes the localized shortcut. Match its stable prefix.
 	const sidebarNewBtn = page.locator('aside button[aria-label^="Nouveau fichier"]').first();
 	await sidebarNewBtn.click();
 	await renameActive(page, name);
 	await writeContent(page, content);
 }
 
-// Contenu déterministe - trois fichiers liés via wiki-links pour exhiber
-// la section backlinks de la Sidebar.
+// Use the same three wiki-linked files to show Sidebar backlinks.
 
-// Pas de front-matter sur le fichier principal : Milkdown WYSIWYG affiche
-// le YAML comme texte brut (comportement attendu), ce qui pollue le screenshot.
-// Le titre Sidebar est alors dérivé du H1 (cf. getFmTitle dans frontmatter.ts).
+// Omit front matter from the main file. Milkdown shows YAML as plain text, which would distract in the screenshot.
+// The Sidebar derives its title from H1 (see getFmTitle in frontmatter.ts).
 const DEMO_WELCOME = `# Bienvenue dans mdsh
 
 mdsh est un éditeur **markdown WYSIWYG** dark-mode-first, 100 % offline.
@@ -221,14 +220,11 @@ tags: [demo, brainstorm]
 `;
 
 /**
- * Seed canonique : 3 fichiers liés. On crée "idées" et "diagrammes" en premier
- * (ils linkent vers "bienvenue") ; "bienvenue" est créé en dernier et reste
- * donc actif → la section Backlinks de la Sidebar liste "idées" et
- * "diagrammes" dans le screenshot final.
+ * Create three linked files. Create "idées" and "diagrammes" first; both link to "bienvenue".
+ * Create "bienvenue" last so it stays active. Its Sidebar backlinks show the other two files.
  *
- * Le titre Sidebar de "bienvenue" est dérivé du H1 (pas de YAML title sur ce
- * fichier - cf. DEMO_WELCOME) ; on attend qu'il apparaisse pour valider que
- * la propagation displayTitle / metaCache a eu lieu avant le screenshot.
+ * The Sidebar derives the "bienvenue" title from H1, with no YAML title (see DEMO_WELCOME).
+ * Wait for the title to appear before capture. This confirms that displayTitle and metaCache have updated.
  */
 async function seedDemoCorpus(page) {
 	await createFirstFile(page, 'idées', DEMO_IDEAS);
@@ -237,8 +233,7 @@ async function seedDemoCorpus(page) {
 	await page.locator('aside button[aria-label^="bienvenue"]').waitFor({ timeout: 10_000 });
 }
 
-// Les boutons de mode sont des `role="radio"` dans un radiogroup - on cible
-// via leur `data-mode` qui est unique et stable.
+// Mode buttons use role="radio" in a radiogroup. Select them by their unique, stable data-mode.
 const SCENARIOS = [
 	{
 		name: 'mode-wysiwyg.png',
@@ -246,7 +241,7 @@ const SCENARIOS = [
 			await seedDemoCorpus(page);
 			await page.locator('button[data-mode="wysiwyg"]').click();
 			await page.waitForSelector('.milkdown', { timeout: 15_000 });
-			// Laisse Milkdown finir son rendu initial (lazy chunk + ProseMirror mount).
+			// Wait for the initial Milkdown render, lazy chunk load, and ProseMirror mount.
 			await delay(1200);
 		}
 	},
@@ -254,7 +249,7 @@ const SCENARIOS = [
 		name: 'mode-source.png',
 		setup: async (page) => {
 			await seedDemoCorpus(page);
-			// Déjà en mode source via resetState, juste s'assurer du focus.
+			// resetState already selected source mode. Make sure it has focus.
 			await page.locator('.cm-content').first().click();
 			await delay(300);
 		}
@@ -264,9 +259,8 @@ const SCENARIOS = [
 		setup: async (page) => {
 			await seedDemoCorpus(page);
 			await page.locator('button[data-mode="read"]').click();
-			// Mermaid + KaTeX sont lazy-loadés à la première lecture ; attendre
-			// au moins un signal (KaTeX rendu) - le SVG Mermaid peut prendre
-			// plus longtemps mais ce n'est pas bloquant pour le screenshot.
+			// Mermaid and KaTeX load on demand at first read. Wait for KaTeX to render.
+			// Mermaid SVG can take longer, but does not block the screenshot.
 			await page.waitForSelector('.mdsh-preview .katex', { timeout: 15_000 });
 			await delay(800);
 		}
@@ -298,8 +292,7 @@ async function captureAll() {
 		console.log(`[capture] ${name}`);
 		await resetState(page);
 		await setup(page);
-		// Injecte la stylesheet de gel APRÈS le setup pour ne pas perturber
-		// les transitions d'ouverture des modaux (palette).
+		// Inject the freeze stylesheet after setup so it does not disrupt modal opening transitions, including the palette.
 		await page.addStyleTag({ content: FREEZE_ANIMATIONS_CSS });
 		await delay(100);
 		await page.screenshot({ path: join(OUT_DIR, name), fullPage: false });
@@ -310,17 +303,16 @@ async function captureAll() {
 }
 
 /**
- * Convertit chaque PNG en WebP (quality 88) puis supprime le PNG d'origine.
- * Économise ~65 % de poids pour une qualité visuelle imperceptible sur les
- * captures de UI (texte, aplats, lignes nettes). GitHub markdown rend nativement
- * le WebP. Si `cwebp` n'est pas installé, on log et on garde les PNG.
+ * Convert each PNG to WebP at quality 88, then remove the original PNG.
+ * This saves about 65% of file size without a visible quality change in UI text, flat colors, and lines.
+ * GitHub Markdown supports WebP. If cwebp is unavailable, log a message and keep the PNG files.
  */
 async function convertToWebp() {
 	const cwebpExists = spawnSync('which', ['cwebp']).status === 0;
 	if (!cwebpExists) {
 		console.warn(
-			'[mdsh] cwebp introuvable - captures laissées en PNG. ' +
-				'Installer libwebp : `brew install webp` (macOS) ou `apt install webp` (Debian).'
+			'[mdsh] cwebp is unavailable. Screenshots remain in PNG format. ' +
+				'Install libwebp: `brew install webp` (macOS) or `apt install webp` (Debian).'
 		);
 		return;
 	}
@@ -329,7 +321,7 @@ async function convertToWebp() {
 		const webp = png.replace(/\.png$/, '.webp');
 		const r = spawnSync('cwebp', ['-quiet', '-q', '88', '-m', '6', png, '-o', webp]);
 		if (r.status !== 0) {
-			console.warn(`[mdsh] cwebp a échoué sur ${name}, PNG conservé.`);
+			console.warn(`[mdsh] cwebp failed for ${name}. The PNG is retained.`);
 			continue;
 		}
 		await rm(png);
@@ -338,7 +330,7 @@ async function convertToWebp() {
 }
 
 async function main() {
-	console.log('[mdsh] démarrage du serveur preview...');
+	console.log('[mdsh] starting the preview server...');
 	const preview = startPreview();
 	process.on('exit', () => preview.kill());
 	process.on('SIGINT', () => {
@@ -350,7 +342,7 @@ async function main() {
 		await waitForServer(BASE_URL);
 		await captureAll();
 		await convertToWebp();
-		console.log(`[mdsh] captures écrites dans ${OUT_DIR}`);
+		console.log(`[mdsh] screenshots written to ${OUT_DIR}`);
 	} finally {
 		preview.kill();
 	}

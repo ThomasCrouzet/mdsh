@@ -11,7 +11,7 @@ type Overrides = Record<string, ShortcutBinding | null>;
 export type ShortcutError = 'invalid' | 'reserved' | 'duplicate' | 'storage';
 
 export function isReservedShortcut(binding: ShortcutBinding, desktop: boolean): boolean {
-	// Les combinaisons d’édition restent réservées au composant actif.
+	// Keep editing shortcuts in the active component.
 	if (['a', 'c', 'v', 'x', 'z', 'y', 'b', 'i', 'u', 'q', 'h'].includes(binding.key)) return true;
 	if (desktop) return false;
 	return ['n', 'o', 'p', 'r', 't', 'w', 'l', 'e', 'h', 'j', 'd', 's', 'g', 'k', 'm'].includes(
@@ -88,7 +88,7 @@ class KeyboardStore {
 				if (this.validate(id, value) === null) this.overrides = { ...this.overrides, [id]: value };
 			}
 		} catch {
-			/* Les préférences invalides conservent les raccourcis par défaut. */
+			/* Keep default shortcuts when stored preferences are invalid. */
 		}
 	}
 	private persist(overrides: Overrides): ShortcutError | null {

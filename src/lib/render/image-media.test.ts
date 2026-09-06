@@ -25,15 +25,15 @@ beforeEach(() =>
 );
 afterEach(() => vi.unstubAllGlobals());
 
-describe('incorporation durable', () => {
-	it('conserve les octets PNG et une alternative issue du nom de fichier', async () => {
+describe('durable embedding', () => {
+	it('keeps PNG bytes and uses the file name for alternative text', async () => {
 		const result = await embedImageFile(pngFile('Figure été.png'));
 		expect(result.dataUri).toBe(`data:image/png;base64,${PNG_BASE64}`);
 		expect(result.alt).toBe('Figure été');
 		expect(result.bytes).toBe(PNG_BYTES.length);
 	});
 
-	it('rejette un faux PNG et un type actif', async () => {
+	it('rejects a false PNG and active content', async () => {
 		await expect(
 			embedImageFile(new File(['<script>bad</script>'], 'fake.png', { type: 'image/png' }))
 		).rejects.toMatchObject({ code: 'invalid-content' });
@@ -42,7 +42,7 @@ describe('incorporation durable', () => {
 		).rejects.toMatchObject({ code: 'unsupported-type' });
 	});
 
-	it('rejette le poids avant lecture et les dimensions après décodage', async () => {
+	it('rejects file size before reading and dimensions after decoding', async () => {
 		await expect(
 			embedImageFile(
 				new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], 'large.png', { type: 'image/png' })
@@ -57,7 +57,7 @@ describe('incorporation durable', () => {
 		expect(close).toHaveBeenCalledOnce();
 	});
 
-	it('vérifie aussi les pixels via Image.decode lorsque createImageBitmap est absent', async () => {
+	it('checks pixels through Image.decode without createImageBitmap', async () => {
 		vi.stubGlobal('createImageBitmap', undefined);
 		const decode = vi.fn(async () => {});
 		vi.stubGlobal(
@@ -74,7 +74,7 @@ describe('incorporation durable', () => {
 		expect(decode).toHaveBeenCalledOnce();
 	});
 
-	it('supprime les sous-ressources réseau d’un SVG incorporé', async () => {
+	it('removes network subresources from an embedded SVG', async () => {
 		const svg =
 			'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><filter id="f"><feImage href="https://tracker.example/pixel"/></filter><rect width="10" height="10" fill="red"/></svg>';
 		const result = await embedImageFile(new File([svg], 'figure.svg', { type: 'image/svg+xml' }));
@@ -85,8 +85,8 @@ describe('incorporation durable', () => {
 	});
 });
 
-describe('politique et préparation des exports', () => {
-	it('ne démarre aucune requête sans consentement', async () => {
+describe('export policy and preparation', () => {
+	it('does not start a request without consent', async () => {
 		const fetchSpy = vi.fn();
 		vi.stubGlobal('fetch', fetchSpy);
 		const result = await prepareHtmlMedia(
@@ -102,7 +102,7 @@ describe('politique et préparation des exports', () => {
 		).rejects.toBeInstanceOf(MediaPreparationError);
 	});
 
-	it('incorpore une ressource consentie sans credentials ni référent', async () => {
+	it('embeds an approved resource without credentials or referrer', async () => {
 		const fetchSpy = vi.fn(async () => ({
 			ok: true,
 			headers: new Headers({ 'content-type': 'image/png' }),
@@ -131,7 +131,7 @@ describe('politique et préparation des exports', () => {
 		expect(result.html).not.toContain('data-mdsh-remote-src');
 	});
 
-	it('retourne un diagnostic sur un HTTP refusé et une image illisible', async () => {
+	it('reports a denied HTTP source and an unreadable image', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => ({ ok: false, status: 404 }))
@@ -144,7 +144,7 @@ describe('politique et préparation des exports', () => {
 		expect(malformed.issues[0]?.reason).toBe('invalid-content');
 	});
 
-	it('borne le flux même si Content-Length est absent ou mensonger', async () => {
+	it('limits the stream when Content-Length is missing or incorrect', async () => {
 		const cancel = vi.fn();
 		const stream = new ReadableStream({
 			start(controller) {
@@ -167,7 +167,7 @@ describe('politique et préparation des exports', () => {
 		expect(cancel).toHaveBeenCalledOnce();
 	});
 
-	it('refuse credentials, HTTP tiers et blobs étrangers sans requête', async () => {
+	it('rejects credentials, third-party HTTP, and foreign blobs without a request', async () => {
 		const fetchSpy = vi.fn();
 		vi.stubGlobal('fetch', fetchSpy);
 		const result = await prepareHtmlMedia(
@@ -178,7 +178,7 @@ describe('politique et préparation des exports', () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
-	it('applique le ratio à partir des dimensions décodées', async () => {
+	it('uses decoded dimensions for the ratio', async () => {
 		vi.stubGlobal(
 			'createImageBitmap',
 			vi.fn(async () => ({ width: 192, height: 192, close: vi.fn() }))
@@ -191,7 +191,7 @@ describe('politique et préparation des exports', () => {
 		expect(result.issues).toEqual([]);
 	});
 
-	it('neutralise les sources WYSIWYG distantes avant création de l’image', () => {
+	it('neutralizes remote WYSIWYG sources before image creation', () => {
 		expect(editorImageSource('')).toBe('');
 		expect(editorImageSource('https://tracker.example/pixel')).toBe(BLOCKED_IMAGE_DATA_URI);
 		expect(editorImageSource('images/local.png')).toBe(BLOCKED_IMAGE_DATA_URI);
@@ -199,7 +199,7 @@ describe('politique et préparation des exports', () => {
 	});
 });
 
-describe('validation des limites et erreurs de lecture', () => {
+describe('limit and read error validation', () => {
 	it.each([
 		['photo.jpg', [255, 216, 255], 'image/jpeg'],
 		['photo.jpeg', [255, 216, 255], 'image/jpeg'],
@@ -230,7 +230,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		}
 	);
 
-	it('refuse un fichier sans extension et les SVG avec ressources externes', async () => {
+	it('rejects a file without an extension and SVG with external resources', async () => {
 		await expect(embedImageFile(new File([PNG_BYTES], 'unknown'))).rejects.toMatchObject({
 			code: 'unsupported-type'
 		});
@@ -246,7 +246,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		).rejects.toMatchObject({ code: 'invalid-content' });
 	});
 
-	it.each(['error', 'invalid-result'])('signale un FileReader %s', async (mode) => {
+	it.each(['error', 'invalid-result'])('reports FileReader mode %s', async (mode) => {
 		vi.stubGlobal(
 			'FileReader',
 			class {
@@ -276,7 +276,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		});
 	});
 
-	it.each(['load', 'error', 'zero'])('décodage WebKit sans decode : %s', async (mode) => {
+	it.each(['load', 'error', 'zero'])('uses WebKit decoding without decode: %s', async (mode) => {
 		vi.stubGlobal('createImageBitmap', undefined);
 		vi.stubGlobal(
 			'Image',
@@ -295,7 +295,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		else await expect(embedImageFile(pngFile())).rejects.toMatchObject({ code: 'unreadable' });
 	});
 
-	it('interrompt un décodage WebKit qui ne répond pas', async () => {
+	it('stops an unresponsive WebKit decode', async () => {
 		vi.useFakeTimers();
 		vi.stubGlobal('createImageBitmap', undefined);
 		vi.stubGlobal(
@@ -312,7 +312,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		vi.useRealTimers();
 	});
 
-	it('valide les données percent-encoded et refuse leurs variantes corrompues', async () => {
+	it('accepts percent-encoded data and rejects invalid variants', async () => {
 		const svg = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"/>');
 		expect(
 			(await prepareHtmlMedia(`<img src="data:image/svg+xml,${svg}">`, { allowNetwork: false }))
@@ -331,7 +331,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		}
 	});
 
-	it('diagnostique sources manquantes, srcset et blobs expirés sans les perdre', async () => {
+	it('reports missing sources, srcset, and expired blobs without data loss', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => {
@@ -354,7 +354,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		expect((await prepareHtmlMedia(result.html, { allowNetwork: false })).issues).toHaveLength(3);
 	});
 
-	it('vérifie la limite cumulée avant de lancer une requête supplémentaire', async () => {
+	it('checks the total limit before an additional request', async () => {
 		const fetchSpy = vi.fn();
 		vi.stubGlobal('fetch', fetchSpy);
 		const result = await prepareHtmlMedia(
@@ -365,7 +365,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
-	it.each(['large-header', 'missing-stream'])('refuse une réponse %s', async (mode) => {
+	it.each(['large-header', 'missing-stream'])('rejects response mode %s', async (mode) => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => ({
@@ -382,7 +382,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		expect(result.issues[0]?.reason).toBe(mode === 'large-header' ? 'too-large' : 'unreadable');
 	});
 
-	it('incorpore les références SVG et retrouve un MIME absent dans le nom', async () => {
+	it('embeds SVG references and detects MIME without a file name', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => ({
@@ -405,7 +405,7 @@ describe('validation des limites et erreurs de lecture', () => {
 		expect(result.html).not.toContain('https://');
 	});
 
-	it('rend le HTML sans DOM et expose le besoin de consentement exact', async () => {
+	it('renders HTML without a DOM and reports the exact consent requirement', async () => {
 		vi.stubGlobal('document', undefined);
 		expect(await prepareHtmlMedia('plain', { allowNetwork: false })).toEqual({
 			html: 'plain',
@@ -421,7 +421,7 @@ describe('validation des limites et erreurs de lecture', () => {
 	});
 });
 
-describe('schémas et fragments des images exportées', () => {
+describe('exported image schemes and fragments', () => {
 	it.each(['DATA:IMAGE/PNG;BASE64,', 'data:image/png;charset=UTF-8;base64,'])(
 		'reconnaît %s sans accès réseau',
 		async (prefix) => {
@@ -435,7 +435,7 @@ describe('schémas et fragments des images exportées', () => {
 		}
 	);
 
-	it('valide un SVG UTF-8 percent-encoded avec charset explicite', async () => {
+	it('accepts a percent-encoded UTF-8 SVG with an explicit charset', async () => {
 		const source = encodeURIComponent(
 			'<svg xmlns="http://www.w3.org/2000/svg"><text>Été</text></svg>'
 		);
@@ -446,7 +446,7 @@ describe('schémas et fragments des images exportées', () => {
 		expect(html).toContain('src="data:image/svg+xml;base64,');
 	});
 
-	it('rejette un fragment img mais préserve les références SVG internes', async () => {
+	it('rejects an image fragment but keeps internal SVG references', async () => {
 		const fragment = '<svg><defs><g id="drawing"/></defs><image href="#drawing"/></svg>';
 		await expect(
 			prepareHtmlMediaOrThrow(`<img src="#drawing">${fragment}`, { allowNetwork: false })
@@ -456,7 +456,7 @@ describe('schémas et fragments des images exportées', () => {
 		);
 	});
 
-	it('récupère un blob avec schéma en majuscules sans consentement réseau', async () => {
+	it('loads an uppercase blob scheme without network consent', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => ({

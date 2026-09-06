@@ -1,7 +1,7 @@
 import type { MessageKey } from '$lib/i18n';
 import { formatKbd } from '$lib/platform';
 
-// Métadonnées communes aux raccourcis, à la palette et à leur aide.
+// Shared metadata for shortcuts, the command palette, and shortcut help.
 export const coreCommands = [
 	{ id: 'new', label: 'palette.newFile', key: 'n', shift: false, shortcut: '⌘N', document: false },
 	{

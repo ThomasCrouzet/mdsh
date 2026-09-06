@@ -1,16 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { db, newId, type WorkspaceRow } from './db';
 
-// Tests workspace : ciblent la couche persistance Dexie (table `workspaces`,
-// schéma v3) plutôt que le singleton `workspaceStore` (qui utilise des runes
-// `$state` non transformées par le runner Vitest sans plugin Svelte). La logique
-// métier (save/load/rename/delete + restore via filesStore) est couverte par
-// les E2E ; ici on garantit le contrat DB : index par updatedAt, persistance
-// du tableau fileIds, conservation de l'activeId, identification par id.
+// Test the Dexie persistence layer for the `workspaces` table in schema version 3.
+// Do not test the `workspaceStore` singleton because Vitest does not transform
+// its `$state` runes without the Svelte plugin. End-to-end tests cover save, load,
+// rename, delete, and restoration through filesStore.
+// Here, verify the database contract.
+// Verify the updatedAt index, fileIds persistence, activeId preservation, and ID lookup.
 //
-// L'objectif est de cadenasser le schéma : si quelqu'un bumpe la version Dexie
-// sans migration, ces tests cassent immédiatement (la table workspaces doit
-// toujours être présente avec son index `updatedAt`).
+// Lock the schema so a Dexie version change without migration fails immediately.
+// The workspaces table and its `updatedAt` index must stay available.
 
 beforeEach(async () => {
 	await db.workspaces.clear();
@@ -32,13 +31,13 @@ function makeRow(partial: Partial<WorkspaceRow> = {}): WorkspaceRow {
 	};
 }
 
-describe('db.workspaces - schéma v3', () => {
-	it('démarre vide', async () => {
+describe('db.workspaces - schema v3', () => {
+	it('starts empty', async () => {
 		const all = await db.workspaces.toArray();
 		expect(all).toEqual([]);
 	});
 
-	it('persiste un workspace avec fileIds + activeId', async () => {
+	it('persists a workspace with fileIds and activeId', async () => {
 		const aId = newId();
 		const bId = newId();
 		const row = makeRow({
@@ -54,14 +53,14 @@ describe('db.workspaces - schéma v3', () => {
 		expect(got?.activeId).toBe(aId);
 	});
 
-	it('peut stocker un activeId null (workspace sans onglet actif)', async () => {
+	it('stores a null activeId for a workspace without an active tab', async () => {
 		const row = makeRow({ activeId: null });
 		await db.workspaces.put(row);
 		const got = await db.workspaces.get(row.id);
 		expect(got?.activeId).toBeNull();
 	});
 
-	it("liste les workspaces triés par updatedAt desc (récents d'abord)", async () => {
+	it('lists the latest workspaces first by updatedAt', async () => {
 		const r1 = makeRow({ name: 'A', updatedAt: 1000 });
 		const r2 = makeRow({ name: 'B', updatedAt: 3000 });
 		const r3 = makeRow({ name: 'C', updatedAt: 2000 });
@@ -71,7 +70,7 @@ describe('db.workspaces - schéma v3', () => {
 		expect(ordered.map((w) => w.name)).toEqual(['B', 'C', 'A']);
 	});
 
-	it('put() override le workspace existant (rename + update)', async () => {
+	it('updates an existing workspace with put', async () => {
 		const row = makeRow({ name: 'Avant', updatedAt: 1000 });
 		await db.workspaces.put(row);
 
@@ -82,12 +81,12 @@ describe('db.workspaces - schéma v3', () => {
 		expect(got?.name).toBe('Après');
 		expect(got?.updatedAt).toBe(2000);
 
-		// Une seule entrée reste (pas de doublons à id constant).
+		// Keep one entry for the same ID.
 		const all = await db.workspaces.toArray();
 		expect(all).toHaveLength(1);
 	});
 
-	it("delete() retire l'entrée", async () => {
+	it('removes the entry with delete', async () => {
 		const row = makeRow({ name: 'À jeter' });
 		await db.workspaces.put(row);
 		expect(await db.workspaces.get(row.id)).not.toBeUndefined();
@@ -96,22 +95,21 @@ describe('db.workspaces - schéma v3', () => {
 		expect(await db.workspaces.get(row.id)).toBeUndefined();
 	});
 
-	it('delete() sur id inexistant ne throw pas', async () => {
+	it('does not throw when delete receives an unknown ID', async () => {
 		await expect(db.workspaces.delete('does-not-exist')).resolves.toBeUndefined();
 	});
 
-	it("préserve l'ordre des fileIds (clé pour la restauration de session)", async () => {
+	it('keeps fileIds order for session restoration', async () => {
 		const ids = ['z', 'a', 'm', 'b'];
 		const row = makeRow({ fileIds: ids });
 		await db.workspaces.put(row);
 		const got = await db.workspaces.get(row.id);
-		// L'ordre est sémantique : c'est l'ordre des onglets dans la sidebar.
+		// The order matches the tab order in the sidebar.
 		expect(got?.fileIds).toEqual(ids);
 	});
 
-	it('coexiste avec drafts et trashed (pas de collision entre tables)', async () => {
-		// Ce test cadenasse le bump v3 : la table workspaces ne doit pas casser
-		// les autres tables. On ajoute une row dans chaque et on vérifie.
+	it('does not collide with drafts and trashed tables', async () => {
+		// Add one row to each table to verify the v3 schema upgrade.
 		await db.drafts.put({
 			id: 'd1',
 			name: 'doc.md',
@@ -127,7 +125,7 @@ describe('db.workspaces - schéma v3', () => {
 		expect(await db.workspaces.count()).toBe(1);
 		expect(await db.trashed.count()).toBe(0);
 
-		// Nettoyage drafts pour ne pas polluer les autres tests files.
+		// Clear drafts to isolate later tests.
 		await db.drafts.clear();
 	});
 });

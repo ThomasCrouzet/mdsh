@@ -17,7 +17,7 @@ const rustsecUrl = 'https://rustsec.org/advisories/RUSTSEC-2024-0429.html';
 /** @param {unknown} value @returns {Record<string, unknown>} */
 function object(value) {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
-		throw new Error('Objet CycloneDX attendu.');
+		throw new Error('Expected a CycloneDX object.');
 	}
 	return /** @type {Record<string, unknown>} */ (value);
 }
@@ -25,28 +25,27 @@ function object(value) {
 /** @param {unknown} value @returns {Record<string, unknown>[]} */
 function objects(value) {
 	if (value === undefined) return [];
-	if (!Array.isArray(value)) throw new Error('Liste CycloneDX attendue.');
+	if (!Array.isArray(value)) throw new Error('Expected a CycloneDX list.');
 	return value.map(object);
 }
 
 /**
- * Schéma officiel : https://cyclonedx.org/schema/bom-1.5.schema.json
- * diff accepte text/url ; son empreinte appartient à externalReferences.hashes.
+ * Official schema: https://cyclonedx.org/schema/bom-1.5.schema.json
+ * diff accepts text/url. Put its hash in externalReferences.hashes.
  * @param {unknown} input
  * @param {Uint8Array} patch
  * @param {string} sourceSha
  */
 export function annotateCargoSbom(input, patch, sourceSha) {
-	if (!/^[a-f0-9]{40}$/.test(sourceSha))
-		throw new Error('SOURCE_SHA doit être un SHA Git complet.');
+	if (!/^[a-f0-9]{40}$/.test(sourceSha)) throw new Error('SOURCE_SHA must be a full Git SHA.');
 	if (createHash('sha256').update(patch).digest('hex') !== patchSha256) {
-		throw new Error('SHA256 du correctif glib incorrect.');
+		throw new Error('Incorrect glib patch SHA256.');
 	}
 	const bom = object(structuredClone(input));
 	if (bom.bomFormat !== 'CycloneDX' || bom.specVersion !== '1.5') {
-		throw new Error('SBOM CycloneDX 1.5 requis.');
+		throw new Error('A CycloneDX 1.5 SBOM is required.');
 	}
-	if (bom.signature !== undefined) throw new Error('Un SBOM signé ne peut pas être modifié.');
+	if (bom.signature !== undefined) throw new Error('Cannot modify a signed SBOM.');
 	/** @type {Record<string, unknown>[]} */
 	const components = [];
 	/** @param {Record<string, unknown>} component */
@@ -60,7 +59,7 @@ export function annotateCargoSbom(input, patch, sourceSha) {
 		if (metadata.component !== undefined) visit(object(metadata.component));
 	}
 	const targets = components.filter((item) => item.name === 'glib' && item.version === '0.18.5');
-	if (targets.length !== 1) throw new Error('Un unique composant glib 0.18.5 est requis.');
+	if (targets.length !== 1) throw new Error('Exactly one glib 0.18.5 component is required.');
 	const target = /** @type {Record<string, unknown>} */ (targets[0]);
 	const purl = typeof target.purl === 'string' ? target.purl : '';
 	const [packageId, qualifiers] = purl.split('?');
@@ -76,7 +75,7 @@ export function annotateCargoSbom(input, patch, sourceSha) {
 		!/^path\+file:\/\/\/.+\/src-tauri\/vendor\/glib#0\.18\.5$/.test(target['bom-ref']) ||
 		components.filter((item) => item['bom-ref'] === target['bom-ref']).length !== 1
 	) {
-		throw new Error('Identité locale du composant glib incohérente.');
+		throw new Error('The local glib component identity is inconsistent.');
 	}
 	const patchUrl = `https://raw.githubusercontent.com/ThomasCrouzet/mdsh/${sourceSha}/${patchRepositoryPath}`;
 	const expectedPatch = {
@@ -109,7 +108,7 @@ export function annotateCargoSbom(input, patch, sourceSha) {
 		existing.length > 1 ||
 		(existing.length === 1 && !isDeepStrictEqual(existing[0], expectedPatch))
 	) {
-		throw new Error('Provenance du correctif glib contradictoire.');
+		throw new Error('Conflicting glib patch provenance.');
 	}
 	if (!existing.length) patches.push(expectedPatch);
 	target.pedigree = { ...pedigree, patches };
@@ -126,7 +125,7 @@ export function annotateCargoSbom(input, patch, sourceSha) {
 		patchReferences.length > 1 ||
 		(patchReferences.length === 1 && !isDeepStrictEqual(patchReferences[0], expectedReference))
 	) {
-		throw new Error('Empreinte ou référence du correctif glib contradictoire.');
+		throw new Error('The glib patch hash or reference conflicts with the expected value.');
 	}
 	if (!patchReferences.length) references.push(expectedReference);
 	target.externalReferences = references;
@@ -137,7 +136,7 @@ export function annotateCargoSbom(input, patch, sourceSha) {
 	})) {
 		const matches = properties.filter((item) => item.name === name);
 		if (matches.length > 1 || (matches.length === 1 && matches[0]?.value !== value)) {
-			throw new Error(`Propriété de provenance contradictoire : ${name}`);
+			throw new Error(`Conflicting provenance property: ${name}`);
 		}
 		if (!matches.length) properties.push({ name, value });
 	}
@@ -149,21 +148,20 @@ async function main() {
 	const [sbomPath, patchPath, extra] = process.argv.slice(2);
 	if (!sbomPath || !patchPath || extra !== undefined) {
 		throw new Error(
-			'Usage : SOURCE_SHA=<sha> node scripts/annotate-cargo-sbom.mjs <sbom.json> <correctif.patch>'
+			'Usage: SOURCE_SHA=<sha> node scripts/annotate-cargo-sbom.mjs <sbom.json> <correctif.patch>'
 		);
 	}
 	const sourceSha = process.env.SOURCE_SHA ?? '';
-	if (!/^[a-f0-9]{40}$/.test(sourceSha))
-		throw new Error('SOURCE_SHA doit être un SHA Git complet.');
+	if (!/^[a-f0-9]{40}$/.test(sourceSha)) throw new Error('SOURCE_SHA must be a full Git SHA.');
 	const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 	const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-	if (sourceSha !== head) throw new Error('SOURCE_SHA ne correspond pas au HEAD vérifié.');
+	if (sourceSha !== head) throw new Error('SOURCE_SHA does not match the checked HEAD.');
 	const patch = await readFile(patchPath);
 	const trackedPatch = execFileSync('git', ['show', `${sourceSha}:${patchRepositoryPath}`], {
 		cwd: root
 	});
 	if (!patch.equals(trackedPatch))
-		throw new Error('Le correctif local diffère du correctif suivi dans SOURCE_SHA.');
+		throw new Error('The local patch differs from the patch tracked in SOURCE_SHA.');
 	const annotated = annotateCargoSbom(
 		JSON.parse(await readFile(sbomPath, 'utf8')),
 		patch,

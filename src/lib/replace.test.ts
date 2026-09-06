@@ -8,21 +8,21 @@ function files(...pairs: Array<[string, string]>): FileSlice[] {
 }
 
 describe('buildReplaceRegex', () => {
-	it('littéral : échappe les métacaractères', () => {
+	it('escapes metacharacters in literal mode', () => {
 		const { re } = buildReplaceRegex('a.b', OPTS);
 		expect(re?.test('a.b')).toBe(true);
-		expect(re?.test('aXb')).toBe(false); // le point est littéral
+		expect(re?.test('aXb')).toBe(false); // The period is literal.
 	});
-	it('mot entier : ajoute les bornes \\b', () => {
+	it('adds word boundaries in whole-word mode', () => {
 		const { re } = buildReplaceRegex('cat', { ...OPTS, wholeWord: true });
 		expect(re?.test('a cat sat')).toBe(true);
 		expect(re?.test('category')).toBe(false);
 	});
-	it('regex : compile le motif tel quel', () => {
+	it('compiles the unchanged pattern in regular expression mode', () => {
 		const { re } = buildReplaceRegex('a\\d+', { ...OPTS, useRegex: true });
 		expect(re?.test('a123')).toBe(true);
 	});
-	it('regex invalide : renvoie une erreur', () => {
+	it('returns an error for an invalid regular expression', () => {
 		const nested = buildReplaceRegex('(a+)+$', { ...OPTS, useRegex: true });
 		expect(nested.re).toBeNull();
 		expect(nested.error).toMatch(/nested quantifiers/i);
@@ -35,14 +35,14 @@ describe('buildReplaceRegex', () => {
 		expect(re).toBeNull();
 		expect(error).toBeTruthy();
 	});
-	it('casse : insensible par défaut, sensible si demandé', () => {
+	it('ignores case by default and matches case on request', () => {
 		expect(buildReplaceRegex('foo', OPTS).re?.test('FOO')).toBe(true);
 		expect(buildReplaceRegex('foo', { ...OPTS, caseSensitive: true }).re?.test('FOO')).toBe(false);
 	});
 });
 
 describe('replaceInFiles', () => {
-	it('remplace dans plusieurs fichiers et compte les occurrences', () => {
+	it('replaces text in multiple files and counts occurrences', () => {
 		const out = replaceInFiles(
 			files(['a', 'foo foo'], ['b', 'foo'], ['c', 'bar']),
 			'foo',
@@ -55,18 +55,18 @@ describe('replaceInFiles', () => {
 		expect(out.results.find((r) => r.id === 'b')?.content).toBe('X');
 	});
 
-	it('garde-fou : ignore les requêtes < 2 caractères', () => {
+	it('ignores queries shorter than two characters', () => {
 		const out = replaceInFiles(files(['a', 'aaa']), 'a', 'X', OPTS);
 		expect(out.total).toBe(0);
 		expect(out.results).toEqual([]);
 	});
 
-	it('mode littéral : un $ dans le remplacement reste littéral', () => {
+	it('keeps a replacement dollar sign literal in literal mode', () => {
 		const out = replaceInFiles(files(['a', 'prix: NN']), 'NN', '$5', OPTS);
 		expect(out.results[0]?.content).toBe('prix: $5');
 	});
 
-	it('mode regex : les backrefs sont expansés', () => {
+	it('expands backreferences in regular expression mode', () => {
 		const out = replaceInFiles(files(['a', 'John Smith']), '(\\w+) (\\w+)', '$2 $1', {
 			caseSensitive: false,
 			wholeWord: false,
@@ -75,7 +75,7 @@ describe('replaceInFiles', () => {
 		expect(out.results[0]?.content).toBe('Smith John');
 	});
 
-	it('propage l’erreur regex sans rien modifier', () => {
+	it('returns a regular expression error without changes', () => {
 		const out = replaceInFiles(files(['a', 'x']), 'a(', 'y', {
 			caseSensitive: false,
 			wholeWord: false,
@@ -85,13 +85,13 @@ describe('replaceInFiles', () => {
 		expect(out.results).toEqual([]);
 	});
 
-	it('ignore un remplacement qui ne change rien (a→a)', () => {
+	it('ignores a replacement that makes no change', () => {
 		const out = replaceInFiles(files(['a', 'aa bb']), 'aa', 'aa', OPTS);
 		expect(out.results).toEqual([]);
 		expect(out.total).toBe(0);
 	});
 
-	it('respecte le mot entier', () => {
+	it('matches whole words', () => {
 		const out = replaceInFiles(files(['a', 'cat category']), 'cat', 'dog', {
 			...OPTS,
 			wholeWord: true

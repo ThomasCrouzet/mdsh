@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please fill out this form so we can reproduce the problem quickly.
+        Complete this form to help us reproduce the problem.
 
   - type: textarea
     id: description
@@ -21,7 +21,7 @@ body:
     attributes:
       label: Steps to reproduce
       description: |
-        Steps to reproduce the bug, step by step.
+        List the steps that reproduce the bug.
       placeholder: |
         1. Open mdsh
         2. Create a new file
@@ -64,7 +64,7 @@ body:
     id: commit
     attributes:
       label: Commit / deployment URL
-      description: 'If tested on the deployed site, copy the URL. If tested locally, the commit hash (`git rev-parse HEAD`).'
+      description: 'For the deployed site, copy the URL. For a local test, copy the commit hash (`git rev-parse HEAD`).'
 
   - type: textarea
     id: console

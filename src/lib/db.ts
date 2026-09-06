@@ -12,9 +12,8 @@ export interface DraftRow {
 }
 
 /**
- * Persisted trash: survives a reload within the undo window (otherwise a
- * crash/close would leave the `drafts` row orphaned in the database, with no
- * UI entry).
+ * Persists trash during the undo period. This prevents a close or crash from
+ * leaving a draft row without a UI entry.
  */
 export interface TrashedRow {
 	id: string;
@@ -44,9 +43,8 @@ export interface WorkspaceRow {
 
 /**
  * §2.4 - Local version history: timestamped snapshot of a draft's content.
- * Several versions per draft (own `id` key), indexed by `draftId` (fetch a
- * file's history) and by the composite index `[draftId+createdAt]`
- * (chronological sort + purge of the oldest).
+ * Each version has its own ID. `draftId` finds a file's history.
+ * `[draftId+createdAt]` sorts versions and supports purging old entries.
  */
 export interface VersionRow {
 	id: string;

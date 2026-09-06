@@ -29,16 +29,16 @@ afterEach(() => {
 });
 
 describe('isQuotaError', () => {
-	it('reconnaît QuotaExceededError', () => {
+	it('recognizes QuotaExceededError', () => {
 		expect(isQuotaError(new DOMException('plein', 'QuotaExceededError'))).toBe(true);
 	});
-	it('reconnaît le nom Firefox historique', () => {
+	it('recognizes the legacy Firefox name', () => {
 		expect(isQuotaError(new DOMException('plein', 'NS_ERROR_DOM_QUOTA_REACHED'))).toBe(true);
 	});
-	it('rejette les autres DOMException', () => {
+	it('rejects other DOMException values', () => {
 		expect(isQuotaError(new DOMException('annulé', 'AbortError'))).toBe(false);
 	});
-	it('rejette une Error générique et les non-objets', () => {
+	it('rejects a generic Error and non-object values', () => {
 		expect(isQuotaError(new Error('quota'))).toBe(false);
 		expect(isQuotaError('QuotaExceededError')).toBe(false);
 		expect(isQuotaError(null)).toBe(false);
@@ -47,7 +47,7 @@ describe('isQuotaError', () => {
 });
 
 describe('reportPersistenceError', () => {
-	it('émet un toast « stockage plein » actionnable sur quota', () => {
+	it('shows an actionable full-storage toast for a quota error', () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		reportPersistenceError(new DOMException('x', 'QuotaExceededError'), 'save');
 		expect(notify.toasts).toHaveLength(1);
@@ -55,25 +55,25 @@ describe('reportPersistenceError', () => {
 		expect(notify.toasts[0]!.message).toContain('Stockage plein');
 	});
 
-	it('émet un message « enregistrement » pour une panne save générique', () => {
+	it('shows a save message for a generic save failure', () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		reportPersistenceError(new Error('disk fail'), 'save');
 		expect(notify.toasts[0]!.message).toContain('enregistrement local');
 	});
 
-	it('émet un message générique pour les autres contextes', () => {
+	it('shows a generic message for other contexts', () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		reportPersistenceError(new Error('x'), 'trash');
 		expect(notify.toasts[0]!.message).toContain('opération de stockage local');
 	});
 
-	it('logge toujours en console pour le diagnostic', () => {
+	it('always logs diagnostics to the console', () => {
 		const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 		reportPersistenceError(new Error('boom'), 'reorder');
 		expect(spy).toHaveBeenCalledOnce();
 	});
 
-	it('déduplique les toasts quota répétés (pas d’avalanche)', () => {
+	it('deduplicates repeated quota toasts', () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const e = new DOMException('x', 'QuotaExceededError');
 		reportPersistenceError(e, 'save');
@@ -84,17 +84,17 @@ describe('reportPersistenceError', () => {
 });
 
 describe('requestPersistentStorage', () => {
-	it('retourne false si l’API est absente', async () => {
+	it('returns false when the API is absent', async () => {
 		mockStorage(undefined);
 		expect(await requestPersistentStorage()).toBe(false);
 	});
-	it('retourne true sans redemander si déjà persisté', async () => {
+	it('returns true without a new request when storage is persistent', async () => {
 		const persist = vi.fn();
 		mockStorage({ persisted: async () => true, persist });
 		expect(await requestPersistentStorage()).toBe(true);
 		expect(persist).not.toHaveBeenCalled();
 	});
-	it('demande la persistance si pas encore accordée', async () => {
+	it('requests persistence when it is not granted', async () => {
 		mockStorage({ persisted: async () => false, persist: async () => true });
 		expect(await requestPersistentStorage()).toBe(true);
 	});
@@ -110,17 +110,17 @@ describe('requestPersistentStorage', () => {
 });
 
 describe('checkStoragePressure', () => {
-	it('no-op si l’API estimate est absente', async () => {
+	it('does nothing when the estimate API is absent', async () => {
 		mockStorage(undefined);
 		await checkStoragePressure();
 		expect(notify.toasts).toHaveLength(0);
 	});
-	it('n’alerte pas sous le seuil', async () => {
+	it('does not alert below the threshold', async () => {
 		mockStorage({ estimate: async () => ({ usage: 10, quota: 100 }) });
 		await checkStoragePressure(0.85);
 		expect(notify.toasts).toHaveLength(0);
 	});
-	it('alerte (toast info avec %) au-dessus du seuil', async () => {
+	it('shows an informational toast with the percentage above the threshold', async () => {
 		mockStorage({ estimate: async () => ({ usage: 90, quota: 100 }) });
 		await checkStoragePressure(0.85);
 		expect(notify.toasts).toHaveLength(1);

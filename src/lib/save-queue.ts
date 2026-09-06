@@ -198,9 +198,8 @@ export class SaveQueue {
 	 * ids so `has(id)` stays true across the timer → write gap (cross-tab
 	 * policy must not treat that window as "no local pending").
 	 *
-	 * When no prior put is in flight for `id`, `db.drafts.put` is invoked
-	 * synchronously (async function runs until its first await) so existing
-	 * callers/tests that flush and immediately inspect the spy still work.
+	 * If no put is active for `id`, call `db.drafts.put` before the first await.
+	 * Callers can inspect the write immediately after a flush.
 	 */
 	private enqueuePut(row: DraftRow): void {
 		const id = row.id;
@@ -367,13 +366,12 @@ export class SaveQueue {
 	}
 
 	/**
-	 * Waits for any in-flight / chained put for `id` to settle (while discard
-	 * is still active, so reverse-delete can finish), then clears discard and
-	 * invalidate flags and bumps generation.
+	 * Waits for active or chained puts while discard stays active. Then clears
+	 * the discard and invalidation flags and increments the generation.
+	 * Keeping discard active lets reverse-delete finish.
 	 *
-	 * Required before undo-restore from trash: otherwise a put that started
-	 * before close can reverse-delete the drafts row **after** restoreFromTrash
-	 * rewrote it (silent data loss on Undo).
+	 * Run this before a trash restore. Otherwise, an earlier put can delete the
+	 * restored draft after `restoreFromTrash` writes it.
 	 */
 	async settleAndRearm(id: string): Promise<void> {
 		const chain = this.chains.get(id);
@@ -391,12 +389,10 @@ export class SaveQueue {
 	}
 
 	/**
-	 * §M1 - Immediately flushes the pending content of the `ids` that have an armed
-	 * timer, without waiting for the debounce. Unlike `cancelAll`, we do NOT forget
-	 * the pending keystroke: we write it before forgetting it (otherwise `reorder`
-	 * destroyed the timer and lost the last keystroke in base). Used by `reorder`
-	 * just before persisting the new `order`, and by `close({ keepDB: true })` so
-	 * workspace switches do not drop unflushed edits.
+	 * §M1 - Immediately writes pending content for IDs with an active timer.
+	 * Preserve pending keystrokes before clearing timers. `reorder` uses this
+	 * before it writes the new order. Workspace switches call `close({ keepDB: true })`
+	 * to keep edits. Unlike `cancelAll`, this writes pending keystrokes before removing their timers.
 	 *
 	 * Fire-and-forget (consistent with `flush`); the writes are counted in
 	 * `pendingWrites` so the "saving" indicator stays accurate.

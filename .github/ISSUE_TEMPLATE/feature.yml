@@ -6,14 +6,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the proposal. Before opening, check that it fits the spirit of the project:
-        minimalism, 100% offline, dark-first, zero telemetry.
+        Check that the proposal follows the project principles:
+        a small interface, full offline support, a dark theme by default, and no telemetry.
 
   - type: textarea
     id: problem
     attributes:
       label: Problem to solve
-      description: What need or frustration does this feature address?
+      description: What problem does this feature solve?
     validations:
       required: true
 
@@ -21,7 +21,7 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
-      description: How do you imagine the implementation? (UX, shortcut, placement...)
+      description: Describe the proposed interface, shortcut, and location.
     validations:
       required: true
 
@@ -40,7 +40,7 @@ body:
         - label: Works 100% offline (no network request)
         - label: No telemetry or tracking
         - label: Respects dark-first and accessibility (WCAG AA)
-        - label: Does not pollute the initial bundle (lazy-load if possible)
+        - label: Keeps the initial bundle small (load on demand where possible)
 
   - type: checkboxes
     id: checks

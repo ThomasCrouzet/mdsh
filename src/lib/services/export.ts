@@ -160,9 +160,9 @@ export async function exportPDF(file: FileItem, options: MediaExportOptions = {}
 /**
  * Creates and downloads a ZIP containing all the files passed as arguments.
  *
- * Why: a single download = no multi-file browser prompt (otherwise Chrome,
- * Edge, Safari show a "This site wants to download multiple files" banner as
- * soon as N >= 2). Also faster: no 120 ms setTimeout between each download.
+ * A single download avoids the Chrome, Edge, and Safari prompt when N >= 2:
+ * "This site wants to download multiple files".
+ * It also removes the 120 ms setTimeout delay between separate downloads.
  *
  * `jszip` is lazy-loaded via `await import(...)` inside the function - it never
  * falls into the initial bundle, only when the user exports everything.

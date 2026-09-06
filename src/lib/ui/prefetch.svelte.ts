@@ -1,5 +1,5 @@
-// Le service worker prépare les fonctions hors ligne sans évaluer leurs modules.
-// Le préchargement spéculatif reste limité au mode choisi et à un document actif.
+// The service worker prepares offline features without evaluating their modules.
+// Limit speculative prefetch to the selected mode and an active document.
 
 export interface PrefetchOptions {
 	getMode: () => string;

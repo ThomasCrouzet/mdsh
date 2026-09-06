@@ -7,7 +7,7 @@ beforeEach(() => {
 });
 
 describe('promptStore.prompt', () => {
-	it('ouvre un modal prompt et résout avec la valeur saisie', async () => {
+	it('opens a prompt and resolves with the entered value', async () => {
 		const p = promptStore.prompt({ title: 'Name?' });
 		expect(promptStore.open).toBe(true);
 		expect(promptStore.config?.mode).toBe('prompt');
@@ -17,13 +17,13 @@ describe('promptStore.prompt', () => {
 		expect(promptStore.config).toBeNull();
 	});
 
-	it("résout null à l'annulation", async () => {
+	it('resolves with null after cancellation', async () => {
 		const p = promptStore.prompt({ title: 'Name?' });
 		promptStore.resolve(null);
 		expect(await p).toBeNull();
 	});
 
-	it('un appel concurrent annule le précédent (résout null)', async () => {
+	it('cancels the previous prompt when a new prompt opens', async () => {
 		const p1 = promptStore.prompt({ title: 'First' });
 		const p2 = promptStore.prompt({ title: 'Second' });
 		expect(await p1).toBeNull(); // annulé par le 2e
@@ -34,7 +34,7 @@ describe('promptStore.prompt', () => {
 });
 
 describe('promptStore.confirm', () => {
-	it('résout true si confirmé, false sinon', async () => {
+	it('resolves true after confirmation and false after cancellation', async () => {
 		const yes = promptStore.confirm({ title: 'Sure?' });
 		expect(promptStore.config?.mode).toBe('confirm');
 		promptStore.resolve(true);
@@ -51,13 +51,13 @@ describe('promptStore.confirm', () => {
 });
 
 describe('promptStore.resolve', () => {
-	it('no-op sans modal en attente', () => {
+	it('does nothing without a pending modal', () => {
 		expect(() => promptStore.resolve('x')).not.toThrow();
 		expect(promptStore.open).toBe(false);
 	});
 });
 
-describe('choix explicite de restauration', () => {
+describe('explicit restore choice', () => {
 	it.each(['primary', 'alternate', null] as const)(
 		'préserve le résultat %s sans transformer une annulation',
 		async (choice) => {

@@ -20,8 +20,8 @@ afterEach(async () => {
 
 const T0 = 1_000_000_000_000;
 
-describe('checkpoints explicites', () => {
-	it('archive un état immédiat même pendant le throttle et accepte un document vide', async () => {
+describe('explicit checkpoints', () => {
+	it('archives an immediate state during throttling and accepts an empty document', async () => {
 		await recordVersion({ id: 'd', name: 'd.md', content: 'initial' }, T0);
 		await createCheckpoint({ id: 'd', name: 'd.md', content: 'avant remplacement' }, T0 + 1);
 		await createCheckpoint({ id: 'd', name: 'd.md', content: '' }, T0 + 2);
@@ -32,7 +32,7 @@ describe('checkpoints explicites', () => {
 		]);
 	});
 
-	it('annule tous les checkpoints du lot si une écriture échoue', async () => {
+	it('cancels all batch checkpoints after a write failure', async () => {
 		const realPut = db.versions.put.bind(db.versions);
 		const spy = vi.spyOn(db.versions, 'put').mockImplementation((row) => {
 			if (row.draftId === 'b') throw new Error('quota');
@@ -56,18 +56,18 @@ describe('checkpoints explicites', () => {
 });
 
 describe('recordVersion', () => {
-	it('écrit un premier snapshot', async () => {
+	it('writes the first snapshot', async () => {
 		const ok = await recordVersion({ id: 'd1', name: 'a.md', content: 'v1' }, T0);
 		expect(ok).toBe(true);
 		expect(await db.versions.where('draftId').equals('d1').count()).toBe(1);
 	});
 
-	it('ignore un contenu vide', async () => {
+	it('ignores empty content', async () => {
 		expect(await recordVersion({ id: 'd1', name: 'a.md', content: '   ' }, T0)).toBe(false);
 		expect(await db.versions.count()).toBe(0);
 	});
 
-	it('ne duplique pas un contenu identique au dernier snapshot', async () => {
+	it('does not duplicate content from the last snapshot', async () => {
 		await recordVersion({ id: 'd1', name: 'a.md', content: 'same' }, T0);
 		const ok = await recordVersion(
 			{ id: 'd1', name: 'a.md', content: 'same' },
@@ -77,14 +77,14 @@ describe('recordVersion', () => {
 		expect(await db.versions.where('draftId').equals('d1').count()).toBe(1);
 	});
 
-	it('throttle : refuse un snapshot trop rapproché même si le contenu change', async () => {
+	it('rejects a snapshot during the throttle interval', async () => {
 		await recordVersion({ id: 'd1', name: 'a.md', content: 'v1' }, T0);
 		const ok = await recordVersion({ id: 'd1', name: 'a.md', content: 'v2' }, T0 + 1000);
 		expect(ok).toBe(false);
 		expect(await db.versions.count()).toBe(1);
 	});
 
-	it('accepte un nouveau snapshot après l’intervalle minimal', async () => {
+	it('accepts a snapshot after the minimum interval', async () => {
 		await recordVersion({ id: 'd1', name: 'a.md', content: 'v1' }, T0);
 		const ok = await recordVersion(
 			{ id: 'd1', name: 'a.md', content: 'v2' },
@@ -96,12 +96,12 @@ describe('recordVersion', () => {
 });
 
 describe('pruneVersions', () => {
-	it('supprime les versions plus vieilles que maxAge', async () => {
+	it('deletes versions older than maxAge', async () => {
 		const now = T0 + VERSION_LIMITS.maxAgeMs + 2000;
 		await db.versions.bulkPut([
-			// 'old' à T0 → âge = maxAge + 2000 > maxAge → expirée.
+			// At T0, 'old' is maxAge + 2000 old, so it is expired.
 			{ id: 'old', draftId: 'd1', name: 'a', content: 'x', createdAt: T0 },
-			// 'recent' à now - 1000 → âge 1000 ms → conservée.
+			// At now - 1000, 'recent' is 1000 ms old, so keep it.
 			{ id: 'recent', draftId: 'd1', name: 'a', content: 'y', createdAt: now - 1000 }
 		]);
 		const deleted = await pruneVersions('d1', now);
@@ -110,7 +110,7 @@ describe('pruneVersions', () => {
 		expect(ids).toEqual(['recent']);
 	});
 
-	it('garde uniquement les maxPerDraft plus récentes', async () => {
+	it('keeps only the latest maxPerDraft versions', async () => {
 		const rows = Array.from({ length: VERSION_LIMITS.maxPerDraft + 5 }, (_, i) => ({
 			id: `v${i}`,
 			draftId: 'd1',
@@ -123,14 +123,14 @@ describe('pruneVersions', () => {
 		expect(await db.versions.where('draftId').equals('d1').count()).toBe(
 			VERSION_LIMITS.maxPerDraft
 		);
-		// La plus ancienne (v0) doit avoir disparu, la plus récente rester.
+		// The oldest version, v0, must be removed. The newest version must remain.
 		expect(await db.versions.get('v0')).toBeUndefined();
 		expect(await db.versions.get(`v${rows.length - 1}`)).toBeTruthy();
 	});
 });
 
 describe('listVersions', () => {
-	it('renvoie les versions, plus récentes d’abord', async () => {
+	it('returns the latest versions first', async () => {
 		await db.versions.bulkPut([
 			{ id: 'a', draftId: 'd1', name: 'n', content: '1', createdAt: T0 },
 			{ id: 'b', draftId: 'd1', name: 'n', content: '2', createdAt: T0 + 5000 },
@@ -140,7 +140,7 @@ describe('listVersions', () => {
 		expect(list.map((v) => v.id)).toEqual(['b', 'c', 'a']);
 	});
 
-	it('isole par draftId', async () => {
+	it('isolates versions by draftId', async () => {
 		await db.versions.bulkPut([
 			{ id: 'a', draftId: 'd1', name: 'n', content: '1', createdAt: T0 },
 			{ id: 'b', draftId: 'd2', name: 'n', content: '2', createdAt: T0 }
@@ -150,22 +150,22 @@ describe('listVersions', () => {
 });
 
 describe('lineDiffStats', () => {
-	it('contenu identique → 0/0', () => {
+	it('returns zero changes for identical content', () => {
 		expect(lineDiffStats('a\nb\nc', 'a\nb\nc')).toEqual({ added: 0, removed: 0 });
 	});
-	it('lignes ajoutées', () => {
+	it('counts added lines', () => {
 		expect(lineDiffStats('a\nb', 'a\nb\nc\nd')).toEqual({ added: 2, removed: 0 });
 	});
-	it('lignes retirées', () => {
+	it('counts removed lines', () => {
 		expect(lineDiffStats('a\nb\nc', 'a')).toEqual({ added: 0, removed: 2 });
 	});
-	it('lignes modifiées comptent comme +1/-1', () => {
+	it('counts a modified line as one addition and one removal', () => {
 		expect(lineDiffStats('a\nb\nc', 'a\nX\nc')).toEqual({ added: 1, removed: 1 });
 	});
 });
 
 describe('deleteVersionsFor', () => {
-	it('purge tout l’historique d’un fichier', async () => {
+	it('deletes all history for a file', async () => {
 		await db.versions.bulkPut([
 			{ id: 'a', draftId: 'd1', name: 'n', content: '1', createdAt: T0 },
 			{ id: 'b', draftId: 'd1', name: 'n', content: '2', createdAt: T0 + 1 },

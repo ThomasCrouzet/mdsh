@@ -4,19 +4,16 @@ import { createFirstFile, openPalette, writeSourceContent } from './helpers';
 import { expect, test } from '@playwright/test';
 
 /**
- * §1.2 - Non-régression installabilité PWA.
+ * §1.2 - PWA installation regression test.
  *
- * @vite-pwa/sveltekit génère et précache `manifest.webmanifest` mais n'injecte
- * pas le `<link rel="manifest">` dans le document. On l'injecte via `pwaInfo`
- * dans `+layout.svelte`. Sans ce lien, le navigateur ignore le manifest et toute
- * la couche installable (prompt d'install, file_handlers, share_target,
- * launch_handler, shortcuts) devient inerte. Ce test garde le lien présent.
+ * @vite-pwa/sveltekit creates and precaches `manifest.webmanifest`, but it does not
+ * add the `<link rel="manifest">` element. `+layout.svelte` adds it through `pwaInfo`.
+ * Without this link, the browser ignores all installation features.
  *
- * Tourne contre le build (webServer = `npm run build && npm run preview`), où le
- * manifest est réellement émis et servi.
+ * Run this test against the build, where the server emits the actual manifest.
  */
 test.describe('PWA - manifest', () => {
-	test('le <link rel="manifest"> est présent et pointe vers le manifest', async ({ page }) => {
+	test('links the document to the manifest', async ({ page }) => {
 		await page.goto('/');
 
 		const manifestLink = page.locator('head link[rel="manifest"]');
@@ -27,7 +24,7 @@ test.describe('PWA - manifest', () => {
 		expect(href).toContain('manifest.webmanifest');
 	});
 
-	test('le manifest est servi, valide, et déclare nom + icônes', async ({ page, request }) => {
+	test('serves a valid manifest with a name and icons', async ({ page, request }) => {
 		await page.goto('/');
 		const href = await page.locator('head link[rel="manifest"]').getAttribute('href');
 		expect(href).toBeTruthy();
@@ -45,54 +42,45 @@ test.describe('PWA - manifest', () => {
 });
 
 /**
- * §A1.5 - Non-régression du démarrage hors-ligne (constat HIGH de l'audit
- * 2026-06-16). Le précache doit amorcer l'app-shell COMPLET - le document de
- * navigation (fallback SPA), le CSS Tailwind render-blocking et les chunks JS
- * de boot - sans dépendre du cache runtime cache-on-use (`mdsh-immutable-v1`),
- * évincible ou jamais peuplé si le premier chargement est interrompu.
+ * §A1.5 - Offline startup regression test from the 2026-06-16 audit.
+ * The precache must contain the complete app shell: the SPA fallback document,
+ * blocking Tailwind CSS, and startup JavaScript chunks. Startup must not depend
+ * on the disposable runtime cache `mdsh-immutable-v1`.
  *
- * Le test isole exactement ce risque : après le premier chargement en ligne, il
- * SUPPRIME le cache runtime, passe hors-ligne, puis RECHARGE. Un échec de
- * couverture du précache (asset de boot absent, ou `navigateFallback` qui ne
- * matche pas la clé de précache de la racine) laisserait la page blanche / non
- * interactive et l'assertion finale timeout-erait.
+ * After the first online load, the test deletes the runtime cache, goes offline,
+ * and reloads. Missing startup assets or an incorrect `navigateFallback` value
+ * leave the page blank and cause the final assertion to time out.
  *
- * Chromium uniquement (Service Worker + `context.setOffline` ; non supporté
- * dans le projet WebKit/golden-path).
+ * Run only in Chromium. The WebKit golden-path project does not support this flow.
  */
-test.describe('PWA - boot offline depuis le précache', () => {
-	test('démarre et reste interactif hors-ligne via le seul précache', async ({
+test.describe('PWA - offline startup from the precache', () => {
+	test('starts and stays interactive offline with only the precache', async ({
 		page,
 		context,
 		browser
 	}, testInfo) => {
-		// 1) Premier chargement EN LIGNE : enregistre le SW et peuple le précache.
+		// 1. Load online to register the service worker and fill the precache.
 		await page.goto('/');
 
-		// Attend que le SW soit actif pour le scope (le précache, posé pendant
-		// `install`, est donc terminé avant que `ready` résolve).
+		// Wait for an active service worker. Its install step fills the precache before
+		// `ready` resolves.
 		await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
 
-		// 2) `registerType: 'prompt'` → pas de clientsClaim : le SW ne contrôle la
-		//    page qu'à une navigation POSTÉRIEURE à son activation. On recharge
-		//    jusqu'à obtenir un controller (robuste face à la course activation).
+		// 2. `registerType: 'prompt'` does not call clientsClaim. Reload after activation
+		// until the service worker controls the page.
 		await expect(async () => {
 			await page.reload();
 			expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 		}).toPass({ timeout: 30_000 });
 
-		// 3) Supprime le cache runtime cache-on-use des assets immutables : tout ce
-		//    qui sert au boot doit désormais venir du SEUL précache workbox.
+		// 3. Delete the runtime cache. All startup assets must now come from the precache.
 		await page.evaluate(() => caches.delete('mdsh-immutable-v1'));
 
-		// 4) Hors-ligne + reload : seul le précache peut servir la navigation, le
-		//    CSS d'app-shell et les chunks de boot.
+		// 4. Go offline and reload. Only the precache can serve the app shell.
 		await context.setOffline(true);
 		await page.reload();
 
-		// 5) L'app-shell doit booter ET être interactive (le JS d'entry a exécuté).
-		//    Sans précache complet ou avec un navigateFallback désaligné, la page
-		//    resterait blanche → timeout ici.
+		// 5. Verify that the app shell starts and runs its entry JavaScript.
 		await expect(page.locator('main').getByRole('button', { name: /Nouveau fichier/ })).toBeVisible(
 			{ timeout: 15_000 }
 		);
@@ -143,9 +131,9 @@ test.describe('PWA - boot offline depuis le précache', () => {
 	});
 });
 
-// Le serveur expose deux releases HTML/SW réelles du même bundle applicatif.
-// Pas de mock registerSW : installation, waiting et activation sont celles du navigateur.
-test('mise à jour réelle : deux clients sales, refus de persistance et reprise sans perte', async ({
+// The server exposes two actual HTML and service worker releases for one app bundle.
+// The browser performs the install, wait, and activation steps.
+test('recovers two dirty clients after a real update and persistence failure', async ({
 	browser
 }) => {
 	const { resolve } = await import('node:path');
@@ -227,8 +215,8 @@ test('mise à jour réelle : deux clients sales, refus de persistance et reprise
 		);
 		await expect.poll(contents).toEqual(['# Premier, état durable', '# Second, état durable']);
 
-		// Le deuxième client active la version suivante. Le premier refuse son reload
-		// tant que sa propre barrière de durabilité échoue.
+		// The second client activates the next version. The first client delays its reload
+		// while its durability barrier fails.
 		await second.locator('.cm-content').fill('# Second, dernière frappe avant activation');
 		await reloadSecond.click();
 		await expect(second.locator('meta[name="pwa-test-release"]')).toHaveAttribute('content', '2', {
@@ -260,7 +248,7 @@ test('mise à jour réelle : deux clients sales, refus de persistance et reprise
 		await first.evaluate(() =>
 			(window as Window & { restoreDraftWrites?: () => void }).restoreDraftWrites?.()
 		);
-		// La frappe suivante réessaie la sauvegarde; le reload manuel devient sûr.
+		// The next edit retries the save. A manual reload is then safe.
 		await first.locator('.cm-content').fill('# Premier, reprise enregistrée');
 		await expect
 			.poll(contents)

@@ -2,9 +2,9 @@
 
 /* ==========================================================================
    Theme tokens - BLACKSITE
-   Graphite/basalte, ivoire chaud et ambre désaturé. Le chrome porte
-   l'identité industrielle ; le document conserve une surface calme. Aucun
-   noir/blanc pur afin de limiter la halation pendant les longues sessions.
+   Use graphite, warm ivory, and muted amber. The app chrome has an industrial
+   style. The document surface stays quiet. Avoid pure black and white to reduce
+   halation during long sessions.
    ========================================================================== */
 @theme {
 	--color-bg: #0b0c0d;
@@ -14,21 +14,20 @@
 	--color-border: #30302e;
 	--color-border-strong: #5a5348;
 
-	/* §B1.6 - Hiérarchie de gris ajustée pour respecter WCAG AA (4.5:1) sur
-	   le bg #0b0c0d même au niveau le plus subtil. Avant : fg-dim était à
-	   ~3.2:1 (échec AA texte normal). Maintenant tous les niveaux passent AA,
-	   fg-muted+ atteint AAA (7:1). La hiérarchie visuelle est préservée. */
+	/* §B1.6 - The gray scale meets WCAG AA (4.5:1) against #0b0c0d.
+	   Previously, fg-dim had a ratio of approximately 3.2:1. All levels now
+	   meet AA, and fg-muted meets AAA (7:1). */
 	--color-fg: #e6dfd1; /* ~14.8:1 AAA */
 	--color-fg-muted: #bbb1a2; /* ~9.3:1 AAA */
-	--color-fg-subtle: #9b9183; /* ~6.3:1 AA confortable */
+	--color-fg-subtle: #9b9183; /* ~6.3:1 AA */
 	--color-fg-dim: #998e7e; /* >4.8:1 on the lightest dark surface */
 
 	--color-accent: #c79a55;
 	--color-accent-dim: #896735;
 	--color-danger: #f07868;
-	/* §a11y - Avertissement (ex. lien disque « permission requise »). Token
-	   thème-aware : remplace les `text-amber-400` codés en dur qui échouaient
-	   WCAG 1.4.11 sur le thème clair (~1.5:1). Amber clair sur fond sombre. */
+	/* §a11y - Warning color, for example a disk link that needs permission.
+	   This theme token replaces text-amber-400, which failed WCAG 1.4.11 on
+	   the light theme with a ratio of approximately 1.5:1. */
 	--color-warning: #e2ad54;
 
 	--font-sans:
@@ -58,15 +57,13 @@
 }
 
 /* ==========================================================================
-   §2.1 - Thème clair (opt-in via le store ui/theme).
-   Le store résout la préférence `système` côté JS et pose sur <html> un
-   `data-theme` EFFECTIF (`light` | `dark`) - donc le CSS n'a qu'un seul jeu
-   d'overrides à porter (`[data-theme='light']`), `dark` restant le défaut
-   `@theme` ci-dessus. Pas de duplication en media-query : un seul listener
-   matchMedia (store) suffit à suivre les bascules système.
+   §2.1 - Light theme, enabled by the ui/theme store.
+   The store resolves the system preference and sets the effective `data-theme`
+   value on <html>. CSS only needs overrides for `[data-theme='light']` because
+   `dark` is the default. One matchMedia listener tracks system theme changes.
 
-   Palette claire calibrée pour le contraste WCAG AA (≥ 4.5:1) sur le bg clair
-   (#f0ede5), cohérente avec la hiérarchie de gris du thème sombre.
+   The light palette meets WCAG AA (4.5:1) against #f0ede5 and follows the dark
+   theme's gray scale.
    ========================================================================== */
 :root[data-theme='light'] {
 	color-scheme: light;
@@ -80,10 +77,10 @@
 
 	--color-fg: #231f1a; /* ~14:1 AAA */
 	--color-fg-muted: #4e473e; /* ~7.8:1 AAA */
-	--color-fg-subtle: #61594d; /* ~5.9:1 AA confortable */
+	--color-fg-subtle: #61594d; /* ~5.9:1 AA */
 	--color-fg-dim: #584f44; /* >5.2:1 on the darkest light surface */
 
-	--color-accent: #6f4e18; /* ~6.5:1 sur #f0ede5 */
+	--color-accent: #6f4e18; /* ~6.5:1 against #f0ede5 */
 	--color-accent-dim: #9b6c24;
 	--color-danger: #991b1b;
 	--color-warning: #7d5200;
@@ -126,7 +123,7 @@ body {
 	color: var(--color-fg);
 }
 
-/* Scrollbars - subtiles */
+/* Subtle scrollbars */
 ::-webkit-scrollbar {
 	width: 10px;
 	height: 10px;
@@ -156,8 +153,8 @@ body {
 	border-radius: var(--radius-xs);
 }
 
-/* Skip link - visible uniquement au focus clavier (WCAG 2.4.1 Bypass Blocks).
-   Cible le <main id="main"> existant dans +page.svelte. */
+/* Show the skip link only when it has keyboard focus (WCAG 2.4.1).
+   The link targets <main id="main"> in +page.svelte. */
 .skip-link {
 	position: absolute;
 	left: -9999px;
@@ -192,14 +189,11 @@ button:disabled {
 }
 
 /* ==========================================================================
-   Mode focus - masque toolbar/sidebar/statusbar pour sessions longues.
-   Coût attentionnel des éléments UI documenté (Mark 2008, UC Irvine) ; les
-   éléments périphériques réapparaissent au survol pour rester accessibles.
-   §B1.1 - `inert` (et son fallback `pointer-events: none`) retire ces
-   éléments du tab order quand focus mode est actif. Sans `inert`, Tab
-   continuait de visiter des éléments invisibles → focus disparu visuellement
-   et navigation clavier cassée. Le hover/focus-within les ramène avec un
-   `inert: false` posé en JS dans `+page.svelte`.
+   Focus mode hides the toolbar, sidebar, status bar, and table of contents.
+   These controls reappear on hover or focus. See Mark 2008, UC Irvine.
+   §B1.1 - `inert` removes hidden controls from the tab order. The
+   `pointer-events: none` rule is a fallback. +page.svelte removes `inert`
+   when the controls reappear.
    ========================================================================== */
 body.focus-mode :is(#app-toolbar, #files-panel, #app-statusbar, .mdsh-toc-col) {
 	opacity: 0;
@@ -213,13 +207,11 @@ body.focus-mode :is(#app-toolbar, #files-panel, #app-statusbar, .mdsh-toc-col):f
 }
 
 /* ==========================================================================
-   Mode typewriter - caret centrée verticalement (cf. iA Writer, Ulysses).
-   Padding vertical 50vh pousse le contenu pour que toutes les lignes (1ʳᵉ
-   incluse) soient atteignables au centre vertical de la zone d'édition.
-   En mode source, CodeMirror centre activement la ligne du caret via
-   l'extension `typewriterCompartment` (cf. SourceEditor.svelte). En mode
-   WYSIWYG (Milkdown / ProseMirror) on s'en tient au padding : un centrage
-   actif demanderait un plugin ProseMirror dédié - repoussé v2.
+   Typewriter mode centers the caret vertically, as in iA Writer and Ulysses.
+   A 50vh vertical padding lets each line reach the center of the editor.
+   In source mode, `typewriterCompartment` actively centers the caret line.
+   WYSIWYG mode uses padding because active centering needs a ProseMirror plugin.
+   Active WYSIWYG centering is deferred to version 2.
    ========================================================================== */
 body.typewriter-mode .mdsh-source-cm .cm-content {
 	padding-top: 50vh;
@@ -232,8 +224,8 @@ body.typewriter-mode .mdsh-editor {
 
 /* ==========================================================================
    BLACKSITE chrome
-   Une grille extrêmement faible structure les surfaces d'application. Elle
-   ne traverse jamais le document et disparaît en mode clair.
+   A faint grid structures the app surfaces. It does not cover the document,
+   and it is hidden in the light theme.
    ========================================================================== */
 .mdsh-shell {
 	position: relative;
@@ -381,7 +373,7 @@ body.typewriter-mode .mdsh-editor {
 }
 
 /* ==========================================================================
-   Accessibilité - respecter prefers-reduced-motion (WCAG 2.3.3 AAA)
+   Accessibility - honor prefers-reduced-motion (WCAG 2.3.3 AAA)
    ========================================================================== */
 @media (prefers-reduced-motion: reduce) {
 	*,
@@ -395,17 +387,14 @@ body.typewriter-mode .mdsh-editor {
 }
 
 /* ==========================================================================
-   Accessibilité - prefers-contrast: more
-   L'utilisateur a demandé au système un contraste accru (macOS "Augmenter le
-   contraste", Windows High Contrast Mode). On renforce les couleurs
-   secondaires qui étaient volontairement "soft" pour les sessions longues
-   (cf. tokens ci-dessus). Les tokens primaires (bg/fg/accent) sont déjà en
-   AAA, rien à changer côté texte principal.
+   Accessibility - prefers-contrast: more
+   The user requested more contrast in the operating system. Increase the
+   secondary colors. The primary background, foreground, and accent tokens
+   already meet AAA.
    ========================================================================== */
 @media (prefers-contrast: more) {
-	/* Thème sombre (défaut + `data-theme=dark`) : on pousse vers le blanc.
-	   Scopé `:not([data-theme='light'])` - sinon ces tokens (fg blanc) seraient
-	   appliqués au thème clair, rendant le texte invisible sur fond clair. */
+	/* Increase dark-theme contrast toward white. The selector excludes the
+	   light theme, where a white foreground would be invisible. */
 	:root:not([data-theme='light']) {
 		--color-fg: #ffffff;
 		--color-fg-muted: #c8c3b8;
@@ -416,7 +405,7 @@ body.typewriter-mode .mdsh-editor {
 		--color-accent: #9fffd0;
 		--color-warning: #ffd84d;
 	}
-	/* Thème clair en contraste accru : on pousse vers le noir + bordures nettes. */
+	/* Increase light-theme contrast toward black and use stronger borders. */
 	:root[data-theme='light'] {
 		--color-fg: #000000;
 		--color-fg-muted: #2a2d33;
@@ -430,10 +419,10 @@ body.typewriter-mode .mdsh-editor {
 }
 
 /* ==========================================================================
-   Fonts - stack système uniquement (zéro requête réseau, 100 % offline).
+   Fonts - use only the system stack. Do not make network requests.
    ========================================================================== */
 
-/* Couleurs de syntaxe lisibles sur toutes les surfaces du thème. */
+/* Keep syntax colors legible on all theme surfaces. */
 :root {
 	--syntax-comment: #aaa59b;
 	--syntax-keyword: #dba3eb;

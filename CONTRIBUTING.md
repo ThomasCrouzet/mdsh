@@ -1,6 +1,6 @@
 # Contributing to mdsh
 
-mdsh is a **solo-maintained, deliberately scoped, local-first** project. Contributions are welcome, while the offline and privacy boundaries remain intentionally narrow.
+mdsh is a solo-maintained, local-first project with a deliberate scope. Contributions must preserve its offline and privacy boundaries.
 
 **Welcome:**
 
@@ -8,14 +8,15 @@ mdsh is a **solo-maintained, deliberately scoped, local-first** project. Contrib
 - Accessibility improvements (contrast, keyboard, screen readers, `prefers-reduced-motion`).
 - Performance gains / bundle reduction (the `size-limit` budget is a hard gate).
 - Documentation, typo, and consistency fixes.
-- Translations: adding or fixing message strings in the i18n layer (`src/lib/i18n`, `en` and `fr` dictionaries) is welcome, as are new locales if you are willing to maintain them.
+- Translations in `src/lib/i18n`, including fixes to the `en` and `fr` dictionaries.
+- New locales when the contributor agrees to maintain them.
 
 **Out of scope (unless discussed first):**
 
 - Anything that adds a backend, an account, cloud sync, or telemetry.
 - Heavy new features that broaden the tool's reach.
 
-For a large PR or a feature, **open an issue first**: it is better to confirm the direction before investing time.
+Open an issue before you start a large change or feature.
 
 ## Setup
 
@@ -24,18 +25,18 @@ npm install --legacy-peer-deps   # required (Milkdown peer deps)
 npm run dev
 ```
 
-Node **22+** required (`package.json` `engines.node`). CI uses Node 22. `pnpm`/`yarn` untested.
+Use Node 22 or later, as specified by `engines.node` in `package.json`. CI uses Node 22. The project does not test `pnpm` or Yarn.
 
-Desktop development also needs Rust 1.97.1. Linux packaging uses `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, and `patchelf`. The exact Rust toolchain is in `rust-toolchain.toml`; `package-lock.json` and `src-tauri/Cargo.lock` are required inputs. Builds are not claimed to be bit-for-bit reproducible.
+Desktop development also needs Rust 1.97.1. Linux packaging needs `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, and `patchelf`. `rust-toolchain.toml` specifies the Rust toolchain. Builds require `package-lock.json` and `src-tauri/Cargo.lock`. The project does not claim bit-for-bit reproducible builds.
 
 ## Conventions
 
-- **Language** : docs and identifiers (variables, functions, files, classes) in English. Code comments are historically a mix of French and English; either is accepted, match the file you are editing.
-- **UI strings** : all user-facing text goes through the i18n layer (`src/lib/i18n`, with `en` and `fr` message dictionaries). English is the default locale; French is auto-detected from the browser on first launch and switchable in Settings. Never hard-code UI strings - add a message key to both dictionaries.
+- **Language**: Write documentation, comments, identifiers, file names, and class names in English. Use short, direct sentences and consistent technical terms. Write Conventional Commit messages in English.
+- **UI strings**: Put all user-facing text in `src/lib/i18n`. Add each message key to the `en` and `fr` dictionaries. English is the default. The first launch can detect French, and Settings can change the locale. Do not hard-code UI text.
 - **Svelte 5 runes required** (`$state`, `$derived`, `$effect`, `$props`) - no `$:` and no reactive `let`.
 - **TypeScript strict**, `checkJs` enabled.
 - **Tailwind 4**, dark by default + light / system theme (cf. `theme.ts`, `data-theme` attribute). Every color goes through the tokens (`--bg`, `--fg`, `--accent`…), never hard-coded, so it stays valid in both themes. No `text-align: justify` (WCAG 1.4.8).
-- **Offline-first** : system fonts and no app-initiated network request by default. Remote document images require explicit consent. The heavy libs (`marked`, `katex`, `highlight.js`, `mermaid`, `jszip`, `js-yaml`) are imported **dynamically** - never statically.
+- **Offline-first**: Use system fonts. Do not add an app-initiated network request by default. Remote document images require explicit consent. Import `marked`, `katex`, `highlight.js`, `mermaid`, `jszip`, and `js-yaml` dynamically. Do not import them statically.
 - **Browser guards** : any access to `window`/`document`/`localStorage`/`IndexedDB` must be inside `onMount` or guarded by `if (browser)`.
 - **A11y** : contrast ≥ 4.5:1 (text) / 3:1 (UI), `aria-label` on icon-only buttons, full keyboard navigation.
 
@@ -43,12 +44,14 @@ Additional conventions (module map, pitfalls, debugging recipes): see [docs/DEVE
 
 ## Workflow
 
-1. Fork + branch from `main`
-2. Before pushing : `npm run check && npm run lint && npm test && npm run build`
-3. For visual PRs : test in the browser (golden path + edge cases + focus mode + mobile DevTools)
-4. Open a PR against `main`. CI runs check, lint, tests, builds, accessibility audits, dependency review, security scans, and Lighthouse. Dependabot PRs are merged manually after the required checks so the normal post-merge deployment path always runs.
+1. Fork the repository and create a branch from `main`.
+2. Before you push, run `npm run check && npm run lint && npm test && npm run build`.
+3. For a visual change, test the golden path, edge cases, focus mode, and mobile layout in a browser.
+4. Open a pull request against `main`.
 
-lefthook hooks installed via `npm install` : `pre-commit` (prettier + eslint on staged) and `pre-push` (check + tests).
+CI runs check, lint, tests, builds, accessibility audits, dependency review, security scans, and Lighthouse. Merge Dependabot pull requests manually after required checks pass. This action starts the normal post-merge deployment.
+
+`npm install` installs lefthook hooks. `pre-commit` runs Prettier and ESLint on staged files. `pre-push` runs check and tests.
 
 ## Visual tests (snapshots)
 

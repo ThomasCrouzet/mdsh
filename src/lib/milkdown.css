@@ -1,11 +1,10 @@
 /* ==========================================================================
    Milkdown Crepe theme overrides - mdsh minimal dark
-   Surcharge les variables de @milkdown/crepe/theme/frame-dark.css pour
-   coller à la palette mdsh (noirs profonds, zéro bleu, accent subtil).
+   Override @milkdown/crepe/theme/frame-dark.css variables to use the mdsh
+   palette: deep blacks, no blue, and a subtle accent.
 
-   La typographie structurelle (headings, p, lists, code, tables, blockquotes,
-   images, liens) est factorisée dans `./styles/prose-base.css` - les règles
-   spécifiques au contexte Milkdown restent ici.
+   `./styles/prose-base.css` contains shared typography. This file only contains
+   rules for the Milkdown context.
    ========================================================================== */
 
 @import './styles/prose-base.css';
@@ -49,18 +48,15 @@ milkdown-editor,
 	margin: 0 auto;
 	min-height: 100%;
 	outline: none;
-	/* 17 px : proche des 18 px recommandés (Rello et al. 2016) tout en gardant
-	   une densité raisonnable. Les titres/code restent relatifs (em), donc la
-	   hiérarchie tient. */
+	/* Use 17 px for readable text and reasonable density, close to the 18 px recommended by Rello et al. 2016.
+	   Relative heading and code sizes preserve the hierarchy. */
 	font-size: 17px;
 	line-height: 1.65;
-	/* Compensation optique du poids en dark : le texte clair sur fond sombre
-	   paraît plus gras (halation). On descend légèrement en dessous de 400. */
+	/* Use a weight below 400 because light text appears heavier on a dark surface. */
 	font-weight: 380;
 	caret-color: var(--color-accent);
-	/* Isole les reflows du resize : le browser sait qu'un changement de
-	   max-width ne peut affecter que l'intérieur de ce conteneur. Grosse
-	   différence de fluidité sur documents longs (Milkdown/ProseMirror). */
+	/* Isolate resize layout changes inside this container. This improves
+	   performance for long Milkdown and ProseMirror documents. */
 	contain: layout style;
 }
 
@@ -71,7 +67,7 @@ milkdown-editor,
 	}
 }
 
-/* Code blocks (CodeMirror) - spécifique Milkdown */
+/* Milkdown code blocks use CodeMirror. */
 .milkdown .cm-editor {
 	background: var(--color-bg-1);
 	border: 1px solid var(--color-border);
@@ -92,12 +88,12 @@ milkdown-editor,
 	position: absolute;
 }
 
-/* Selection - override de la règle globale pour coller au thème accent. */
+/* Use the theme accent for selections. */
 .milkdown .ProseMirror ::selection {
 	background: color-mix(in oklab, var(--color-accent) 28%, transparent);
 }
 
-/* Toolbar / slash menu / tooltips - adoucissement */
+/* Soften toolbars, slash menus, and tooltips. */
 milkdown-slash-menu,
 milkdown-toolbar,
 milkdown-link-tooltip,
@@ -113,11 +109,10 @@ milkdown-image-block {
 
 /* ==========================================================================
    Preview Mermaid (live WYSIWYG) - §5.10
-   Le panneau `.preview-panel` est généré par le code-block component de
-   Crepe (cf. @milkdown/components/lib/code-block/index.js). Notre
-   `renderMermaidPreview` y injecte un `<div class="mdsh-mermaid-svg">…</div>`
-   contenant le SVG mermaid rendu. Styles communs (loading, erreur) hérités
-   du markdown render - on garde un look cohérent entre WYSIWYG et lecture.
+   The Crepe code-block component creates `.preview-panel`. See
+   @milkdown/components/lib/code-block/index.js. `renderMermaidPreview` inserts
+   the rendered Mermaid SVG in `<div class="mdsh-mermaid-svg">…</div>`. Shared loading and error
+   styles keep WYSIWYG and reading views consistent.
    ========================================================================== */
 .milkdown .preview-panel .mdsh-mermaid-svg {
 	display: flex;

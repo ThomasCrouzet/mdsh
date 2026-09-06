@@ -175,19 +175,14 @@ class FilesStore {
 	 * §M3 - Receives a message from ANOTHER tab (never from the sender:
 	 * BroadcastChannel does not echo back to itself → no loop).
 	 *
-	 * Conservative policy, no auto-merge:
-	 *  - `draft-written`: if the draft is loaded here AND not "dirty" (no local
-	 *    write pending), we reload its row from Dexie to reflect the other tab and
-	 *    NOT overwrite it. If it is dirty (real concurrent editing conflict), we do
-	 *    NOT reload (we would lose the local keystroke) but we notify the user of
-	 *    the conflict.
-	 *  - `removed`: if we still have the tab open and no local editing is in
-	 *    progress, we remove it from the view (the row no longer exists in base).
-	 *  - `reorder` / `backup-applied`: we resynchronize the whole state from Dexie
-	 *    via `reload()` (unless local editing is in progress, in which case we notify).
+	 * Use a conservative policy without automatic merge:
+	 *  - `draft-written`: reload a clean draft from Dexie. For a dirty draft,
+	 *    keep local edits and notify the user about the conflict.
+	 *  - `removed`: remove an open tab only when no local edit is active.
+	 *  - `reorder` and `backup-applied`: reload all state from Dexie. If a local
+	 *    edit is active, keep it and notify the user.
 	 *
-	 * Everything is defensive and fire-and-forget: this path must NEVER cause data
-	 * loss or a reload loop.
+	 * This fire-and-forget path must not cause data loss or a reload loop.
 	 */
 	private handleCrossTabMessage(msg: CrossTabMessage): void {
 		if (!browser) return;
@@ -277,7 +272,7 @@ class FilesStore {
 		if (!browser || this.loaded) return;
 		try {
 			const rows = await db.drafts.orderBy('order').toArray();
-			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Set transient local (jamais un $state)
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Transient local Set, never $state
 			const linkedIds = new Set<string>();
 			if (isFSASupported() || isDesktop()) {
 				// Promise.all: N handles/paths in parallel (avoids ~500 ms of sequential IDB blocking).
@@ -317,7 +312,7 @@ class FilesStore {
 			// §J1 - IndexedDB inaccessible (private browsing, storage disabled,
 			// corrupted profile): we do not abandon the app on a misleading empty
 			// screen ("no files"), we surface an actionable message.
-			reportError('chargement IndexedDB', err);
+			reportError('load IndexedDB', err);
 			this.loadError = t('files.loadError');
 		}
 	}
@@ -370,7 +365,7 @@ class FilesStore {
 			// recordVersion). Fire-and-forget: does not block the save; a history
 			// failure must not compromise the save.
 			void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
-				reportError('historique de version', err)
+				reportError('version history', err)
 			);
 			return toDraftRow(file, this.files.indexOf(file));
 		});
@@ -409,7 +404,7 @@ class FilesStore {
 		// state before closing could have never had a version. `recordVersion`
 		// handles its own throttle/dedup → no abusive duplicate. Fire-and-forget.
 		void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
-			reportError('historique de version', err)
+			reportError('version history', err)
 		);
 		return toDraftRow(file, openIndex >= 0 ? openIndex : this.files.length, openIndex >= 0);
 	}
@@ -713,9 +708,8 @@ class FilesStore {
 	}
 
 	/**
-	 * Cancels an optimistic restore when the Dexie transaction failed: the row
-	 * may still be only in `trashed`, so we re-queue it in the UI trash and
-	 * remove it from open tabs.
+	 * Cancels an optimistic restore after a failed Dexie transaction. Returns the
+	 * row to the UI trash and removes it from open tabs.
 	 */
 	private rollbackRestore(id: string, entry: TrashedFile, insertAt: number): void {
 		const fIdx = this.files.findIndex((f) => f.id === id);
@@ -945,11 +939,9 @@ class FilesStore {
 	}
 
 	/**
-	 * §2.6 - Cross-file replacement. Applies `replacement` to all occurrences of
-	 * `query` (according to `opts`) in all open files, via `updateContent` (which
-	 * marks dirty, schedules the save AND records a history snapshot → undoable via
-	 * the version history). Returns the number of affected files + occurrences, or
-	 * a regex error.
+	 * §2.6 - Replaces all matching text in open files. `updateContent` marks each
+	 * file as dirty, schedules a save, and records an undoable history snapshot.
+	 * Returns file and occurrence counts, or a regular expression error.
 	 */
 	async replaceInAll(
 		query: string,

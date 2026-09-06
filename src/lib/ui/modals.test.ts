@@ -49,7 +49,7 @@ describe('createModals', () => {
 		vi.clearAllMocks();
 	});
 
-	it('chaque open action positionne son état; les setters fonctionnent', () => {
+	it('sets state for each open action and setter', () => {
 		const { opts } = makeOpts();
 		const m = createModals(opts);
 		const pairs: [() => void, () => boolean][] = [
@@ -83,7 +83,7 @@ describe('createModals', () => {
 		}
 	});
 
-	it("handleOpenHit bascule en source + bufferise le hit quand on n'y est pas", () => {
+	it('queues a hit and selects source mode when required', () => {
 		const { opts, setActive } = makeOpts('wysiwyg');
 		const m = createModals(opts);
 		m.handleOpenHit('f1', 7, 'query');
@@ -92,7 +92,7 @@ describe('createModals', () => {
 		expect(opts.setMode).toHaveBeenCalledWith('source');
 	});
 
-	it('handleOpenHit appelle goToLine directement si déjà en mode source', () => {
+	it('calls goToLine directly in source mode', () => {
 		const { opts, setActive, goToLine } = makeOpts('source');
 		const m = createModals(opts);
 		m.handleOpenHit('f2', 3, 'q');
@@ -101,7 +101,7 @@ describe('createModals', () => {
 		expect(opts.setMode).not.toHaveBeenCalled();
 	});
 
-	it('un loader mémoïsé renvoie un composant et la même promesse au 2e appel', async () => {
+	it('returns one component and one promise from a memoized loader', async () => {
 		const { opts } = makeOpts();
 		const m = createModals(opts);
 		const p1 = m.loadToc();
@@ -111,7 +111,7 @@ describe('createModals', () => {
 		expect(Cmp).toBeTruthy();
 	});
 
-	it('charge chaque composant lourd uniquement à la demande', async () => {
+	it('loads each large component only on demand', async () => {
 		const { opts } = makeOpts();
 		const m = createModals(opts);
 		const importers = Object.values(heavyComponentMocks);

@@ -4,17 +4,17 @@ const e2ePort = process.env.E2E_PORT ?? '4173';
 const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
 
 /**
- * Config E2E Playwright - tests de scénarios utilisateur bout-en-bout.
- * Chromium : suite complète (FSA + golden-path + mobile).
- * WebKit   : golden-path uniquement (FSA non supportée hors Chromium).
+ * Playwright end-to-end tests for user workflows.
+ * Chromium: full suite (FSA, golden-path, and mobile).
+ * WebKit: selected workflows. FSA requires Chromium.
  */
 export default defineConfig({
 	testDir: './e2e',
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
-	// 2 retries en CI pour d'éventuels aléas CPU/réseau. Le seeding force désormais
-	// explicitement le mode source (cf. helpers.writeSourceContent) → plus de
-	// dépendance à la restauration asynchrone de `mdsh:mode`.
+	// Retry twice in CI for temporary CPU or network failures.
+	// Seed data in source mode through helpers.writeSourceContent.
+	// Do not depend on asynchronous restoration of `mdsh:mode`.
 	retries: process.env.CI ? 2 : 0,
 	workers: process.env.CI ? 1 : undefined,
 	reporter: process.env.CI ? [['github'], ['list']] : 'list',
@@ -22,25 +22,23 @@ export default defineConfig({
 		baseURL: e2eBaseUrl,
 		trace: 'on-first-retry',
 		screenshot: 'only-on-failure',
-		// The UI defaults to English (i18n layer) and auto-detects navigator.language.
-		// The e2e specs assert the French strings, so we pin the browser locale to fr-FR
-		// (English is covered by the i18n unit tests: en/fr key parity + default-locale).
+		// The UI defaults to English and detects navigator.language.
+		// These tests check French strings, so use fr-FR.
+		// i18n unit tests check the English default and en/fr key parity.
 		locale: 'fr-FR'
 	},
 	projects: [
 		{
 			name: 'chromium',
 			use: { ...devices['Desktop Chrome'] },
-			// Les specs mobile attendent le drawer Sidebar : on les exclut côté desktop.
+			// Mobile tests expect the Sidebar drawer. Exclude them from the desktop suite.
 			testIgnore: '**/mobile.spec.ts'
 		},
 		{
-			// Viewport mobile pour valider la Sidebar en drawer, les touch targets
-			// et la responsivité globale. Ne tourne QUE sur `mobile.spec.ts` -
-			// les autres parcours sont couverts par le projet desktop.
-			// On utilise Pixel 5 (et non iPhone 13) car ce profil a
-			// `defaultBrowserType: 'chromium'` ; la CI n'installe que Chromium
-			// via `npx playwright install --with-deps chromium`.
+			// Test the Sidebar drawer, touch targets, and responsive layout in mobile.spec.ts only.
+			// The desktop project covers the other paths.
+			// Pixel 5 uses `defaultBrowserType: chromium`; iPhone 13 does not.
+			// CI installs Chromium with `npx playwright install --with-deps chromium`.
 			name: 'mobile-chromium',
 			use: { ...devices['Pixel 5'] },
 			testMatch: '**/mobile.spec.ts'
@@ -61,8 +59,8 @@ export default defineConfig({
 	webServer: {
 		command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
 		url: e2eBaseUrl,
-		// Ne jamais réutiliser un serveur inconnu : un autre projet sur le même port
-		// ferait passer ou échouer les tests contre la mauvaise application.
+		// Do not reuse an unknown server.
+		// Another project on this port would make the tests check the wrong application.
 		reuseExistingServer: false,
 		timeout: 120_000,
 		stdout: 'pipe',

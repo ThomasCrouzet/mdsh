@@ -182,7 +182,7 @@ export interface SanitizeHtmlConfig {
 	FORBID_ATTR?: string[];
 }
 
-// Seules les propriétés locales de dessin et de texte du SVG généré sont reprises.
+// Copy only local paint and text properties from the generated SVG.
 const MERMAID_PAINT_PROPERTIES = new Set([
 	'fill',
 	'fill-opacity',
@@ -212,7 +212,7 @@ const MERMAID_PAINT_PROPERTIES = new Set([
 	'display'
 ]);
 
-/** Convertit uniquement le CSS du SVG généré, sans jamais l'appliquer à la page. */
+/** Converts only generated SVG CSS. Never applies it to the page. */
 export function inlineMermaidStyles(html: string): string {
 	const isolated = document.implementation.createHTMLDocument('');
 	const template = isolated.createElement('template');
@@ -227,13 +227,13 @@ export function inlineMermaidStyles(html: string): string {
 			const style = isolated.createElement('style');
 			style.textContent = source.textContent;
 			isolated.head.append(style);
-			// Le document détaché n'a ni contexte de navigation ni chargeur réseau.
+			// The detached document has no navigation context or network loader.
 			for (const rule of Array.from(style.sheet?.cssRules ?? [])) {
-				if (rule.type !== 1) continue; // Ignore @import, @font-face et règles imbriquées.
+				if (rule.type !== 1) continue; // Ignore @import, @font-face, and nested rules.
 				const css = rule as CSSStyleRule;
 				for (const selector of css.selectorText.split(',')) {
-					// Les sélecteurs Mermaid sont simples; les pseudo-classes complexes
-					// ne sont pas interprétées pour éviter une fausse spécificité.
+					// Mermaid selectors are simple. Ignore complex pseudo-classes to prevent
+					// an incorrect specificity value.
 					if (!/^[\w\s.#>+~*-]+$/.test(selector)) continue;
 					const specificity =
 						(selector.match(/#/g)?.length ?? 0) * 10_000 +
@@ -253,7 +253,7 @@ export function inlineMermaidStyles(html: string): string {
 						const rank = specificity + (priority === 'important' ? 1_000_000 : 0);
 						for (const node of nodes) {
 							if (!(node instanceof SVGElement)) continue;
-							// Les styles explicites du diagramme priment sur son thème.
+							// Explicit diagram styles have priority over the theme.
 							if (original.get(node)?.has(property)) continue;
 							const applied = ranks.get(node) ?? new Map<string, number>();
 							if ((applied.get(property) ?? -1) > rank) continue;
@@ -271,7 +271,7 @@ export function inlineMermaidStyles(html: string): string {
 	return template.innerHTML;
 }
 
-/** Refuse les médias avant que Mermaid ne crée ses nœuds temporaires connectés. */
+/** Rejects media before Mermaid creates connected temporary nodes. */
 export async function assertMermaidMediaSafe(code: string): Promise<void> {
 	const reject = () => {
 		throw new Error(t('read.mermaidUnsafeMedia'));
@@ -309,7 +309,7 @@ export async function assertMermaidMediaSafe(code: string): Promise<void> {
 		if (depth !== 0) reject();
 		const { load, JSON_SCHEMA } = await import('js-yaml');
 		const metadata = source.slice(start, end);
-		// Même schéma et emballage que FlowDB.addVertex de Mermaid.
+		// Use the same schema and wrapper as Mermaid FlowDB.addVertex.
 		const parsed: unknown = load(metadata.includes('\n') ? metadata + '\n' : '{' + metadata + '}', {
 			schema: JSON_SCHEMA
 		});
@@ -317,8 +317,8 @@ export async function assertMermaidMediaSafe(code: string): Promise<void> {
 	}
 }
 
-// Les deux consommateurs partagent la même file et réinitialisent ensemble le
-// singleton, pour qu'un export clair ne change pas un aperçu sombre concurrent.
+// Both consumers share this queue and reset the singleton together. This prevents
+// a light export from changing a concurrent dark preview.
 let mermaidQueue: Promise<unknown> = Promise.resolve();
 export function renderMermaidSvg(
 	id: string,

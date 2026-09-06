@@ -12,7 +12,7 @@ import {
 	Printer
 } from '@lucide/svelte';
 
-describe('compatibilité des composants Lucide utilisés par la barre d’outils', () => {
+describe('Lucide component compatibility in the toolbar', () => {
 	it.each([Menu, Download, Eye, Pencil, Code2, Command, HardDrive, HardDriveDownload, Printer])(
 		'rend un SVG décoratif avec une géométrie et les dimensions demandées',
 		(Icon) => {
@@ -26,7 +26,7 @@ describe('compatibilité des composants Lucide utilisés par la barre d’outils
 		}
 	);
 
-	it('conserve les props SVG et réagit aux changements de taille et de trait', async () => {
+	it('keeps SVG properties and applies size and stroke changes', async () => {
 		const { container, rerender } = render(Printer, {
 			props: {
 				size: 16,

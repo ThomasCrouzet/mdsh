@@ -1,8 +1,6 @@
-// Obsidian / Logseq style wiki-links: `[[File name]]`, `[[id-uuid]]`,
-// `[[Name|displayed alias]]`. Lets you navigate between mdsh files without
-// depending on the store on the renderer side (routing is delegated to the
-// component that displays the HTML: ReadView intercepts the click and calls
-// `filesStore.setActive` or creates the missing file - cf. ReadView.svelte).
+// Obsidian and Logseq style wiki links: `[[File name]]`, `[[id-uuid]]`, and
+// `[[Name|displayed alias]]`. ReadView handles navigation without adding a store
+// dependency to the renderer. It calls `filesStore.setActive` or creates the missing file.
 //
 // The module stays pure (zero store dependency, zero DOM) to remain lazy-load
 // friendly and easily testable.
@@ -10,11 +8,9 @@
 import { escapeHTML } from './file-utils';
 
 /**
- * ASCII-friendly slugify of a name: lowercase + strips diacritics + replaces
- * every non-alphanumeric character with `-`. Used to generate the
- * `#mdsh-wiki-{slug}` ids placed on the `<a>` tags; does NOT need to be
- * reversible (the actual resolution happens via `data-mdsh-wiki`, which holds
- * the raw name).
+ * Creates an ASCII slug: lowercases text, removes diacritics, and replaces
+ * nonalphanumeric characters with `-`. The slug identifies `<a>` anchors as `#mdsh-wiki-{slug}`.
+ * The slug need not be reversible. `data-mdsh-wiki` keeps the raw name for resolution.
  */
 export function slugify(s: string): string {
 	return s
@@ -34,20 +30,18 @@ export function escapeRegex(s: string): string {
 }
 
 /**
- * Pre-process: transforms `[[Target]]` and `[[Target|alias]]` into an HTML link.
- * Called BEFORE marked to guarantee stable behavior (custom marked extensions
- * interact badly with other extensions and GFM inline tokens).
+ * Converts `[[Target]]` and `[[Target|alias]]` to an HTML link before marked
+ * parses the text. This avoids conflicts between extensions and GFM tokens.
  *
  * The produced HTML:
  *   <a href="#mdsh-wiki-{slug}" data-mdsh-wiki="{encoded-target}" class="wiki-link">{label}</a>
  *
- * - `href`: internal anchor (never followed; the clickable component
- *   `e.preventDefault()`s and delegates to the store).
- * - `data-mdsh-wiki`: raw name encoded via `encodeURIComponent` for exact
- *   resolution by file name or file id - prevents DOMPurify / XSS filters from
- *   stripping the attribute when the value contains HTML-looking characters
- *   (e.g. `[[<weird>]]`). The reader side (ReadView) decodes via
- *   `decodeWikiTarget`.
+ * - `href`: internal anchor. The clickable component prevents navigation and
+ *   delegates to the store.
+ * - `data-mdsh-wiki`: raw name encoded with `encodeURIComponent` for exact
+ *   resolution by file name or file ID. Encoding prevents DOMPurify and XSS
+ *   filters from removing attributes with HTML-like values, such as `[[<weird>]]`.
+ *   ReadView decodes the value with `decodeWikiTarget`.
  * - `class="wiki-link"`: CSS hook + selector for the click handler.
  *
  * The label is HTML-escaped to avoid any injection if the name contains HTML

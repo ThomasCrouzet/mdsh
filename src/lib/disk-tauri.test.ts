@@ -239,7 +239,7 @@ describe('production adapter', () => {
 		expect(tauriMocks.invoke).not.toHaveBeenCalled();
 	});
 
-	it('partage le chargement paresseux entre deux ouvertures concurrentes', async () => {
+	it('shares one lazy load between two concurrent open operations', async () => {
 		tauriMocks.invoke.mockResolvedValue([]);
 		const [first, second] = await Promise.all([tauriPickAndOpen(), tauriPickAndOpen()]);
 		expect(first.files).toEqual([]);
@@ -248,8 +248,8 @@ describe('production adapter', () => {
 	});
 });
 
-describe('budgets natifs avant lecture', () => {
-	it('refuse fichier et lot trop grands avant leur commande readFile', async () => {
+describe('native limits before reads', () => {
+	it('rejects an oversized file and batch before readFile', async () => {
 		const grants = Array.from({ length: 6 }, (_, index) => ({
 			...grant(`/tmp/${index}.md`),
 			stat: { ...meta(), size: index === 0 ? 16 * 1024 * 1024 + 1 : 16 * 1024 * 1024 }
@@ -263,7 +263,7 @@ describe('budgets natifs avant lecture', () => {
 		expect(result.failed).toBe(2);
 		expect(result.report?.issues.map((issue) => issue.reason)).toEqual(['file-size', 'batch-size']);
 	});
-	it('contrôle un grant sans métadonnées et refuse les fichiers disparus', async () => {
+	it('checks a grant without metadata and rejects missing files', async () => {
 		const io = mockIo();
 		setTauriDiskIoForTests(io);
 		const result = await tauriOpenNativeGrants([{ ...grant('/tmp/missing.md'), stat: null }]);
@@ -271,7 +271,7 @@ describe('budgets natifs avant lecture', () => {
 		expect(io.stat).toHaveBeenCalled();
 		expect(io.readFile).not.toHaveBeenCalled();
 	});
-	it('refuse croissance et contenu binaire entre stat et read', async () => {
+	it('rejects growth and binary content between stat and read', async () => {
 		const io = mockIo({
 			readFile: vi
 				.fn()
@@ -284,7 +284,7 @@ describe('budgets natifs avant lecture', () => {
 		expect(result.files).toEqual([]);
 		expect(result.report?.issues.map((issue) => issue.reason)).toEqual(['file-size', 'binary']);
 	});
-	it('ignore une réponse native après annulation et ne lit pas le suivant', async () => {
+	it('ignores a native response after cancellation and does not read the next file', async () => {
 		const controller = new AbortController();
 		const io = mockIo({
 			readFile: vi.fn(async () => {
@@ -300,7 +300,7 @@ describe('budgets natifs avant lecture', () => {
 		expect(io.readFile).toHaveBeenCalledOnce();
 		expect(result.report).toMatchObject({ cancelled: true, failed: 0 });
 	});
-	it('ignore aussi une erreur de lecture reçue après annulation', async () => {
+	it('ignores a read error received after cancellation', async () => {
 		const controller = new AbortController();
 		const io = mockIo({
 			readFile: vi.fn(async () => {
@@ -317,8 +317,8 @@ describe('budgets natifs avant lecture', () => {
 	});
 });
 
-describe('branches de garde natives', () => {
-	it('ne lance aucune lecture lorsque le lot est déjà annulé', async () => {
+describe('native guard paths', () => {
+	it('does not start a read when the batch is canceled', async () => {
 		const controller = new AbortController();
 		controller.abort();
 		const io = mockIo();
@@ -327,7 +327,7 @@ describe('branches de garde natives', () => {
 		expect(result).toMatchObject({ files: [], failed: 0, report: { cancelled: true } });
 		expect(io.readFile).not.toHaveBeenCalled();
 	});
-	it('refuse une croissance qui ferait dépasser le budget cumulé de 64 Mio', async () => {
+	it('rejects growth that exceeds the 64 MiB total limit', async () => {
 		const mib = 1024 * 1024;
 		const grants = [15, 15, 15, 15, 4].map((size, index) => ({
 			...grant(`/tmp/${index}.md`),
@@ -344,7 +344,7 @@ describe('branches de garde natives', () => {
 		expect(result.report?.issues.at(-1)?.reason).toBe('batch-size');
 		expect(readFile).toHaveBeenCalledTimes(5);
 	});
-	it('n’enregistre pas une capacité vide et convertit une stat native absente', async () => {
+	it('does not store an empty capability and maps missing native stat data', async () => {
 		const io = mockIo();
 		setTauriDiskIoForTests(io);
 		await tauriOpenNativeGrants([{ token: '', path: '/tmp/empty.md', stat: meta() }]);
@@ -383,7 +383,7 @@ describe('branches de garde natives', () => {
 			}
 		}
 	);
-	it('écrit un export binaire sans révision via le repli FileReader', async () => {
+	it('writes a binary export without a revision through FileReader', async () => {
 		const writeBytes = vi.fn(async () => meta('sha256:written'));
 		const io = mockIo({
 			saveExportGrant: vi.fn(async () => ({ ...grant('/tmp/out.pdf'), stat: null })),

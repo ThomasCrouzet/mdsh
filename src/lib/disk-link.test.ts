@@ -8,11 +8,11 @@ import {
 } from './disk-link';
 
 describe('isPathLinkRecord', () => {
-	it('accepte un enregistrement path valide', () => {
+	it('accepts a valid path record', () => {
 		expect(isPathLinkRecord({ kind: 'path', path: '/tmp/a.md' })).toBe(true);
 	});
 
-	it('rejette un handle FSA ou un objet invalide', () => {
+	it('rejects an FSA handle and invalid objects', () => {
 		expect(isPathLinkRecord({})).toBe(false);
 		expect(isPathLinkRecord({ kind: 'path', path: '' })).toBe(false);
 		expect(isPathLinkRecord(null)).toBe(false);
@@ -21,52 +21,52 @@ describe('isPathLinkRecord', () => {
 });
 
 describe('pathBasename', () => {
-	it('extrait le dernier segment POSIX', () => {
+	it('gets the last POSIX segment', () => {
 		expect(pathBasename('/Users/me/notes/hello.md')).toBe('hello.md');
 	});
 
-	it('extrait le dernier segment Windows', () => {
+	it('gets the last Windows segment', () => {
 		expect(pathBasename('C:\\Users\\me\\notes\\hello.md')).toBe('hello.md');
 	});
 
-	it('retourne le path entier s il n y a pas de separateur', () => {
+	it('returns the full path when it has no separator', () => {
 		expect(pathBasename('solo.md')).toBe('solo.md');
 	});
 });
 
 describe('isMarkdownDiskPath', () => {
-	it('accepte md markdown mdx txt', () => {
+	it('accepts md, markdown, mdx, and txt extensions', () => {
 		expect(isMarkdownDiskPath('/a/b.md')).toBe(true);
 		expect(isMarkdownDiskPath('C:\\x\\y.markdown')).toBe(true);
 		expect(isMarkdownDiskPath('z.MDX')).toBe(true);
 		expect(isMarkdownDiskPath('n.txt')).toBe(true);
 	});
 
-	it('rejette les autres extensions', () => {
+	it('rejects other extensions', () => {
 		expect(isMarkdownDiskPath('/a/b.pdf')).toBe(false);
 		expect(isMarkdownDiskPath('/a/b')).toBe(false);
 	});
 });
 
 describe('pathLinkRecord', () => {
-	it('construit le record stockable en IDB', () => {
+	it('creates a record for IndexedDB storage', () => {
 		expect(pathLinkRecord('/tmp/x.md')).toEqual({ kind: 'path', path: '/tmp/x.md' });
 	});
 });
 
 describe('ensureMarkdownDiskPath', () => {
-	it('laisse intact un path avec extension markdown autorisee', () => {
+	it('keeps a path with an allowed Markdown extension', () => {
 		expect(ensureMarkdownDiskPath('/tmp/note.md')).toBe('/tmp/note.md');
 		expect(ensureMarkdownDiskPath('/tmp/note.markdown')).toBe('/tmp/note.markdown');
 		expect(ensureMarkdownDiskPath('C:\\notes\\a.txt')).toBe('C:\\notes\\a.txt');
 	});
 
-	it('ajoute .md quand le dialogue renvoie un nom sans extension', () => {
+	it('adds .md when the dialog returns a name without an extension', () => {
 		expect(ensureMarkdownDiskPath('/tmp/note')).toBe('/tmp/note.md');
 		expect(ensureMarkdownDiskPath('/Users/me/Draft')).toBe('/Users/me/Draft.md');
 	});
 
-	it('ajoute .md pour une extension non autorisee (pdf)', () => {
+	it('adds .md after a disallowed extension', () => {
 		// Save dialog filters already restrict, but a bare weird path still needs a writeable ext.
 		expect(ensureMarkdownDiskPath('/tmp/x.pdf')).toBe('/tmp/x.pdf.md');
 	});

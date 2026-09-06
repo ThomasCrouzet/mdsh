@@ -1,9 +1,8 @@
 name: gitleaks
 
-# Détection de secrets sur tout l'historique (mode git), via l'image Docker
-# officielle épinglée : même convention que le job "secrets" de CREAJ, sans
-# action tierce à version mutable. Les faux positifs ciblés se neutralisent
-# dans le fichier .gitleaks.toml à la racine du dépôt.
+# Scan the full Git history for secrets with the pinned official Docker image.
+# This follows the CREAJ secrets job convention without a mutable third-party action.
+# Add specific false-positive exclusions to .gitleaks.toml in the repository root.
 on:
   push:
     branches: [main, master]
@@ -27,7 +26,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: gitleaks (image épinglée)
+      - name: gitleaks (pinned image)
         run: |
           # ghcr.io/gitleaks/gitleaks:v8.30.1
           docker run --rm -v "$PWD":/repo ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \

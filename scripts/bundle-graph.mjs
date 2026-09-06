@@ -12,7 +12,7 @@ export function staticClosure(chunks, roots) {
 		const filename = pending.pop();
 		if (!filename || seen.has(filename)) continue;
 		const chunk = chunks[filename];
-		if (!chunk) throw new Error(`Dépendance absente du graphe : ${filename}`);
+		if (!chunk) throw new Error(`Dependency missing from the graph: ${filename}`);
 		seen.add(filename);
 		pending.push(...chunk.imports);
 	}
@@ -49,7 +49,7 @@ export function bundleGraphPlugin() {
 				};
 			}
 			if (!Object.keys(chunks).length) return;
-			// Le manifeste contient uniquement les fichiers produits et leurs arêtes.
+			// The manifest contains only output files and their graph edges.
 			const modes = {
 				read: ['/src/lib/render/markdown.ts'],
 				source: [
@@ -76,7 +76,7 @@ export function bundleGraphPlugin() {
 						)
 					)
 					.map((chunk) => chunk.fileName);
-				if (!roots[mode].length) throw new Error(`Racine de mode absente : ${mode}`);
+				if (!roots[mode].length) throw new Error(`Mode root is missing: ${mode}`);
 			}
 			const graph = Object.fromEntries(
 				Object.entries(chunks).map(([name, chunk]) => [name, { imports: chunk.imports }])
@@ -98,9 +98,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 	const budgets = JSON.parse(readFileSync('.bundle-budgets.json', 'utf8'));
 	let failed = false;
 	for (const [mode, limit] of Object.entries(budgets)) {
-		if (!roots[mode]?.length) throw new Error(`Budget sans racine : ${mode}`);
+		if (!roots[mode]?.length) throw new Error(`Budget has no root: ${mode}`);
 		const result = measureGraph(chunks, roots[mode], (file) => readFileSync(resolve(root, file)));
-		console.log(`${mode}: ${result.files} JS, ${result.gzip} octets gzip / ${limit}`);
+		console.log(`${mode}: ${result.files} JS, ${result.gzip} gzip bytes / ${limit}`);
 		if (result.gzip > Number(limit)) failed = true;
 	}
 	if (failed) process.exitCode = 1;

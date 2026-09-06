@@ -53,14 +53,14 @@ async function capturePrint(page: Page) {
 	return () => captured;
 }
 
-test.describe('Images durables et export PDF', () => {
+test.describe('Durable images and PDF export', () => {
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page, { mode: 'wysiwyg' });
 		await createFirstFile(page);
 		await visualEditor(page);
 	});
 
-	test('upload réel, pixels, rechargement et image 192x192 dans le PDF', async ({
+	test('keeps uploaded pixels after reload and exports a 192x192 PDF image', async ({
 		page,
 		browser
 	}, testInfo) => {
@@ -129,7 +129,7 @@ test.describe('Images durables et export PDF', () => {
 		await testInfo.attach('uploaded-image-pdf', { path: pdfPath, contentType: 'application/pdf' });
 	});
 
-	test('collage et drop produisent des images visibles puis persistées', async ({ page }) => {
+	test('shows and persists images from paste and drop actions', async ({ page }) => {
 		const base64 = (await readFile(imagePath)).toString('base64');
 		await page.locator('.ProseMirror').click();
 		await page.evaluate((encoded) => {
@@ -161,7 +161,7 @@ test.describe('Images durables et export PDF', () => {
 		await expectDecodedImage(page, '.milkdown-image-block img', 2);
 	});
 
-	test('aucune requête avant consentement puis incorporation réutilisée par tous les modes', async ({
+	test('waits for consent before a request and reuses the embedded image in all modes', async ({
 		page
 	}) => {
 		let requests = 0;
@@ -191,7 +191,7 @@ test.describe('Images durables et export PDF', () => {
 		expect(requests).toBe(1);
 	});
 
-	test('incorpore une image voisine sélectionnée explicitement', async ({ page }) => {
+	test('embeds an explicitly selected adjacent image', async ({ page }) => {
 		await writeSourceContent(page, '![Figure locale](<images/figure été.png> "Légende")');
 		await page.locator('button[data-mode="read"]').click();
 		const fileChooser = page.waitForEvent('filechooser');
@@ -210,7 +210,7 @@ test.describe('Images durables et export PDF', () => {
 		await expect(page.locator('.cm-content')).toContainText('data:image/png;base64,');
 	});
 
-	test('le HTML téléchargé conserve une data URI et une image relative incorporée hors ligne', async ({
+	test('keeps a data URI and an offline relative image in downloaded HTML', async ({
 		page,
 		browser
 	}, testInfo) => {

@@ -6,8 +6,8 @@ beforeEach(() => {
 	keyboardStore.overrides = {};
 });
 
-describe('personnalisation des raccourcis', () => {
-	it('persiste et recharge un raccourci valide, puis le réinitialise', () => {
+describe('shortcut customization', () => {
+	it('persists, reloads, and resets a valid shortcut', () => {
 		expect(keyboardStore.set('palette', { key: ';', shift: false })).toBeNull();
 		expect(keyboardStore.label('palette')).toContain(';');
 		keyboardStore.overrides = {};
@@ -16,13 +16,13 @@ describe('personnalisation des raccourcis', () => {
 		expect(keyboardStore.reset()).toBeNull();
 		expect(keyboardStore.binding('palette')).toEqual({ key: 'p', shift: true });
 	});
-	it('refuse doublons, combinaisons réservées et valeurs invalides', () => {
+	it('rejects duplicates, reserved combinations, and invalid values', () => {
 		expect(keyboardStore.set('palette', { key: 'f', shift: true })).toBe('duplicate');
 		expect(keyboardStore.set('palette', { key: 'p', shift: true })).toBe('reserved');
 		expect(keyboardStore.set('palette', { key: 'Escape', shift: false })).toBe('invalid');
 		expect(keyboardStore.set('unknown', null)).toBe('invalid');
 	});
-	it('ignore les préférences corrompues et les commandes inconnues', () => {
+	it('ignores invalid preferences and unknown commands', () => {
 		localStorage.setItem(
 			keyboardStore.storageKey,
 			JSON.stringify({
@@ -34,7 +34,7 @@ describe('personnalisation des raccourcis', () => {
 		keyboardStore.load();
 		expect(keyboardStore.overrides).toEqual({});
 	});
-	it('désactive une commande et annonce les changements', () => {
+	it('disables a command and reports changes', () => {
 		const listener = vi.fn();
 		window.addEventListener('mdsh:shortcuts-change', listener);
 		try {
@@ -45,12 +45,12 @@ describe('personnalisation des raccourcis', () => {
 			window.removeEventListener('mdsh:shortcuts-change', listener);
 		}
 	});
-	it('distingue les réservations web et desktop', () => {
+	it('separates web and desktop reservations', () => {
 		expect(isReservedShortcut({ key: 'p', shift: true }, false)).toBe(true);
 		expect(isReservedShortcut({ key: 'p', shift: true }, true)).toBe(false);
 		expect(isReservedShortcut({ key: 'c', shift: false }, true)).toBe(true);
 	});
-	it('conserve la configuration si le stockage échoue', () => {
+	it('keeps the configuration after a storage failure', () => {
 		const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
 			throw new Error('quota');
 		});

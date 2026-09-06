@@ -3,64 +3,57 @@ import { resetAppState, createFirstFile } from './helpers';
 
 test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 	test.beforeEach(async ({ page }) => {
-		// `resetAppState` force par défaut le mode source : CodeMirror est
-		// donc visible dès le début, pas de bascule WYSIWYG → source à gérer.
+		// `resetAppState` selects source mode by default, so CodeMirror is visible.
 		await resetAppState(page);
 		await createFirstFile(page);
 	});
 
-	test('⌘F ouvre le panel CodeMirror et matche un motif', async ({ page }) => {
-		// Garantit explicitement le mode source par un clic idempotent, au lieu de
-		// dépendre de la restauration asynchrone de `mdsh:mode` au reload : sous
-		// charge CI, l'app peut rester en WYSIWYG (Milkdown) → `.cm-content`
-		// n'apparaît JAMAIS et le test timeout (vraie cause de la flakiness, pas
-		// la lenteur). Même pattern robuste que helpers.writeSourceContent.
+	test('opens the CodeMirror search panel and matches a pattern with ⌘F', async ({ page }) => {
+		// Select source mode with an idempotent click. Do not depend on async mode
+		// restoration after reload. Under CI load, the app can stay in WYSIWYG mode
+		// and never show `.cm-content`.
 		const sourceBtn = page.locator('button[data-mode="source"]');
 		if (await sourceBtn.count()) await sourceBtn.click();
 		const cm = page.locator('.cm-content').first();
 		await expect(cm).toBeVisible({ timeout: 15_000 });
 
-		// Tape un contenu avec deux occurrences de "foo"
+		// Enter content with two occurrences of "foo".
 		await cm.click();
 		await page.keyboard.type('# Hello');
 		await page.keyboard.press('Enter');
 		await page.keyboard.press('Enter');
 		await page.keyboard.type('foo bar foo baz');
 
-		// Debounce save (400 ms) + marge - pas critique pour ce test mais
-		// évite les courses avec d'autres effets.
+		// Wait for the 400 ms save delay and a margin to prevent effect races.
 		await page.waitForTimeout(500);
 
-		// Détermine le modificateur en fonction de la plateforme (Meta sur
-		// macOS, Control ailleurs).
+		// Use Meta on macOS and Control on other platforms.
 		const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 		await page.keyboard.press(`${mod}+f`);
 
-		// Le panel CodeMirror s'affiche dans `.cm-panels` (rendu en bas par
-		// défaut avec `top: false`). L'input principal a `name="search"`.
+		// CodeMirror renders the panel in `.cm-panels` at the bottom by default.
+		// The main input has `name="search"`.
 		const panel = page.locator('.cm-panels');
 		await expect(panel).toBeVisible({ timeout: 5000 });
 
 		const searchInput = panel.locator('input[name="search"]');
 		await expect(searchInput).toBeVisible();
-		// Tape via le clavier (l'input est focused à l'ouverture) plutôt que
-		// `fill()` - fill remplace la value sans déclencher tous les
-		// handlers CM, et la query peut ne pas se propager.
+		// Type with the keyboard because the input has focus. `fill()` does not call
+		// all CodeMirror handlers and can fail to apply the query.
 		await page.keyboard.type('foo');
 
-		// Les matches sont stylés en `.cm-searchMatch` (Decoration.mark).
+		// CodeMirror marks matches with `.cm-searchMatch`.
 		await expect(page.locator('.cm-searchMatch')).toHaveCount(2, { timeout: 5000 });
 
-		// Esc ferme le panel
+		// Escape closes the panel.
 		await page.keyboard.press('Escape');
 		await expect(panel).toHaveCount(0, { timeout: 5000 });
 	});
 
-	test('⌘F en mode WYSIWYG bascule en mode source et ouvre le panel', async ({ page }) => {
-		// Bascule en WYSIWYG via le radio toolbar (sémantique radiogroup) -
-		// déterministe et évite les conflits keyboard.
+	test('changes from WYSIWYG to source mode and opens search with ⌘F', async ({ page }) => {
+		// Select WYSIWYG from the toolbar radio group.
 		await page.getByRole('radio', { name: 'Mode WYSIWYG' }).click();
-		// Milkdown lazy-load - attendre que ProseMirror soit monté.
+		// Wait for the lazy Milkdown module to mount ProseMirror.
 		await expect(page.locator('.milkdown, .ProseMirror').first()).toBeVisible({
 			timeout: 15_000
 		});
@@ -68,8 +61,7 @@ test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 		const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 		await page.keyboard.press(`${mod}+f`);
 
-		// La bascule doit nous ramener en mode source (CodeMirror visible)
-		// et le panel search doit être ouvert dans la foulée.
+		// The shortcut must show CodeMirror in source mode and open its search panel.
 		await expect(page.locator('.cm-content').first()).toBeVisible({ timeout: 10_000 });
 		await expect(page.locator('.cm-panels')).toBeVisible({ timeout: 5000 });
 		await expect(page.locator('.cm-panels input[name="search"]')).toBeFocused({

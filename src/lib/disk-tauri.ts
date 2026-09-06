@@ -9,9 +9,9 @@ import { IMPORT_LIMITS } from './config';
 /**
  * Opaque-capability disk I/O for the Tauri desktop shell.
  *
- * Native Rust dialogs are the only source of capabilities. The webview sees a
- * display path but can invoke read, stat and write operations only with the
- * unguessable token returned by Rust for the current process session.
+ * Native Rust dialogs create all capabilities. The webview displays the path.
+ * It can read, inspect, or write only with the unguessable token from Rust.
+ * The token is valid only for the current process session.
  */
 
 import { pathBasename, isMarkdownDiskPath, type PathLinkRecord, pathLinkRecord } from './disk-link';

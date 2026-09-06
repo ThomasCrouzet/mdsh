@@ -18,18 +18,18 @@ const config = {
 			base: dev ? '' : repoBase
 		},
 		prerender: {
-			// ssr = false : l'HTML statique ne contient que la coquille d'hydratation,
-			// les ancres internes (#main du skip link) sont résolues après hydratation.
+			// With ssr = false, static HTML contains only the hydration shell.
+			// Internal anchors, including the #main skip link, resolve after hydration.
 			handleMissingId: 'ignore'
 		},
 		csp: {
 			mode: 'hash',
 			directives: {
 				'default-src': ['self'],
-				// No 'wasm-unsafe-eval': no runtime dependency instantiates
-				// WebAssembly (checked on mermaid 11.16, katex, highlight.js).
-				// The e2e Mermaid/KaTeX render tests run against the built app,
-				// where this CSP applies - they gate a future WASM consumer.
+				// No runtime dependency creates WebAssembly instances (checked with mermaid 11.16, katex, and highlight.js).
+				// Do not add wasm-unsafe-eval.
+				// Mermaid/KaTeX e2e tests use the built app with this CSP.
+				// They check whether a future dependency needs WebAssembly.
 				'script-src': ['self'],
 				'style-src': ['self', 'unsafe-inline'],
 				'font-src': ['self', 'data:'],
@@ -39,12 +39,12 @@ const config = {
 				'worker-src': ['self', 'blob:'],
 				'base-uri': ['self'],
 				'form-action': ['none'],
-				// Bloque toute iframe (pas de `<iframe>` dans l'app ; Mermaid
-				// `securityLevel: 'strict'` sandboxe les siennes sans passer par CSP).
+				// Block iframes. The app does not need them.
+				// Mermaid uses its own sandbox with `securityLevel: strict`, independently of CSP.
 				'frame-src': ['none'],
-				// Empêche l'embed de mdsh dans un site tiers (clickjacking).
+				// Prevent third-party sites from embedding mdsh (clickjacking).
 				'frame-ancestors': ['none'],
-				// Bloque `<object>`/`<embed>`/`<applet>` - aucun besoin.
+				// Block `<object>`, `<embed>`, and `<applet>`. The app does not need them.
 				'object-src': ['none']
 			}
 		}

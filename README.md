@@ -8,7 +8,7 @@
 
 [Try web app](https://thomascrouzet.github.io/mdsh/) | [Install PWA](docs/USER_GUIDE.md#install-the-pwa) | [Download Desktop Beta](https://github.com/ThomasCrouzet/mdsh/releases) | [User guide](docs/USER_GUIDE.md) | [Contribute](CONTRIBUTING.md)
 
-The BLACKSITE interface uses graphite surfaces, warm ivory text, and restrained amber instrumentation. Light, dark, and system themes are available; system is the initial preference.
+The BLACKSITE interface uses graphite surfaces, warm ivory text, and subtle amber indicators. Choose the light, dark, or system theme. The initial setting follows the system.
 
 ![WYSIWYG editing, source mode, the command palette, the link graph and a wiki-link click](docs/demo.gif)
 
@@ -25,21 +25,21 @@ The BLACKSITE interface uses graphite surfaces, warm ivory text, and restrained 
 
 ## Browser and desktop support
 
-| Capability | Chromium | Firefox | Safari / WebKit | Tauri Desktop Beta |
-| --- | --- | --- | --- | --- |
-| Edit, read, search, export | Tested | Golden path tested | Golden path tested | Same static application |
-| Offline PWA shell | Tested | Browser-dependent install UX | Browser-dependent install UX | Bundled locally |
-| Direct save back to an opened path | File System Access API | Download fallback | Download fallback | Native capability token |
-| Remote Markdown images | Blocked until explicit per-document consent | Same | Same | Same |
-| Native installers | Not applicable | Not applicable | Not applicable | Unsigned beta, OS warnings may appear |
+| Capability                         | Chromium                                    | Firefox                      | Safari / WebKit              | Tauri Desktop Beta                    |
+| ---------------------------------- | ------------------------------------------- | ---------------------------- | ---------------------------- | ------------------------------------- |
+| Edit, read, search, export         | Tested                                      | Golden path tested           | Golden path tested           | Same static application               |
+| Offline PWA shell                  | Tested                                      | Browser-dependent install UX | Browser-dependent install UX | Bundled locally                       |
+| Direct save back to an opened path | File System Access API                      | Download fallback            | Download fallback            | Native capability token               |
+| Remote Markdown images             | Blocked until explicit per-document consent | Same                         | Same                         | Same                                  |
+| Native installers                  | Not applicable                              | Not applicable               | Not applicable               | Unsigned beta, OS warnings may appear |
 
 Desktop downloads are published separately as prerelease Desktop Beta artifacts. They are not notarized on macOS or signed for Windows. Each beta release includes checksums, npm and Cargo SBOMs, and build provenance. Verify those files before installation.
 
 ## Local data and backups
 
-Drafts are saved to IndexedDB after a 400 ms debounce. A failed write remains visible and blocks backup, restore, workspace replacement, and other durability-sensitive actions. The app also flushes when the page becomes hidden, but no browser can guarantee the final keystrokes survive a process kill or device failure.
+The app saves drafts to IndexedDB after a 400 ms debounce. A failed write stays visible. It blocks backup, restore, workspace replacement, and other actions that depend on saved data. The app also saves when the page becomes hidden. But a process kill or device failure can lose the final keystrokes.
 
-IndexedDB is still one local storage domain, not a backup. Export backups regularly from Settings. The JSON backup includes drafts, workspaces, and custom templates. It excludes trash, version history, browser file handles, and native path capabilities. See the [user guide](docs/USER_GUIDE.md#backups-and-storage-health).
+IndexedDB is one local storage area. It is not a backup. Export backups regularly from Settings. The JSON backup includes drafts, workspaces, and custom templates. It excludes trash, version history, browser file handles, and native path capabilities. See the [user guide](docs/USER_GUIDE.md#backups-and-storage-health).
 
 ## Privacy model
 
@@ -53,13 +53,13 @@ IndexedDB is still one local storage domain, not a backup. Export backups regula
 
 On Windows and Linux, the displayed Command shortcuts become Control shortcuts.
 
-| Shortcut | Action |
-| --- | --- |
-| `Cmd+N`, `Cmd+O`, `Cmd+S`, `Cmd+Shift+S` | New, open, export Markdown, save to disk |
-| `Cmd+P`, `Cmd+,` | Export PDF, settings |
-| `Cmd+E`, `Cmd+R`, `Cmd+/` | WYSIWYG, reading, source |
-| `Cmd+B`, `Cmd+W`, `Cmd+Shift+.` | Sidebar, close tab, focus mode |
-| `Cmd+Shift+P`, `Cmd+F`, `Cmd+Shift+F` | Palette, in-file search, cross-file search |
+| Shortcut                                 | Action                                     |
+| ---------------------------------------- | ------------------------------------------ |
+| `Cmd+N`, `Cmd+O`, `Cmd+S`, `Cmd+Shift+S` | New, open, export Markdown, save to disk   |
+| `Cmd+P`, `Cmd+,`                         | Export PDF, settings                       |
+| `Cmd+E`, `Cmd+R`, `Cmd+/`                | WYSIWYG, reading, source                   |
+| `Cmd+B`, `Cmd+W`, `Cmd+Shift+.`          | Sidebar, close tab, focus mode             |
+| `Cmd+Shift+P`, `Cmd+F`, `Cmd+Shift+F`    | Palette, in-file search, cross-file search |
 
 ## Scope and limits
 
@@ -81,6 +81,6 @@ npm run build
 
 The stack is SvelteKit 2, Svelte 5 runes, strict TypeScript, Milkdown, CodeMirror, Dexie, Tailwind CSS, Vite PWA, and Tauri 2. Heavy rendering libraries remain behind dynamic imports and blocking bundle budgets.
 
-Architecture decisions are documented in [ARCHITECTURE.md](ARCHITECTURE.md). Setup and contribution policy are in [CONTRIBUTING.md](CONTRIBUTING.md). Support is described in [SUPPORT.md](SUPPORT.md).
+Read [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions, [CONTRIBUTING.md](CONTRIBUTING.md) for setup and contribution policy, and [SUPPORT.md](SUPPORT.md) for support.
 
 License: [MIT](LICENSE). Redistributed asset notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

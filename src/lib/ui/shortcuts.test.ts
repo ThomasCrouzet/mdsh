@@ -57,14 +57,14 @@ describe('buildKeydownHandler', () => {
 		handler = buildKeydownHandler(cb);
 	});
 
-	it('ignore les touches sans modificateur', () => {
+	it('ignores keys without a modifier', () => {
 		const { event } = fire('n');
 		(event as { metaKey: boolean }).metaKey = false;
 		handler(event);
 		expect(cb.onNew).not.toHaveBeenCalled();
 	});
 
-	it('mappe chaque raccourci sur le bon callback et preventDefault', () => {
+	it('maps each shortcut to its callback and prevents the default action', () => {
 		const cases: [string, { shift?: boolean }, keyof typeof cb][] = [
 			['n', {}, 'onNew'],
 			['o', {}, 'onImport'],
@@ -86,7 +86,7 @@ describe('buildKeydownHandler', () => {
 		}
 	});
 
-	it('⌘E / ⌘R / ⌘/ pilotent setMode', () => {
+	it('uses setMode for ⌘E, ⌘R, and ⌘/', () => {
 		handler(fire('e').event);
 		expect(cb.setMode).toHaveBeenCalledWith('wysiwyg');
 		handler(fire('r').event);
@@ -95,13 +95,13 @@ describe('buildKeydownHandler', () => {
 		expect(cb.setMode).toHaveBeenCalledWith('source'); // depuis wysiwyg
 	});
 
-	it('⌘/ sélectionne la source comme le bouton et la palette', () => {
+	it('selects source mode with ⌘/ like the button and palette', () => {
 		const c = makeCallbacks({ getMode: vi.fn(() => 'source' as const) });
 		buildKeydownHandler(c)(fire('/').event);
 		expect(c.setMode).toHaveBeenCalledWith('source');
 	});
 
-	it("⌘P n'est intercepté que si un fichier est actif", () => {
+	it('intercepts ⌘P only with an active file', () => {
 		handler(fire('p').event);
 		expect(cb.onExportPDF).toHaveBeenCalledOnce();
 
@@ -112,7 +112,7 @@ describe('buildKeydownHandler', () => {
 		expect(isPrevented()).toBe(false); // laisse l'impression native
 	});
 
-	it('⌘⇧. (et code Period) basculent le mode focus', () => {
+	it('toggles focus mode with ⌘⇧. and the Period code', () => {
 		handler(fire('.', { shift: true }).event);
 		expect(cb.onToggleFocus).toHaveBeenCalledOnce();
 		const c = makeCallbacks();
@@ -120,7 +120,7 @@ describe('buildKeydownHandler', () => {
 		expect(c.onToggleFocus).toHaveBeenCalledOnce();
 	});
 
-	it('⌘W ferme le fichier actif sauf dans un champ éditable', () => {
+	it('closes the active file with ⌘W outside an editable field', () => {
 		handler(fire('w', { target: { tagName: 'DIV' } as Partial<HTMLElement> }).event);
 		expect(cb.onClose).toHaveBeenCalledWith('file1');
 
@@ -132,7 +132,7 @@ describe('buildKeydownHandler', () => {
 	});
 });
 
-describe('priorité clavier Windows et composition', () => {
+describe('Windows keyboard priority and composition', () => {
 	it.each([
 		{ isComposing: true },
 		{ defaultPrevented: true },
@@ -147,7 +147,7 @@ describe('priorité clavier Windows et composition', () => {
 		expect(cb.onNew).not.toHaveBeenCalled();
 	});
 
-	it('accepte Ctrl sous Windows lorsque le contexte est libre', () => {
+	it('accepts Ctrl on Windows when the context is available', () => {
 		const cb = makeCallbacks();
 		const { event } = fire('p', { shift: true });
 		Object.assign(event, { metaKey: false, ctrlKey: true });
@@ -155,7 +155,7 @@ describe('priorité clavier Windows et composition', () => {
 		expect(cb.onOpenPalette).toHaveBeenCalledOnce();
 	});
 
-	it('aucune commande de document ne passe derrière un dialogue', () => {
+	it('blocks document commands behind a dialog', () => {
 		const dialog = document.createElement('div');
 		dialog.setAttribute('role', 'dialog');
 		dialog.setAttribute('aria-modal', 'true');
@@ -173,7 +173,7 @@ describe('priorité clavier Windows et composition', () => {
 		}
 	});
 
-	it('laisse le gras à l’éditeur tout en autorisant sa palette', () => {
+	it('leaves bold to the editor and allows the command palette', () => {
 		const editor = document.createElement('div');
 		editor.className = 'ProseMirror';
 		Object.defineProperty(editor, 'isContentEditable', { value: true });

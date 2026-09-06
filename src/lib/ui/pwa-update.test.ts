@@ -34,7 +34,7 @@ beforeEach(() => {
 });
 
 describe('PWA update glue', () => {
-	it('attend la fin réelle des écritures avant activation', async () => {
+	it('waits for writes to finish before activation', async () => {
 		const { applyPwaUpdate } = await import('./pwa-update');
 		let release: (() => void) | undefined;
 		const pending = new Promise<void>((resolve) => {
@@ -48,7 +48,7 @@ describe('PWA update glue', () => {
 		expect(update).toHaveBeenCalledWith(true);
 	});
 
-	it('reste sur la page si la barrière de durabilité échoue', async () => {
+	it('stays on the page after a durability barrier failure', async () => {
 		const { applyPwaUpdate } = await import('./pwa-update');
 		const update = vi.fn(async () => undefined);
 		await expect(

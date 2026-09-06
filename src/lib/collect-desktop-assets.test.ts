@@ -56,14 +56,16 @@ describe('release asset collection', () => {
 		const { input, output } = setup();
 		mkdirSync(join(input, 'another'));
 		writeFileSync(join(input, 'another', 'mdsh_x64.dmg'), 'other architecture');
-		expect(() => collectDesktopAssets(input, output, identity)).toThrow('Collision');
+		expect(() => collectDesktopAssets(input, output, identity)).toThrow('Duplicate artifact names');
 	});
 	it('rejects mismatched source identity and an incomplete installer matrix', () => {
 		const { input, output } = setup();
 		expect(() => collectDesktopAssets(input, output, { ...identity, sha: 'b'.repeat(40) })).toThrow(
-			'source annoncée'
+			'specified source'
 		);
 		rmSync(join(input, 'mdsh.msi'));
-		expect(() => collectDesktopAssets(input, output, identity)).toThrow('requis absent');
+		expect(() => collectDesktopAssets(input, output, identity)).toThrow(
+			'Required artifact is missing'
+		);
 	});
 });

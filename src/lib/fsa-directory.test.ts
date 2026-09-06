@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { pickDirectoryFiles, isDirectoryPickerSupported } from './fsa';
 
-// §2.3 - Teste la collecte récursive de markdown depuis un FileSystemDirectory
-// Handle simulé (le picker réel n'existe pas en jsdom). Vérifie : récursion,
-// filtre d'extension, exclusion node_modules / dossiers cachés, annulation.
+// §2.3 - Test recursive Markdown collection from a simulated FileSystemDirectory
+// handle. jsdom does not provide the picker. Verify traversal, extension filters,
+// excluded directories, and cancellation.
 
 interface FakeFile {
 	kind: 'file';
@@ -42,18 +42,18 @@ afterEach(() => {
 });
 
 describe('isDirectoryPickerSupported', () => {
-	it('vrai quand window.showDirectoryPicker existe', () => {
+	it('returns true when window.showDirectoryPicker exists', () => {
 		installPicker(async () => dir('root', []));
 		expect(isDirectoryPickerSupported()).toBe(true);
 	});
-	it('faux sinon', () => {
+	it('returns false otherwise', () => {
 		installPicker(undefined);
 		expect(isDirectoryPickerSupported()).toBe(false);
 	});
 });
 
 describe('pickDirectoryFiles', () => {
-	it('collecte récursivement les .md / .markdown / .txt, ignore le reste', async () => {
+	it('collects supported text files recursively and ignores other files', async () => {
 		const root = dir('root', [
 			file('a.md', '# A'),
 			file('photo.png', 'binaire'),
@@ -69,7 +69,7 @@ describe('pickDirectoryFiles', () => {
 		expect(truncated).toBe(false);
 	});
 
-	it('ignore node_modules et les dossiers cachés', async () => {
+	it('ignores node_modules and hidden directories', async () => {
 		const root = dir('root', [
 			file('keep.md', 'ok'),
 			dir('node_modules', [file('dep.md', 'NON')]),
@@ -81,7 +81,7 @@ describe('pickDirectoryFiles', () => {
 		expect(files.map((f) => f.name)).toEqual(['keep.md']);
 	});
 
-	it('retourne vide sur annulation (AbortError)', async () => {
+	it('returns an empty list after AbortError cancellation', async () => {
 		installPicker(async () => {
 			throw Object.assign(new Error('cancelled'), { name: 'AbortError' });
 		});
@@ -89,7 +89,7 @@ describe('pickDirectoryFiles', () => {
 		expect(files).toEqual([]);
 	});
 
-	it('retourne vide si le picker n’est pas supporté', async () => {
+	it('returns an empty list when the picker is unavailable', async () => {
 		installPicker(undefined);
 		const { files, truncated } = await pickDirectoryFiles();
 		expect(files).toEqual([]);
@@ -97,8 +97,8 @@ describe('pickDirectoryFiles', () => {
 	});
 });
 
-describe('import de dossiers borné', () => {
-	it('importe 300 notes et signale la 301e sans la lire', async () => {
+describe('bounded directory import', () => {
+	it('imports 300 notes and reports the next note without reading it', async () => {
 		const entries = Array.from({ length: 301 }, (_, index) => file(`${index}.md`, '# Note'));
 		entries[300]!.getFile = vi.fn(entries[300]!.getFile);
 		installPicker(async () => dir('root', entries));
@@ -108,7 +108,7 @@ describe('import de dossiers borné', () => {
 		expect(result.report.issues[0]?.reason).toBe('file-count');
 		expect(entries[300]!.getFile).not.toHaveBeenCalled();
 	});
-	it('poursuit après fichier illisible et faux markdown binaire', async () => {
+	it('continues after an unreadable file and a binary Markdown file', async () => {
 		const broken = file('broken.md', '');
 		broken.getFile = vi.fn().mockRejectedValue(new Error('permission'));
 		installPicker(async () =>
@@ -119,7 +119,7 @@ describe('import de dossiers borné', () => {
 		expect(result.report.failed).toBe(2);
 		expect(result.truncated).toBe(true);
 	});
-	it('annule le parcours depuis la progression en conservant les notes déjà lues', async () => {
+	it('cancels traversal from progress and keeps notes that are already read', async () => {
 		const controller = new AbortController();
 		installPicker(async () => dir('root', [file('one.md', '1'), file('two.md', '2')]));
 		const result = await pickDirectoryFiles({
@@ -132,7 +132,7 @@ describe('import de dossiers borné', () => {
 		expect(result.report.cancelled).toBe(true);
 		expect(result.truncated).toBe(true);
 	});
-	it('signale une arborescence trop profonde et remonte les erreurs du sélecteur', async () => {
+	it('reports excessive depth and picker errors', async () => {
 		let nested = dir('leaf', [file('deep.md', 'x')]);
 		for (let i = 0; i < 9; i++) nested = dir(`level${i}`, [nested]);
 		installPicker(async () => nested);

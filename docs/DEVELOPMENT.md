@@ -1,9 +1,9 @@
 # Development guide
 
-Working reference for developing mdsh. [ARCHITECTURE.md](../ARCHITECTURE.md)
-explains the key design decisions; [CONTRIBUTING.md](../CONTRIBUTING.md) covers
-scope and conventions; this file is the day-to-day map: commands, module map,
-design limits, pitfalls, and debugging recipes.
+Use this guide for daily mdsh development. [ARCHITECTURE.md](../ARCHITECTURE.md)
+explains design decisions. [CONTRIBUTING.md](../CONTRIBUTING.md) defines scope
+and conventions. This guide contains commands, the module map, design limits,
+pitfalls, and debugging procedures.
 
 ## Commands
 
@@ -24,9 +24,9 @@ npm run desktop:dev              # Tauri desktop shell + Vite (requires Rust)
 npm run desktop:build            # Packaged app (macOS / Linux / Windows)
 ```
 
-`npm run size` vérifie à la fois les petits fichiers publics historiques et les
-fermetures transitives des graphes de démarrage, lecture, source et WYSIWYG. Le
-rapport détaillé est écrit dans `build/_app/.vite/bundle-graph.json`.
+`npm run size` checks the historical public file limits and the transitive
+closures of the startup, reading, source, and WYSIWYG graphs. It writes the
+detailed report to `build/_app/.vite/bundle-graph.json`.
 
 ### Desktop shell (Tauri 2)
 
@@ -56,7 +56,11 @@ npm run desktop:dev     # opens the native window against the Vite dev server
 npm run desktop:build   # builds the SPA with the current BASE_PATH, then packages installers
 ```
 
-Icons: `npx tauri icon static/pwa-512x512.png`. CI: `.github/workflows/desktop.yml` validates Rust on pull requests and `main`, then packages release-please releases, tags `v*`, and manual runs. macOS uses an ad hoc signature by default; authenticated distribution signing, notarization, and auto-update are deferred (see ROADMAP).
+Generate icons with `npx tauri icon static/pwa-512x512.png`. The
+`.github/workflows/desktop.yml` workflow validates Rust on pull requests and
+`main`. It packages release-please releases, `v*` tags, and manual runs. macOS
+uses an ad hoc signature. ROADMAP defers authenticated signing, notarization,
+and automatic updates.
 
 ## Module map
 
@@ -94,14 +98,14 @@ Icons: `npx tauri icon static/pwa-512x512.png`. CI: `.github/workflows/desktop.y
 | `src/lib/desktop-shell.ts`                                         | Native menu + open-paths listeners (dynamic Tauri imports)                                                                                                                                                                                                                                                                                                                                                                |
 | `src/lib/disk-link.ts`                                             | Pure path-link helpers (basename, extension, IDB record shape)                                                                                                                                                                                                                                                                                                                                                            |
 | `src/lib/disk-tauri.ts`                                            | Path-based open/save I/O (injectable boundary for tests)                                                                                                                                                                                                                                                                                                                                                                  |
-| `src/lib/import-limits.ts`                                         | Limites partagées des imports, validation UTF-8 et bilan annulable                                                                                                                                                                                                                                                                                                                                                        |
-| `src/lib/render/document-media.ts`                                 | Incorporation bornée des images locales et distantes avant rendu ou export                                                                                                                                                                                                                                                                                                                                                |
-| `src/lib/render/image-markdown.ts`                                 | Réécriture sûre des destinations d'image dans le Markdown                                                                                                                                                                                                                                                                                                                                                                 |
-| `src/lib/render/image-media.ts`                                    | Validation des formats, dimensions et SVG incorporés                                                                                                                                                                                                                                                                                                                                                                      |
-| `src/lib/render/print-desktop.ts`                                  | Préparation isolée du document pour le dialogue d'impression natif                                                                                                                                                                                                                                                                                                                                                        |
-| `src/lib/ui/commands.ts`                                           | Registre commun des commandes, libellés et raccourcis par défaut                                                                                                                                                                                                                                                                                                                                                          |
-| `src/lib/ui/keyboard.svelte.ts`                                    | Profils de raccourcis personnalisés macOS et Windows/Linux                                                                                                                                                                                                                                                                                                                                                                |
-| `src/lib/replace-worker.ts`                                        | Client annulable du worker de remplacement avec délai maximal                                                                                                                                                                                                                                                                                                                                                             |
+| `src/lib/import-limits.ts`                                         | Shared import limits, UTF-8 validation, and cancelable result reporting                                                                                                                                                                                                                                                                                                                                                   |
+| `src/lib/render/document-media.ts`                                 | Size-limited embedding of local and remote images before rendering or export                                                                                                                                                                                                                                                                                                                                              |
+| `src/lib/render/image-markdown.ts`                                 | Safe rewriting of image destinations in Markdown                                                                                                                                                                                                                                                                                                                                                                          |
+| `src/lib/render/image-media.ts`                                    | Validation of embedded formats, dimensions, and SVG files                                                                                                                                                                                                                                                                                                                                                                 |
+| `src/lib/render/print-desktop.ts`                                  | Isolated document preparation for the native print dialog                                                                                                                                                                                                                                                                                                                                                                 |
+| `src/lib/ui/commands.ts`                                           | Shared registry for commands, labels, and default shortcuts                                                                                                                                                                                                                                                                                                                                                               |
+| `src/lib/ui/keyboard.svelte.ts`                                    | Custom shortcut profiles for macOS and Windows/Linux                                                                                                                                                                                                                                                                                                                                                                      |
+| `src/lib/replace-worker.ts`                                        | Cancelable replacement-worker client with a timeout                                                                                                                                                                                                                                                                                                                                                                       |
 | `src-tauri/`                                                       | Tauri 2 native shell (window, dialogs, disk commands, file associations, menu)                                                                                                                                                                                                                                                                                                                                            |
 | `src/lib/ui/theme.svelte.ts` + `src/lib/theme.ts`                  | Light/dark/system theme - `themeStore` singleton applies `data-theme` + `meta theme-color`, follows the OS via matchMedia                                                                                                                                                                                                                                                                                                 |
 | `src/lib/workspaces.svelte.ts`                                     | Workspaces store (named sessions of open tabs, Dexie v3 persistence)                                                                                                                                                                                                                                                                                                                                                      |
@@ -161,8 +165,8 @@ Icons: `npx tauri icon static/pwa-512x512.png`. CI: `.github/workflows/desktop.y
 - **i18n**: `src/lib/i18n/i18n.test.ts` verifies en/fr key parity and the English default (it re-sets the locale to `'en'`), plus the pure `locale.ts` logic (`detectLocale`, `isLocale`, `interpolate`).
 - **E2E** (Playwright, chromium): `e2e/*.spec.ts` - config `playwright.config.ts`, shared helpers in `e2e/helpers.ts`.
 - **Visual snapshots**: `e2e/visual.spec.ts-snapshots/` - platform-sensitive (Linux ≠ macOS), both baselines versioned (`*-chromium-linux.png`, `*-chromium-darwin.png`), deliberately skipped in CI (see CONTRIBUTING.md).
-- **E2E a11y**: `e2e/a11y.spec.ts` vérifie le clavier et le focus; `e2e/axe.spec.ts` bloque les violations sérieuses et critiques détectées par axe-core. Ces tests font partie de la suite E2E bloquante en CI.
-- **Navigateurs**: la suite couvre Chromium desktop et mobile, Firefox et WebKit selon les capacités. Les scénarios FSA restent limités à Chromium, car Firefox et Safari ne fournissent pas cette API.
+- **E2E accessibility**: `e2e/a11y.spec.ts` checks keyboard and focus behavior. `e2e/axe.spec.ts` blocks serious and critical axe-core violations. These tests are part of the blocking CI E2E suite.
+- **Browsers**: the suite covers desktop and mobile Chromium, Firefox, and WebKit according to their capabilities. FSA scenarios run only on Chromium because Firefox and Safari do not provide this API.
 
 ## Design limits (deliberate)
 
@@ -180,7 +184,7 @@ Deliberate decisions - do not "fix" them without context.
 - `--legacy-peer-deps` is required, otherwise Milkdown resolution breaks.
 - Any code touching `window` / `document` / `localStorage` must be guarded by `if (browser)` or placed in `onMount`.
 - PDF export: the print iframe inherits the parent origin - it loads `${base}/katex/katex.min.css` + `${base}/print/print.css`. If you modify `static/katex/` or `static/print/`, you must rebuild.
-- Les bibliothèques lourdes restent hors du graphe initial grâce aux `import()` dynamiques. Elles font partie du précache PWA pour rester disponibles hors ligne. Ne jamais les importer statiquement depuis `+page.svelte`, un store ou un composant monté au démarrage. ESLint et le budget de graphe bloquent cette régression.
+- Dynamic `import()` calls keep heavy libraries out of the initial graph. The PWA precache includes them for offline use. Do not import them statically from `+page.svelte`, a store, or a component mounted at startup. ESLint and the graph budget block this regression.
 
 ## Debugging recipes
 
@@ -243,5 +247,5 @@ Playwright tests pass locally but fail in CI:
 
 1. The block must start on the **first line** of the file (no blank line before)
 2. Strict format: `---\n...YAML...\n---\n` then the content
-3. Invalid YAML → logs `[mdsh] front-matter YAML invalide, ignoré : ...` in the console
+3. Invalid YAML → logs `[mdsh] invalid front matter YAML, ignored: ...` in the console
 4. Test with a simple YAML: `title: foo` then `tags: [a, b]`

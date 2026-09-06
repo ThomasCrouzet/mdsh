@@ -1,8 +1,8 @@
 import { TIMERS } from '../config';
 import { boundedWait, waitForPrintImages } from './print';
 
-// WKWebView fournit l'impression sur la fenêtre principale. Le Shadow DOM
-// isole les styles du document et la feuille externe masque l'interface au tirage.
+// WKWebView prints the main window. The Shadow DOM isolates document styles,
+// and the external stylesheet hides the app interface during printing.
 export async function printOnDesktop(
 	html: string,
 	opts: { signal?: AbortSignal } = {}
@@ -53,7 +53,7 @@ export async function printOnDesktop(
 			}
 			const response = await fetch(url.href, { signal: opts.signal ?? null });
 			if (!response.ok) throw new Error(`Print stylesheet: HTTP ${response.status}`);
-			// Les polices relatives restent résolues depuis leur dossier d'origine.
+			// Resolve relative font URLs from the original stylesheet directory.
 			styles.push(
 				(await response.text()).replace(
 					/url\((['"]?)(fonts\/[^)'"\s]+)\1\)/g,

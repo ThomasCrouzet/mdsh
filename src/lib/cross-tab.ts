@@ -52,10 +52,10 @@ const CROSS_TAB_TYPES = new Set<CrossTabMessage['type']>([
 ]);
 
 /**
- * Runtime type-guard for a received message: validates the `type` discriminant
- * AND the required payload fields (`id` for draft-written / removed), instead of
- * a simple `typeof type === 'string'`. The channel is same-origin (bounded
- * impact), but we align the static typing with reality - no more `as` assertion.
+ * Validates the message type and its required payload fields at runtime.
+ * Messages of type `draft-written` and `removed` must include an `id`.
+ * A `typeof type === 'string'` check alone is insufficient.
+ * The channel is same-origin, which limits impact. Validate payloads instead of asserting their type.
  */
 function isCrossTabMessage(v: unknown): v is CrossTabMessage {
 	if (!v || typeof v !== 'object') return false;

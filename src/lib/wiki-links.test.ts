@@ -8,144 +8,144 @@ import {
 } from './wiki-links';
 
 describe('slugify', () => {
-	it('retire les diacritiques (é → e)', () => {
+	it('removes diacritics', () => {
 		expect(slugify('Café')).toBe('cafe');
 	});
 
-	it('retire les diacritiques composés (à, ü, ñ)', () => {
+	it('removes combined diacritics', () => {
 		expect(slugify('àüñ')).toBe('aun');
 	});
 
-	it('convertit en minuscules', () => {
+	it('converts text to lowercase', () => {
 		expect(slugify('Hello World')).toBe('hello-world');
 	});
 
-	it('remplace les espaces par des tirets', () => {
+	it('replaces spaces with hyphens', () => {
 		expect(slugify('mon fichier notes')).toBe('mon-fichier-notes');
 	});
 
-	it('groupe les caractères non alphanumériques en un seul tiret', () => {
+	it('groups non-alphanumeric characters into one hyphen', () => {
 		expect(slugify('a  b--c')).toBe('a-b-c');
 	});
 
-	it('retire les tirets en début et fin', () => {
+	it('removes leading and trailing hyphens', () => {
 		expect(slugify('  Titre!  ')).toBe('titre');
 	});
 
-	it('retourne une chaîne vide pour une entrée vide', () => {
+	it('returns an empty string for empty input', () => {
 		expect(slugify('')).toBe('');
 	});
 
-	it('retourne une chaîne vide pour une entrée composée uniquement de séparateurs', () => {
+	it('returns an empty string for separator-only input', () => {
 		expect(slugify('---')).toBe('');
 	});
 
-	it('conserve les chiffres', () => {
+	it('keeps digits', () => {
 		expect(slugify('Note 42')).toBe('note-42');
 	});
 
-	it('gère un titre avec tirets et majuscules composés', () => {
+	it('supports a title with hyphens and composed uppercase characters', () => {
 		expect(slugify('Réunion RH - 2026')).toBe('reunion-rh-2026');
 	});
 });
 
 describe('escapeRegex', () => {
-	it("échappe le point (métacaractère regex '.')", () => {
+	it('escapes the dot regular expression metacharacter', () => {
 		expect(escapeRegex('a.b')).toBe('a\\.b');
 	});
 
-	it("échappe l'étoile", () => {
+	it('escapes the asterisk', () => {
 		expect(escapeRegex('a*b')).toBe('a\\*b');
 	});
 
-	it('échappe les métacaractères courants (+?^${}()|[]\\)', () => {
+	it('escapes common regular expression metacharacters', () => {
 		const input = '.*+?^${}()|[]\\';
 		const escaped = escapeRegex(input);
-		// Chaque métacar est préfixé par backslash - on vérifie qu'aucun n'est nu
+		// Prefix each metacharacter with a backslash. Verify that none remains bare.
 		expect(() => new RegExp(escaped)).not.toThrow();
-		// La regex issue de l'échappement doit correspondre exactement à l'original
+		// The escaped regular expression must match the original text exactly.
 		expect(new RegExp(escaped).test(input)).toBe(true);
 	});
 
-	it('laisse les caractères ordinaires intacts', () => {
+	it('keeps ordinary characters unchanged', () => {
 		expect(escapeRegex('hello world')).toBe('hello world');
 	});
 
-	it('retourne une chaîne vide sur entrée vide', () => {
+	it('returns an empty string for empty input', () => {
 		expect(escapeRegex('')).toBe('');
 	});
 });
 
 describe('preprocessWikiLinks', () => {
-	it('transforme [[X]] en lien ancre avec class wiki-link', () => {
+	it('transforms [[X]] into an anchor with the wiki-link class', () => {
 		const result = preprocessWikiLinks('Voir [[Notes]]');
 		expect(result).toContain('class="wiki-link"');
 		expect(result).toContain('href="#mdsh-wiki-notes"');
 		expect(result).toContain('>Notes<');
 	});
 
-	it("utilise l'alias quand fourni [[X|alias]]", () => {
+	it('uses the alias from [[X|alias]]', () => {
 		const result = preprocessWikiLinks('[[Rapport annuel|Rapport]]');
 		expect(result).toContain('>Rapport<');
 		expect(result).toContain('href="#mdsh-wiki-rapport-annuel"');
 	});
 
-	it('encode la cible dans data-mdsh-wiki via encodeURIComponent', () => {
+	it('encodes the target in data-mdsh-wiki with encodeURIComponent', () => {
 		const result = preprocessWikiLinks('[[Mon fichier.md]]');
 		expect(result).toContain('data-mdsh-wiki="Mon%20fichier.md"');
 	});
 
-	it('échappe les caractères HTML dangereux dans le label (anti-XSS [[<script>]])', () => {
+	it('escapes unsafe HTML characters in the label', () => {
 		const result = preprocessWikiLinks('[[<script>alert(1)</script>]]');
 		expect(result).not.toContain('<script>');
-		// Le label doit être échappé
+		// The label must be escaped.
 		expect(result).toContain('&lt;script&gt;');
 	});
 
-	it("échappe les caractères HTML dans l'alias", () => {
+	it('escapes HTML characters in the alias', () => {
 		const result = preprocessWikiLinks('[[Cible|<b>gras</b>]]');
 		expect(result).not.toContain('<b>');
 		expect(result).toContain('&lt;b&gt;');
 	});
 
-	it('encode la cible contenant des chevrons dans data-mdsh-wiki', () => {
+	it('encodes a target with angle brackets in data-mdsh-wiki', () => {
 		const result = preprocessWikiLinks('[[<hostile>]]');
-		// encodeURIComponent('<hostile>') → %3Chostile%3E - pas de < nu dans l'attribut
+		// encodeURIComponent('<hostile>') gives %3Chostile%3E, so the attribute has no raw < character.
 		expect(result).not.toMatch(/data-mdsh-wiki="[^"]*</);
 	});
 
-	it("laisse le markdown intact quand il n'y a pas de wiki-link", () => {
+	it('keeps Markdown unchanged when it has no wiki link', () => {
 		const md = '# Titre\n\nUn paragraphe.';
 		expect(preprocessWikiLinks(md)).toBe(md);
 	});
 
-	it('gère plusieurs wiki-links dans la même chaîne', () => {
+	it('supports multiple wiki links in one string', () => {
 		const result = preprocessWikiLinks('[[A]] et [[B]]');
 		const count = (result.match(/class="wiki-link"/g) ?? []).length;
 		expect(count).toBe(2);
 	});
 
-	it('ignore les wiki-links sans cible (crochets vides [[]])', () => {
-		// Cible vide → non remplacé (retour du match brut)
+	it('ignores wiki links with an empty target', () => {
+		// Keep the raw match when the target is empty.
 		const result = preprocessWikiLinks('[[]]');
 		expect(result).toBe('[[]]');
 	});
 
-	it('accepte une cible avec des espaces avant/après', () => {
+	it('accepts a target with surrounding spaces', () => {
 		const result = preprocessWikiLinks('[[ Mon Fichier ]]');
 		expect(result).toContain('data-mdsh-wiki="Mon%20Fichier"');
 	});
 
-	it('ne transforme PAS un wiki-link dans un span de code inline', () => {
+	it('does not transform a wiki link in inline code', () => {
 		const result = preprocessWikiLinks('Tape `[[Cible]]` pour lier.');
 		expect(result).toBe('Tape `[[Cible]]` pour lier.');
 		expect(result).not.toContain('wiki-link');
 	});
 
-	it('ne transforme PAS un wiki-link dans un bloc de code clôturé', () => {
+	it('does not transform a wiki link inside a fenced code block', () => {
 		const md = 'Avant\n\n```\n[[Cible]]\n```\n\nAprès [[Réel]]';
 		const result = preprocessWikiLinks(md);
-		// Le `[[Cible]]` du fence reste littéral, le `[[Réel]]` hors code est transformé.
+		// Keep the fenced target literal and transform the target outside code.
 		expect(result).toContain('```\n[[Cible]]\n```');
 		expect(result).toContain('data-mdsh-wiki="R%C3%A9el"');
 		expect((result.match(/class="wiki-link"/g) ?? []).length).toBe(1);
@@ -153,68 +153,68 @@ describe('preprocessWikiLinks', () => {
 });
 
 describe('decodeWikiTarget', () => {
-	it('décode un encodeURIComponent standard', () => {
+	it('decodes a standard encodeURIComponent value', () => {
 		expect(decodeWikiTarget('Mon%20fichier.md')).toBe('Mon fichier.md');
 	});
 
-	it('fait un round-trip avec encodeURIComponent', () => {
+	it('round-trips a target through encodeURIComponent', () => {
 		const original = 'Réunion 2026 - Rapport final.md';
 		const encoded = encodeURIComponent(original);
 		expect(decodeWikiTarget(encoded)).toBe(original);
 	});
 
-	it('retourne la valeur brute si le décodage échoue (séquence invalide)', () => {
-		// '%ZZ' n'est pas un séquence URI valide
+	it('returns the raw value after a decoding failure', () => {
+		// `%ZZ` is not a valid URI sequence.
 		expect(decodeWikiTarget('%ZZ')).toBe('%ZZ');
 	});
 
-	it('retourne une chaîne vide sur entrée vide', () => {
+	it('returns an empty string for empty input', () => {
 		expect(decodeWikiTarget('')).toBe('');
 	});
 
-	it('round-trip : une cible avec des chevrons reste intacte', () => {
+	it('round-trips a target with angle brackets', () => {
 		const original = '<hostile>';
 		expect(decodeWikiTarget(encodeURIComponent(original))).toBe(original);
 	});
 });
 
 describe('extractWikiLinkTargets', () => {
-	it('ignore les liens dans les fences de code', () => {
+	it('ignores links in fenced code blocks', () => {
 		const md = 'Avant [[Real]]\n```md\n[[ExampleInFence]]\n```\nApres [[AlsoReal]]\n`[[inline]]`';
 		expect(extractWikiLinkTargets(md).sort()).toEqual(['AlsoReal', 'Real']);
 	});
 
-	it('extrait une cible simple', () => {
+	it('extracts a simple target', () => {
 		const targets = extractWikiLinkTargets('Voir [[Notes de réunion]]');
 		expect(targets).toEqual(['Notes de réunion']);
 	});
 
-	it("extrait la cible (sans l'alias) depuis [[X|alias]]", () => {
+	it('extracts the target without the alias from [[X|alias]]', () => {
 		const targets = extractWikiLinkTargets('[[Rapport|Voir ici]]');
 		expect(targets).toEqual(['Rapport']);
 	});
 
-	it('dédoublonne les cibles répétées', () => {
+	it('removes duplicate targets', () => {
 		const md = '[[A]] et [[A]] encore [[A]]';
 		const targets = extractWikiLinkTargets(md);
 		expect(targets).toEqual(['A']);
 	});
 
-	it('extrait plusieurs cibles distinctes', () => {
+	it('extracts multiple distinct targets', () => {
 		const targets = extractWikiLinkTargets('[[A]] [[B]] [[C]]');
 		expect(new Set(targets)).toEqual(new Set(['A', 'B', 'C']));
 	});
 
-	it('retourne un tableau vide si aucun wiki-link', () => {
+	it('returns an empty array when there is no wiki link', () => {
 		expect(extractWikiLinkTargets('Aucun lien ici.')).toEqual([]);
 	});
 
-	it('trim les espaces autour des cibles', () => {
+	it('trims spaces around targets', () => {
 		const targets = extractWikiLinkTargets('[[ Mon Fichier ]]');
 		expect(targets).toEqual(['Mon Fichier']);
 	});
 
-	it('ignore les wiki-links sans cible (cible vide)', () => {
+	it('ignores wiki links with no target', () => {
 		const targets = extractWikiLinkTargets('[[]]');
 		expect(targets).toEqual([]);
 	});

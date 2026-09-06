@@ -204,12 +204,9 @@
 {/if}
 
 <style>
-	/* §a11y WCAG 2.4.7 - Reliable visible focus indicator on the nodes.
-	   A CSS `outline` on the focusable <g> element is not painted reliably
-	   in Chromium/WebKit; we therefore target the geometry-bearing <circle>
-	   to draw a contrasted focus ring on it (theme tokens).
-	   The browser's default rule on the <g> is neutralized to avoid an
-	   inconsistent double rendering. */
+	/* §a11y WCAG 2.4.7 - Show a reliable focus indicator on graph nodes.
+	   Chromium and WebKit do not reliably paint an outline on the focusable <g>.
+	   Draw the focus ring on its <circle> and disable the default <g> outline. */
 	.graph-node:focus {
 		outline: none;
 	}

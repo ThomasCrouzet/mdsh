@@ -7,8 +7,8 @@ import {
 	waitForPrintImages
 } from './print';
 
-describe('décodage des images avant impression', () => {
-	it('attend les vrais pixels de l’image', async () => {
+describe('image decoding before print', () => {
+	it('waits for decoded image pixels', async () => {
 		const doc = document.implementation.createHTMLDocument();
 		const image = doc.createElement('img');
 		image.src = 'data:image/png;base64,AAAA';
@@ -22,7 +22,7 @@ describe('décodage des images avant impression', () => {
 		expect(decode).toHaveBeenCalledOnce();
 	});
 
-	it('rejette une image illisible au lieu d’ouvrir un PDF incomplet', async () => {
+	it('rejects an unreadable image before it opens an incomplete PDF', async () => {
 		const doc = document.implementation.createHTMLDocument();
 		doc.body.innerHTML = '<img src="data:image/png;base64,AAAA" alt="Figure">';
 		const image = doc.querySelector('img')!;
@@ -32,7 +32,7 @@ describe('décodage des images avant impression', () => {
 		await expect(waitForPrintImages(doc)).rejects.toBeInstanceOf(PrintImageError);
 	});
 
-	it('respecte une annulation pendant le décodage', async () => {
+	it('stops during decoding after cancellation', async () => {
 		const doc = document.implementation.createHTMLDocument();
 		doc.body.innerHTML = '<img src="data:image/png;base64,AAAA">';
 		doc.querySelector('img')!.decode = () => new Promise(() => {});
@@ -44,14 +44,14 @@ describe('décodage des images avant impression', () => {
 });
 
 describe('buildPrintDocument - structure', () => {
-	it('produit un doctype HTML5 avec lang par défaut (en)', () => {
+	it('creates an HTML5 doctype with the default English language', () => {
 		const html = buildPrintDocument({ title: 'Doc', bodyHtml: '<p>hello</p>' });
 		expect(html.startsWith('<!doctype html>')).toBe(true);
 		// DEFAULT_LOCALE is English - not hardcoded French.
 		expect(html).toContain('<html lang="en">');
 	});
 
-	it('honore lang explicite (en / fr)', () => {
+	it('uses an explicit English or French language', () => {
 		expect(buildPrintDocument({ title: 'T', bodyHtml: '', lang: 'fr' })).toContain(
 			'<html lang="fr">'
 		);
@@ -60,7 +60,7 @@ describe('buildPrintDocument - structure', () => {
 		);
 	});
 
-	it('retombe sur en si lang vide ou blanc', () => {
+	it('uses English when the language is empty or blank', () => {
 		expect(buildPrintDocument({ title: 'T', bodyHtml: '', lang: '   ' })).toContain(
 			'<html lang="en">'
 		);
@@ -81,14 +81,14 @@ describe('buildPrintDocument - structure', () => {
 		expect(html).toContain(bodyHtml);
 	});
 
-	it('insère le body dans <main class="print-body">', () => {
+	it('inserts the body in the print-body main element', () => {
 		const html = buildPrintDocument({ title: 'T', bodyHtml: '<article>contenu</article>' });
 		expect(html).toMatch(/<main class="print-body">[\s\S]*<article>contenu<\/article>/);
 	});
 });
 
-describe('buildPrintDocument - sécurité', () => {
-	it('échappe les < > & dans le titre', () => {
+describe('buildPrintDocument - security', () => {
+	it('escapes angle brackets and ampersands in the title', () => {
 		const html = buildPrintDocument({
 			title: '<script>alert(1)</script> & "quoted"',
 			bodyHtml: ''
@@ -99,7 +99,7 @@ describe('buildPrintDocument - sécurité', () => {
 		expect(html).toContain('&quot;');
 	});
 
-	it('inclut une CSP restrictive interdisant le script', () => {
+	it('includes a restrictive CSP that blocks scripts', () => {
 		const html = buildPrintDocument({ title: 'T', bodyHtml: '' });
 		expect(html).toMatch(/http-equiv="Content-Security-Policy"/i);
 		expect(html).toMatch(/script-src 'none'/);
@@ -108,8 +108,8 @@ describe('buildPrintDocument - sécurité', () => {
 	});
 });
 
-describe('buildPrintDocument - KaTeX conditionnel', () => {
-	it('inclut le lien katex.min.css quand le source contient du math', () => {
+describe('buildPrintDocument - conditional KaTeX', () => {
+	it('includes katex.min.css when the source contains math', () => {
 		const html = buildPrintDocument({
 			title: 'T',
 			bodyHtml: '<p>rendered math</p>',
@@ -118,7 +118,7 @@ describe('buildPrintDocument - KaTeX conditionnel', () => {
 		expect(html).toContain('katex/katex.min.css');
 	});
 
-	it('inclut le lien katex.min.css quand le body contient une classe katex', () => {
+	it('includes katex.min.css when the body contains a katex class', () => {
 		const html = buildPrintDocument({
 			title: 'T',
 			bodyHtml: '<span class="katex">x</span>'
@@ -126,7 +126,7 @@ describe('buildPrintDocument - KaTeX conditionnel', () => {
 		expect(html).toContain('katex/katex.min.css');
 	});
 
-	it('inclut le lien katex quand le body contient math-block', () => {
+	it('includes the KaTeX link when the body contains math-block', () => {
 		const html = buildPrintDocument({
 			title: 'T',
 			bodyHtml: '<div class="math-block">…</div>'
@@ -134,7 +134,7 @@ describe('buildPrintDocument - KaTeX conditionnel', () => {
 		expect(html).toContain('katex/katex.min.css');
 	});
 
-	it("n'inclut pas katex.min.css quand aucun math n'est détecté", () => {
+	it('does not include katex.min.css without detected math', () => {
 		const html = buildPrintDocument({
 			title: 'T',
 			bodyHtml: '<p>juste du texte</p>',
@@ -143,7 +143,7 @@ describe('buildPrintDocument - KaTeX conditionnel', () => {
 		expect(html).not.toContain('katex/katex.min.css');
 	});
 
-	it('inclut toujours print.css', () => {
+	it('always includes print.css', () => {
 		const html = buildPrintDocument({ title: 'T', bodyHtml: '' });
 		expect(html).toContain('print/print.css');
 	});
@@ -154,7 +154,7 @@ describe('buildStandaloneHtmlDocument', () => {
 		vi.unstubAllGlobals();
 	});
 
-	/** Mock `fetch` renvoyant un texte CSS distinct selon l'URL demandée. */
+	/** Mock `fetch` to return CSS text that is specific to each requested URL. */
 	function stubCssFetch() {
 		vi.stubGlobal(
 			'fetch',
@@ -174,21 +174,21 @@ describe('buildStandaloneHtmlDocument', () => {
 		);
 	}
 
-	it('INLINE print.css dans un <style> (pas de <link>) et insère le corps', async () => {
+	it('embeds print.css in a style element and inserts the body', async () => {
 		stubCssFetch();
 		const html = await buildStandaloneHtmlDocument('Export', '<p>corps</p>');
 		expect(html).toContain('<title>Export</title>');
 		expect(html).toContain('<p>corps</p>');
 		expect(html).toContain('<style>');
 		expect(html).toContain('.print-body{color:#111}');
-		// Plus aucun <link rel=stylesheet> : c'est tout l'intérêt (CSP file://).
+		// The result has no <link rel=stylesheet>, which makes it compatible with the file:// CSP.
 		expect(html).not.toContain('<link rel="stylesheet"');
 		expect(html).not.toContain('print-header');
 		// Default document lang follows DEFAULT_LOCALE (en).
 		expect(html).toContain('<html lang="en">');
 	});
 
-	it('propage lang au document standalone', async () => {
+	it('passes the language to the standalone document', async () => {
 		stubCssFetch();
 		const inline = await buildStandaloneHtmlDocument('Export', '<p>x</p>', undefined, 'fr');
 		expect(inline).toContain('<html lang="fr">');
@@ -235,19 +235,19 @@ describe('buildStandaloneHtmlDocument', () => {
 		expect(html).toContain('data:application/octet-stream;base64,AQ==');
 	});
 
-	it("n'inline pas katex quand aucun math n'est détecté", async () => {
+	it('does not embed KaTeX without detected math', async () => {
 		stubCssFetch();
 		const html = await buildStandaloneHtmlDocument('T', '<p>texte</p>', 'texte');
 		expect(html).not.toContain('.katex{');
 	});
 
-	it('préserve la CSP restrictive (script-src none)', async () => {
+	it('keeps the restrictive script-src CSP', async () => {
 		stubCssFetch();
 		const html = await buildStandaloneHtmlDocument('T', '<p>x</p>');
 		expect(html).toMatch(/script-src 'none'/);
 	});
 
-	it('échappe le titre', async () => {
+	it('escapes the title', async () => {
 		stubCssFetch();
 		const html = await buildStandaloneHtmlDocument('<b>Unsafe</b>', '');
 		expect(html).toContain('&lt;b&gt;');
@@ -288,9 +288,8 @@ describe('buildStandaloneHtmlDocument', () => {
 });
 
 describe('printInIframe', () => {
-	// Intercepte document.createElement('iframe') pour espionner le
-	// contentWindow (print/focus) de l'iframe réelle créée par jsdom, tout en
-	// laissant le vrai iframe (avec son contentDocument scriptable) intact.
+	// Intercept document.createElement('iframe') to spy on print and focus.
+	// Keep the real jsdom iframe and its writable contentDocument.
 	let printSpy: Mock<() => void>;
 	let focusSpy: Mock<() => void>;
 	let lastIframe: HTMLIFrameElement | null;
@@ -303,8 +302,7 @@ describe('printInIframe', () => {
 			if (tag.toLowerCase() === 'iframe') {
 				const iframe = el as HTMLIFrameElement;
 				lastIframe = iframe;
-				// L'iframe doit être appended avant que contentWindow existe ; on
-				// applique les spies à la volée via un getter sur contentWindow.
+				// Append the iframe before contentWindow exists. Add the spies through a contentWindow getter.
 				opts.onIframe?.(iframe);
 			}
 			return el;
@@ -315,11 +313,9 @@ describe('printInIframe', () => {
 		};
 	}
 
-	/** Installe les spies print/focus sur le contentWindow une fois l'iframe attachée. */
+	/** Add print and focus spies to contentWindow after the iframe is attached. */
 	function spyOnWindow(iframe: HTMLIFrameElement) {
-		// contentWindow n'existe qu'après appendChild ; on patche après coup via
-		// un microtask déclenché par l'appendChild interne. Plus simple : on
-		// remplace le getter pour retourner un objet enrichi.
+		// contentWindow exists only after appendChild. Replace its getter to return an object with spies.
 		Object.defineProperty(iframe, 'contentWindow', {
 			configurable: true,
 			get() {
@@ -345,11 +341,11 @@ describe('printInIframe', () => {
 	afterEach(() => {
 		restoreCreate?.();
 		vi.useRealTimers();
-		// Nettoie les iframes résiduelles.
+		// Remove remaining iframes.
 		document.querySelectorAll('iframe').forEach((f) => f.remove());
 	});
 
-	it('crée une iframe cachée, écrit le HTML, appelle focus() puis print()', async () => {
+	it('creates a hidden iframe, writes HTML, focuses, and prints', async () => {
 		patchCreateElement({ onIframe: spyOnWindow });
 		await printInIframe('<!doctype html><html><body><p>doc</p></body></html>');
 		expect(lastIframe).not.toBeNull();
@@ -357,46 +353,45 @@ describe('printInIframe', () => {
 		expect(lastIframe?.style.visibility).toBe('hidden');
 		expect(focusSpy).toHaveBeenCalledOnce();
 		expect(printSpy).toHaveBeenCalledOnce();
-		// Le contenu écrit doit se retrouver dans le contentDocument.
+		// The written content must be in contentDocument.
 		expect(lastIframe?.contentDocument?.body.innerHTML).toContain('<p>doc</p>');
 	});
 
-	it("définit un titre d'iframe accessible (i18n fr)", async () => {
+	it('sets a localized accessible iframe title', async () => {
 		patchCreateElement({ onIframe: spyOnWindow });
 		await printInIframe('<html><body>x</body></html>');
-		// Locale fr par défaut dans les tests.
+		// Tests use the French locale by default.
 		expect(lastIframe?.title).toBe('Aperçu d’impression');
 	});
 
-	it('retire l’iframe du DOM à la réception de afterprint', async () => {
+	it('removes the iframe from the DOM after afterprint', async () => {
 		patchCreateElement({ onIframe: spyOnWindow });
 		await printInIframe('<html><body>x</body></html>');
 		const iframe = lastIframe!;
 		expect(iframe.parentNode).not.toBeNull();
-		// Simule la fin d'impression.
+		// Simulate the end of printing.
 		iframe.contentWindow?.dispatchEvent(new Event('afterprint'));
 		expect(iframe.parentNode).toBeNull();
 	});
 
-	it('retire l’iframe après le délai de grâce si afterprint ne se déclenche pas', async () => {
+	it('removes the iframe after the grace period without afterprint', async () => {
 		vi.useFakeTimers();
 		patchCreateElement({ onIframe: spyOnWindow });
 		const p = printInIframe('<html><body>x</body></html>');
-		// Laisse les microtasks + rAF se résoudre malgré les fake timers : on
-		// avance le temps puis on attend la promesse.
+		// Advance the fake timers to resolve the microtasks and animation frame. Then await the promise.
 		await vi.runAllTimersAsync();
 		await p;
 		const iframe = lastIframe!;
-		// Le setTimeout(cleanup) a déjà été exécuté par runAllTimersAsync.
+		// runAllTimersAsync already ran the cleanup timeout.
 		expect(iframe.parentNode).toBeNull();
 		vi.useRealTimers();
 	});
 
-	it('emprunte le chemin "load" quand le document n’est pas encore complete', async () => {
+	it('uses the load path when the document is incomplete', async () => {
 		patchCreateElement({
 			onIframe: (iframe) => {
 				spyOnWindow(iframe);
-				// Force readyState !== 'complete' pour emprunter la branche addEventListener('load').
+				// Set readyState to a value other than 'complete' to exercise the load event branch.
 				let fakeReady = 'loading';
 				Object.defineProperty(iframe, 'contentDocument', {
 					configurable: true,
@@ -414,7 +409,7 @@ describe('printInIframe', () => {
 						return realDoc;
 					}
 				});
-				// Déclenche l'event load peu après pour débloquer l'attente.
+				// Dispatch the load event shortly after to end the wait.
 				setTimeout(() => {
 					fakeReady = 'complete';
 					iframe.dispatchEvent(new Event('load'));
@@ -425,7 +420,7 @@ describe('printInIframe', () => {
 		expect(printSpy).toHaveBeenCalledOnce();
 	});
 
-	it('attend fonts.ready quand l’API FontFaceSet est présente', async () => {
+	it('waits for fonts.ready when FontFaceSet is available', async () => {
 		const fontsReady = vi.fn(() => Promise.resolve());
 		patchCreateElement({
 			onIframe: (iframe) => {
@@ -457,7 +452,7 @@ describe('printInIframe', () => {
 		expect(printSpy).toHaveBeenCalledOnce();
 	});
 
-	it('ignore une erreur de fonts.ready (catch silencieux)', async () => {
+	it('ignores a fonts.ready error', async () => {
 		patchCreateElement({
 			onIframe: (iframe) => {
 				spyOnWindow(iframe);
@@ -483,12 +478,12 @@ describe('printInIframe', () => {
 				});
 			}
 		});
-		// Ne doit PAS rejeter malgré l'échec de fonts.ready.
+		// The operation must resolve when fonts.ready fails.
 		await expect(printInIframe('<html><body>x</body></html>')).resolves.toBeUndefined();
 		expect(printSpy).toHaveBeenCalledOnce();
 	});
 
-	it('rejette et nettoie si contentDocument est indisponible', async () => {
+	it('rejects and cleans up without contentDocument', async () => {
 		patchCreateElement({
 			onIframe: (iframe) => {
 				Object.defineProperty(iframe, 'contentDocument', {
@@ -498,14 +493,14 @@ describe('printInIframe', () => {
 			}
 		});
 		await expect(printInIframe('<html></html>')).rejects.toThrow(/contentDocument/);
-		// L'iframe doit avoir été retirée du DOM (cleanup dans le catch).
+		// The catch block must remove the iframe from the DOM.
 		expect(lastIframe?.parentNode).toBeNull();
 	});
 
-	it('rejette et nettoie si contentWindow est indisponible', async () => {
+	it('rejects and cleans up without contentWindow', async () => {
 		patchCreateElement({
 			onIframe: (iframe) => {
-				// contentDocument reste valide (écriture OK) mais contentWindow = null.
+				// contentDocument remains valid for writing, but contentWindow is null.
 				Object.defineProperty(iframe, 'contentWindow', {
 					configurable: true,
 					get: () => null
@@ -517,16 +512,15 @@ describe('printInIframe', () => {
 	});
 });
 
-// Branche SSR (browser=false) : assetUrl utilise `${base}${path}` sans window,
-// et printInIframe rejette d'emblée. On remocke $app/environment avec
-// browser=false puis on réimporte le module isolément.
-describe('print.ts en contexte non-browser (SSR)', () => {
+// In the SSR branch, assetUrl uses `${base}${path}` without window.
+// printInIframe rejects immediately. Mock $app/environment with browser=false and import the module again.
+describe('print.ts during server-side rendering', () => {
 	afterEach(() => {
 		vi.resetModules();
 		vi.doUnmock('$app/environment');
 	});
 
-	it('printInIframe rejette si browser=false', async () => {
+	it('rejects printInIframe when browser is false', async () => {
 		vi.resetModules();
 		vi.doMock('$app/environment', () => ({
 			browser: false,
@@ -538,7 +532,7 @@ describe('print.ts en contexte non-browser (SSR)', () => {
 		await expect(mod.printInIframe('<html></html>')).rejects.toThrow(/browser environment/);
 	});
 
-	it('buildPrintDocument utilise des URLs relatives (assetUrl sans window)', async () => {
+	it('uses relative asset URLs in buildPrintDocument without window', async () => {
 		vi.resetModules();
 		vi.doMock('$app/environment', () => ({
 			browser: false,
@@ -548,16 +542,16 @@ describe('print.ts en contexte non-browser (SSR)', () => {
 		}));
 		const mod = await import('./print');
 		const html = mod.buildPrintDocument({ title: 'T', bodyHtml: '<p>x</p>' });
-		// base='' en test → href="/print/print.css" (pas d'URL absolue window.location).
+		// In tests, base='' gives href="/print/print.css" without an absolute window.location URL.
 		expect(html).toContain('href="/print/print.css"');
 		expect(html).not.toContain('http://localhost');
 	});
 });
 
-describe('préparation d’impression bornée', () => {
+describe('bounded print preparation', () => {
 	afterEach(() => vi.useRealTimers());
 
-	it('refuse une préparation déjà annulée même sans image', async () => {
+	it('rejects a canceled preparation without images', async () => {
 		const controller = new AbortController();
 		controller.abort();
 		await expect(
@@ -567,7 +561,7 @@ describe('préparation d’impression bornée', () => {
 		).rejects.toMatchObject({ name: 'AbortError' });
 	});
 
-	it('diagnostique une source absente et une image décodée sans hauteur', async () => {
+	it('reports a missing source and a decoded image without height', async () => {
 		const doc = document.implementation.createHTMLDocument();
 		doc.body.innerHTML = '<img alt="Source absente"><img data-mdsh-remote-src="remote.png">';
 		const image = doc.images[1]!;
@@ -578,7 +572,7 @@ describe('préparation d’impression bornée', () => {
 		});
 	});
 
-	it('réutilise seulement une image complète avec deux dimensions positives', async () => {
+	it('reuses only a complete image with two positive dimensions', async () => {
 		const doc = document.implementation.createHTMLDocument();
 		doc.body.innerHTML = '<img src="cached.png">';
 		const image = doc.images[0]!;
@@ -609,7 +603,7 @@ describe('préparation d’impression bornée', () => {
 		}
 	);
 
-	it('arrête l’attente d’une image qui ne se décode jamais', async () => {
+	it('stops waiting for an image that never decodes', async () => {
 		vi.useFakeTimers();
 		const doc = document.implementation.createHTMLDocument();
 		doc.body.innerHTML = '<img src="stalled.png">';

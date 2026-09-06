@@ -16,13 +16,13 @@ const mode = args.shift();
 const archivePath = args[0] === '--archive' && args.length === 2 ? resolve(args[1]) : undefined;
 
 if (!['--check', '--write'].includes(mode) || (args.length > 0 && !archivePath)) {
-	throw new Error('Usage : node scripts/vendor-glib.mjs --check|--write [--archive fichier.crate]');
+	throw new Error('Usage: node scripts/vendor-glib.mjs --check|--write [--archive fichier.crate]');
 }
 
 function run(command, commandArgs, cwd) {
 	const result = spawnSync(command, commandArgs, { cwd, encoding: 'utf8' });
 	if (result.error || result.status !== 0) {
-		throw new Error(`${command} a échoué : ${result.error?.message ?? result.stderr}`);
+		throw new Error(`${command} failed: ${result.error?.message ?? result.stderr}`);
 	}
 }
 
@@ -35,7 +35,7 @@ async function listFiles(directory, prefix = '') {
 		} else if (entry.isFile()) {
 			files.push(relative);
 		} else {
-			throw new Error(`Type de fichier inattendu : ${relative}`);
+			throw new Error(`Unexpected file type: ${relative}`);
 		}
 	}
 	return files.sort();
@@ -45,14 +45,14 @@ async function verifyFiles(expectedDir) {
 	const expected = await listFiles(expectedDir);
 	const actual = await listFiles(targetDir);
 	if (JSON.stringify(expected) !== JSON.stringify(actual)) {
-		throw new Error('Inventaire vendor différent de la source officielle corrigée.');
+		throw new Error('The vendor file list differs from the patched official source.');
 	}
 	for (const file of expected) {
 		const [source, target] = await Promise.all([
 			readFile(join(expectedDir, file)),
 			readFile(join(targetDir, file))
 		]);
-		if (!source.equals(target)) throw new Error(`Contenu vendor différent : ${file}`);
+		if (!source.equals(target)) throw new Error(`Vendor content differs: ${file}`);
 	}
 	return expected.length;
 }
@@ -64,17 +64,17 @@ try {
 		archive = await readFile(archivePath);
 	} else {
 		const response = await fetch(archiveUrl, { signal: AbortSignal.timeout(30_000) });
-		if (!response.ok) throw new Error(`Téléchargement impossible : HTTP ${response.status}`);
+		if (!response.ok) throw new Error(`Download failed: HTTP ${response.status}`);
 		archive = Buffer.from(await response.arrayBuffer());
 	}
 	if (createHash('sha256').update(archive).digest('hex') !== archiveSha256) {
-		throw new Error('SHA256 de l’archive glib incorrect.');
+		throw new Error('Incorrect glib archive SHA256.');
 	}
 	const downloadedPath = join(temporaryDir, 'glib.crate');
 	await writeFile(downloadedPath, archive);
 	run('tar', ['-xzf', downloadedPath, '-C', temporaryDir], temporaryDir);
 	const extractedDir = join(temporaryDir, `glib-${version}`);
-	// Le répertoire temporaire n'hérite pas des attributs Git du dépôt.
+	// The temporary directory does not inherit the repository Git attributes.
 	const applyArgs = ['-c', 'core.autocrlf=false', '-c', 'core.eol=lf', 'apply'];
 	run('git', [...applyArgs, '--check', patchPath], extractedDir);
 	run('git', [...applyArgs, patchPath], extractedDir);
@@ -98,7 +98,7 @@ try {
 	}
 	const count = await verifyFiles(extractedDir);
 	process.stdout.write(
-		`glib ${version} : ${count} fichiers vérifiés, archive SHA256 et patch conformes.\n`
+		`glib ${version} : ${count} files checked. Archive SHA256 and patch match.\n`
 	);
 } finally {
 	await rm(temporaryDir, { recursive: true, force: true });

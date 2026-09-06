@@ -22,7 +22,7 @@ function walk(root) {
 /** @param {string} input @param {string} output @param {{ sha: string, tag: string }} expected */
 export function collectDesktopAssets(input, output, expected) {
 	if (!/^[a-f0-9]{40}$/.test(expected.sha) || !/^v\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(expected.tag)) {
-		throw new Error('Identité source invalide');
+		throw new Error('Invalid source identity');
 	}
 	const candidates = walk(input).filter((path) =>
 		/\.(?:dmg|AppImage|deb|rpm|msi)$|-setup\.exe$|^sbom-(?:npm|cargo)\.cdx\.json$|^desktop-source\.json$/.test(
@@ -30,16 +30,16 @@ export function collectDesktopAssets(input, output, expected) {
 		)
 	);
 	const names = candidates.map((path) => basename(path));
-	if (new Set(names).size !== names.length) throw new Error('Collision de noms dans les artefacts');
+	if (new Set(names).size !== names.length) throw new Error('Duplicate artifact names');
 	const sourcePath = candidates.find((path) => basename(path) === 'desktop-source.json');
-	if (!sourcePath) throw new Error('Manifeste source absent');
+	if (!sourcePath) throw new Error('Source manifest is missing');
 	const source = JSON.parse(readFileSync(sourcePath, 'utf8'));
 	if (
 		source.sha !== expected.sha ||
 		source.tag !== expected.tag ||
 		`v${source.version}` !== expected.tag
 	) {
-		throw new Error('Les artefacts ne correspondent pas à la source annoncée');
+		throw new Error('The artifacts do not match the specified source');
 	}
 	for (const pattern of [
 		/aarch64\.dmg$/,
@@ -53,14 +53,14 @@ export function collectDesktopAssets(input, output, expected) {
 		/^sbom-cargo\.cdx\.json$/
 	]) {
 		if (!names.some((name) => pattern.test(name)))
-			throw new Error(`Artefact requis absent : ${pattern}`);
+			throw new Error(`Required artifact is missing: ${pattern}`);
 	}
 	mkdirSync(output, { recursive: true });
 	const checksums = candidates
 		.sort((a, b) => basename(a).localeCompare(basename(b)))
 		.map((path) => {
 			const name = basename(path);
-			if (/[\r\n]/.test(name)) throw new Error('Nom de fichier invalide');
+			if (/[\r\n]/.test(name)) throw new Error('Invalid filename');
 			copyFileSync(path, join(output, name), constants.COPYFILE_EXCL);
 			return `${createHash('sha256').update(readFileSync(path)).digest('hex')}  ${name}`;
 		});

@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { getTags, getTitle, parseFrontmatter, stripFrontmatter } from './frontmatter';
 
-describe('parseFrontmatter - détection', () => {
-	it('renvoie data vide si pas de front-matter', async () => {
+describe('parseFrontmatter - detection', () => {
+	it('returns empty data without front matter', async () => {
 		const result = await parseFrontmatter('# Hello\n\ndu texte');
 		expect(result.data).toEqual({});
 		expect(result.content).toBe('# Hello\n\ndu texte');
 		expect(result.raw).toBe('');
 	});
 
-	it('parse un front-matter YAML valide', async () => {
+	it('parses valid YAML front matter', async () => {
 		const md = `---
 title: Mon document
 author: Thomas
@@ -23,7 +23,7 @@ author: Thomas
 		expect(result.raw).toContain('title: Mon document');
 	});
 
-	it('extrait un tableau de tags YAML', async () => {
+	it('gets a YAML tag array', async () => {
 		const md = `---
 title: Doc
 tags: [notes, projet-x, alpha]
@@ -34,7 +34,7 @@ corps`;
 		expect(result.data.tags).toEqual(['notes', 'projet-x', 'alpha']);
 	});
 
-	it('parse une date YAML', async () => {
+	it('parses a YAML date', async () => {
 		const md = `---
 title: Doc
 created: 2026-04-01
@@ -42,11 +42,11 @@ created: 2026-04-01
 
 corps`;
 		const result = await parseFrontmatter(md);
-		// gray-matter convertit la date en objet Date
+		// gray-matter converts the date to a Date object.
 		expect(result.data.created).toBeDefined();
 	});
 
-	it('fail-soft sur YAML cassé : retourne markdown intact', async () => {
+	it('returns unchanged Markdown after invalid YAML', async () => {
 		const md = `---
 title: ::: invalid : : :
 tags: [unclosed
@@ -54,13 +54,13 @@ tags: [unclosed
 
 # OK`;
 		const result = await parseFrontmatter(md);
-		// Soit gray-matter accepte (rare), soit on tombe dans le catch.
-		// Dans les deux cas le content doit rester non vide et data un objet.
+		// gray-matter can accept this input, but usually the catch block handles it.
+		// In both cases, content must remain nonempty and data must be an object.
 		expect(typeof result.data).toBe('object');
 		expect(result.content.length).toBeGreaterThan(0);
 	});
 
-	it('ne confond pas une ligne `---` (hr) avec un front-matter', async () => {
+	it('does not treat a horizontal rule as front matter', async () => {
 		const md = `# Titre
 
 du texte
@@ -71,7 +71,7 @@ suite`;
 		expect(result.content).toBe(md);
 	});
 
-	it('gère un front-matter avec corps vide', async () => {
+	it('supports front matter with an empty body', async () => {
 		const md = `---
 title: Test
 ---
@@ -82,8 +82,8 @@ title: Test
 	});
 });
 
-describe('stripFrontmatter - version sync', () => {
-	it('retire le bloc front-matter sans dépendre de gray-matter', () => {
+describe('stripFrontmatter - synchronous version', () => {
+	it('removes the front matter block without gray-matter', () => {
 		const md = `---
 title: X
 ---
@@ -94,7 +94,7 @@ title: X
 		expect(r.content.trim()).toBe('# Corps');
 	});
 
-	it('renvoie le markdown intact si pas de bloc', () => {
+	it('returns unchanged Markdown without a block', () => {
 		const md = '# Titre\n\nx';
 		expect(stripFrontmatter(md).content).toBe(md);
 		expect(stripFrontmatter(md).raw).toBe('');
@@ -102,62 +102,62 @@ title: X
 });
 
 describe('getTitle', () => {
-	it('priorise data.title si défini', () => {
+	it('uses data.title when it exists', () => {
 		expect(getTitle({ title: 'YAML titre' }, '# Heading\nabc', 'fallback')).toBe('YAML titre');
 	});
 
-	it('trim le titre YAML', () => {
+	it('trims the YAML title', () => {
 		expect(getTitle({ title: '   spaced   ' }, '', 'fb')).toBe('spaced');
 	});
 
-	it('tombe sur le premier # H1 si pas de title YAML', () => {
+	it('uses the first H1 without a YAML title', () => {
 		expect(getTitle({}, '# Mon Titre\n\nbla', 'fallback')).toBe('Mon Titre');
 	});
 
-	it('tombe sur le fallback si ni title ni H1', () => {
+	it('uses the fallback without a title or H1', () => {
 		expect(getTitle({}, 'Juste du texte sans heading.', 'mon-fichier')).toBe('mon-fichier');
 	});
 
-	it('ignore un title vide ou non-string', () => {
+	it('ignores an empty or non-string title', () => {
 		expect(getTitle({ title: '' }, '# H1', 'fb')).toBe('H1');
 		expect(getTitle({ title: 42 as unknown as string }, '# H1', 'fb')).toBe('H1');
 	});
 
-	it("n'attrape pas un ## H2 comme H1", () => {
+	it('does not use an H2 as an H1', () => {
 		expect(getTitle({}, '## Pas un H1\n\n# Vrai H1', 'fb')).toBe('Vrai H1');
 	});
 });
 
 describe('getTags', () => {
-	it('retourne [] si tags absent', () => {
+	it('returns an empty array without tags', () => {
 		expect(getTags({})).toEqual([]);
 	});
 
-	it('accepte un tableau YAML', () => {
+	it('accepts a YAML array', () => {
 		expect(getTags({ tags: ['a', 'b', 'c'] })).toEqual(['a', 'b', 'c']);
 	});
 
-	it('parse une string CSV', () => {
+	it('parses a CSV string', () => {
 		expect(getTags({ tags: 'a, b , c' })).toEqual(['a', 'b', 'c']);
 	});
 
-	it('accepte une string simple', () => {
+	it('accepts a simple string', () => {
 		expect(getTags({ tags: 'unique' })).toEqual(['unique']);
 	});
 
-	it('dédoublonne les tags identiques', () => {
+	it('removes duplicate tags', () => {
 		expect(getTags({ tags: ['a', 'b', 'a', 'b'] })).toEqual(['a', 'b']);
 	});
 
-	it('filtre les entrées vides', () => {
+	it('removes empty entries', () => {
 		expect(getTags({ tags: ['a', '', '  ', 'b'] })).toEqual(['a', 'b']);
 	});
 
-	it('coerce les nombres en strings', () => {
+	it('converts numbers to strings', () => {
 		expect(getTags({ tags: [2026, 'note'] })).toEqual(['2026', 'note']);
 	});
 
-	it('retourne [] sur type inattendu', () => {
+	it('returns an empty array for an unexpected type', () => {
 		expect(getTags({ tags: { foo: 'bar' } })).toEqual([]);
 		expect(getTags({ tags: null })).toEqual([]);
 		expect(getTags({ tags: 123 as unknown as string[] })).toEqual([]);

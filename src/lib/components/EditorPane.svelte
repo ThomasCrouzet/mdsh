@@ -210,9 +210,7 @@
 
 	/* ============================================================================
 	   Table of contents - fixed right column in read mode (desktop >= 1024 px).
-	   On mobile the column collapses: the inner TOC is hidden by its own
-	   media query, but we also avoid reserving the width here so all the
-	   space goes to the text.
+	   On mobile, collapse the column and give all available width to the text.
 	   ============================================================================ */
 	.mdsh-toc-col {
 		flex: 0 0 220px;

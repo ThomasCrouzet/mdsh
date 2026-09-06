@@ -1,18 +1,18 @@
 import { test, expect } from '@playwright/test';
 import { resetAppState, seedFiles, openPalette } from './helpers';
 
-test.describe('Workspaces - sauvegarde/restauration de sessions', () => {
+test.describe('Workspaces - save and restore sessions', () => {
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page);
 	});
 
-	test('crée un workspace puis le retrouve dans le panneau Workspaces', async ({ page }) => {
+	test('creates a workspace and shows it in the Workspaces panel', async ({ page }) => {
 		await seedFiles(page, [
 			{ name: 'doc-a', content: '# A\n' },
 			{ name: 'doc-b', content: '# B\n' }
 		]);
 
-		// Sauvegarde du workspace via la palette → prompt → nom → Enter.
+		// Save the workspace from the palette, enter its name, and press Enter.
 		await openPalette(page);
 		await page.keyboard.type('Sauvegarder le workspace courant');
 		await expect(
@@ -24,10 +24,10 @@ test.describe('Workspaces - sauvegarde/restauration de sessions', () => {
 		const promptInput = promptDialog.locator('input[type="text"]');
 		await promptInput.fill('Mon workspace');
 		await promptInput.press('Enter');
-		// Le store ferme le prompt → re-poll pour ne pas chevaucher avec la palette.
+		// Wait for the store to close the prompt before the palette opens.
 		await expect(promptDialog).toBeHidden({ timeout: 5000 });
 
-		// Ouverture du panneau Workspaces via la commande "Charger un workspace…".
+		// Open the Workspaces panel with the "Charger un workspace..." command.
 		await openPalette(page);
 		await page.keyboard.type('Charger un workspace');
 		await page.keyboard.press('Enter');

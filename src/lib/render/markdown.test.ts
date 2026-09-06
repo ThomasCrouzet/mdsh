@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { hasMath, hasMermaid, renderMarkdown } from './markdown';
 
-describe('renderMarkdown - markdown de base', () => {
-	it('rend un titre H1 sans décoration interactive par défaut', async () => {
+describe('renderMarkdown - basic Markdown', () => {
+	it('renders an H1 without interactive decoration by default', async () => {
 		const html = await renderMarkdown('# Hello');
 		expect(html).toMatch(/<h1[^>]*id="hello"[^>]*>Hello/);
 		expect(html).not.toContain('class="mdsh-anchor"');
 	});
 
-	it('ajoute le permalien des titres uniquement sur demande', async () => {
+	it('adds heading permalinks only on request', async () => {
 		const html = await renderMarkdown('# Hello', { headingPermalinks: true });
 		expect(html).toContain('class="mdsh-anchor"');
 		expect(html).toContain('href="#hello"');
@@ -16,18 +16,18 @@ describe('renderMarkdown - markdown de base', () => {
 		expect(html).not.toContain('>#</a>');
 	});
 
-	it('rend des emphases', async () => {
+	it('renders emphasis', async () => {
 		const html = await renderMarkdown('**gras** et *italique*');
 		expect(html).toContain('<strong>gras</strong>');
 		expect(html).toContain('<em>italique</em>');
 	});
 
-	it('rend un lien', async () => {
+	it('renders a link', async () => {
 		const html = await renderMarkdown('[mdsh](https://example.com)');
 		expect(html).toMatch(/<a href="https:\/\/example\.com"[^>]*>mdsh<\/a>/);
 	});
 
-	it('rend une liste non ordonnée', async () => {
+	it('renders an unordered list', async () => {
 		const html = await renderMarkdown('- un\n- deux');
 		expect(html).toContain('<ul>');
 		expect(html).toContain('<li>un</li>');
@@ -35,14 +35,14 @@ describe('renderMarkdown - markdown de base', () => {
 });
 
 describe('renderMarkdown - GFM', () => {
-	it('rend une table', async () => {
+	it('renders a table', async () => {
 		const html = await renderMarkdown('| a | b |\n| --- | --- |\n| 1 | 2 |');
 		expect(html).toContain('<table>');
 		expect(html).toContain('<th>a</th>');
 		expect(html).toContain('<td>1</td>');
 	});
 
-	it('rend une checklist', async () => {
+	it('renders a checklist', async () => {
 		const html = await renderMarkdown('- [ ] à faire\n- [x] fait');
 		expect(html).toContain('<ul class="contains-task-list">');
 		expect(html.match(/class="task-list-item"/g)).toHaveLength(2);
@@ -50,71 +50,71 @@ describe('renderMarkdown - GFM', () => {
 		expect(html).toMatch(/checked/);
 	});
 
-	it("conserve le marqueur des éléments ordinaires d'une liste mixte", async () => {
+	it('keeps markers for standard items in a mixed list', async () => {
 		const html = await renderMarkdown('- [ ] à faire\n- élément ordinaire');
 		expect(html).toContain('<li class="task-list-item">');
 		expect(html).toContain('<li>élément ordinaire</li>');
 	});
 
-	it('rend strikethrough', async () => {
+	it('renders strikethrough', async () => {
 		const html = await renderMarkdown('~~barré~~');
 		expect(html).toContain('<del>barré</del>');
 	});
 });
 
 describe('renderMarkdown - code blocks', () => {
-	it('applique highlight.js sur du JS', async () => {
+	it('applies highlight.js to JavaScript', async () => {
 		const html = await renderMarkdown('```js\nconst x = 1;\n```');
 		expect(html).toContain('hljs');
 		expect(html).toContain('language-js');
 		expect(html).toMatch(/class="hljs-keyword"/);
 	});
 
-	it('gère un lang inconnu sans planter', async () => {
+	it('supports an unknown language without an error', async () => {
 		const html = await renderMarkdown('```gibberish\nfoo bar\n```');
-		// §B1.9 - `<pre>` porte un aria-label ("Bloc de code" si lang inconnu).
+		// Section B1.9: `<pre>` has an aria-label. French uses "Bloc de code" for an unknown language.
 		expect(html).toMatch(/<pre[^>]*aria-label="Bloc de code"/);
 		expect(html).toContain('<code');
 	});
 
-	it('conserve le code inline', async () => {
+	it('keeps inline code', async () => {
 		const html = await renderMarkdown('Voir `run()` pour lancer');
 		expect(html).toContain('<code>run()</code>');
 	});
 });
 
 describe('renderMarkdown - math KaTeX', () => {
-	it('rend une formule inline', async () => {
+	it('renders an inline formula', async () => {
 		const html = await renderMarkdown('Soit $a^2 + b^2 = c^2$ un théorème');
 		expect(html).toContain('katex');
 		expect(html).not.toContain('$a^2');
 	});
 
-	it('rend une formule block', async () => {
+	it('renders a block formula', async () => {
 		const html = await renderMarkdown('$$\n\\int_0^1 x\\,dx = \\frac{1}{2}\n$$');
 		expect(html).toContain('math-block');
 		expect(html).toContain('katex');
 	});
 
-	it('ne casse pas sur du TeX invalide', async () => {
+	it('handles invalid TeX without an error', async () => {
 		const html = await renderMarkdown('$\\badcommand{}$');
 		expect(typeof html).toBe('string');
 		expect(html.length).toBeGreaterThan(0);
 	});
 
-	it("n'interprète pas un prix comme math ($10)", async () => {
+	it('does not parse a price as math', async () => {
 		const html = await renderMarkdown('Prix : $10 - rien à voir');
 		expect(html).not.toContain('katex');
 		expect(html).toContain('Prix');
 	});
 
-	it('coexiste avec les blocs de code', async () => {
+	it('works with code blocks', async () => {
 		const html = await renderMarkdown('Formule $E = mc^2$\n\n```js\nconst $ = 1;\n```');
 		expect(html).toContain('katex');
 		expect(html).toContain('hljs');
 	});
 
-	it('rend une formule $$…$$ placée en MILIEU de ligne (pas laissée en texte brut)', async () => {
+	it('renders a display formula in the middle of a line', async () => {
 		const html = await renderMarkdown('Voici $$a^2+b^2$$ inline.');
 		expect(html).toContain('katex');
 		expect(html).not.toContain('$$a^2');
@@ -122,56 +122,55 @@ describe('renderMarkdown - math KaTeX', () => {
 });
 
 describe('hasMath', () => {
-	it('détecte inline', () => {
+	it('detects inline math', () => {
 		expect(hasMath('a $x$ b')).toBe(true);
 	});
-	it('détecte block', () => {
+	it('detects block math', () => {
 		expect(hasMath('$$\nx\n$$')).toBe(true);
 	});
-	it('rejette un texte normal', () => {
+	it('rejects plain text', () => {
 		expect(hasMath('rien de spécial')).toBe(false);
 	});
-	it('ne confond pas $10', () => {
+	it('does not classify $10 as math', () => {
 		expect(hasMath('prix $10 ici')).toBe(false);
 	});
-	it('aligné sur le tokenizer : un $ fermant suivi d’un chiffre n’est pas du math', () => {
-		// `$x$5` : le tokenizer rejette via `(?!\d)` → hasMath ne doit pas sur-détecter.
+	it('matches the tokenizer when a digit follows a closing dollar sign', () => {
+		// The tokenizer rejects `$x$5` through `(?!\d)`, so hasMath must not return a false positive.
 		expect(hasMath('$x$5')).toBe(false);
 	});
-	it('détecte $$…$$ même en milieu de ligne', () => {
+	it('detects display math in the middle of a line', () => {
 		expect(hasMath('texte $$x$$ suite')).toBe(true);
 	});
 });
 
 describe('hasMermaid', () => {
-	it('détecte un bloc mermaid', () => {
+	it('detects a Mermaid block', () => {
 		expect(hasMermaid('```mermaid\ngraph TD\n```')).toBe(true);
 	});
-	it('détecte avec fence ~~~', () => {
+	it('detects a tilde fence', () => {
 		expect(hasMermaid('~~~mermaid\ngraph TD\n~~~')).toBe(true);
 	});
-	it("rejette si 'mermaid' n'est pas un lang de code block", () => {
+	it('rejects mermaid outside a code block language', () => {
 		expect(hasMermaid('Voir mermaid en action')).toBe(false);
 	});
-	it('rejette un langage voisin', () => {
+	it('rejects a similar language', () => {
 		expect(hasMermaid('```mermaidx\ncontent\n```')).toBe(false);
 	});
 });
 
-describe('renderMarkdown - extraction Mermaid', () => {
-	it('laisse passer le markdown sans bloc mermaid', async () => {
+describe('renderMarkdown - Mermaid extraction', () => {
+	it('keeps Markdown without a Mermaid block', async () => {
 		const html = await renderMarkdown('# Hello\n\ndu texte');
 		expect(html).not.toContain('mermaid-block');
 		expect(html).not.toContain('MERMAID-');
 	});
 
-	// Note: on ne teste pas le rendu SVG effectif en unit test - Mermaid nécessite
-	// un DOM complet avec mesure de bounding box. Les tests d'intégration
-	// visuelle se font via l'app de dev.
+	// Do not test actual SVG rendering here. Mermaid requires a full DOM with bounding-box measurements.
+	// Run visual integration tests in the development application.
 });
 
 describe('renderMarkdown - front-matter (§5.1)', () => {
-	it('strippe le bloc YAML en tête du markdown', async () => {
+	it('removes the leading YAML block', async () => {
 		const md = `---
 title: Doc
 author: Thomas
@@ -181,12 +180,12 @@ author: Thomas
 		const html = await renderMarkdown(md);
 		expect(html).toContain('<h1');
 		expect(html).toContain('Contenu');
-		// Le bloc YAML brut ne doit pas apparaître dans le HTML.
+		// Raw YAML must not appear in the HTML.
 		expect(html).not.toContain('---\ntitle');
 		expect(html).not.toContain('author: Thomas');
 	});
 
-	it('insère un bloc <aside class="mdsh-frontmatter"> avec les métadonnées', async () => {
+	it('inserts metadata in an mdsh-frontmatter aside', async () => {
 		const md = `---
 title: Doc
 author: Thomas
@@ -198,7 +197,7 @@ corps`;
 		expect(html).toContain('Thomas');
 	});
 
-	it('rend les tags YAML comme chips', async () => {
+	it('renders YAML tags as chips', async () => {
 		const md = `---
 tags: [notes, projet-x]
 ---
@@ -210,7 +209,7 @@ corps`;
 		expect(html).toContain('projet-x');
 	});
 
-	it('omet le bloc front-matter si showFrontmatter=false', async () => {
+	it('omits the front matter block when showFrontmatter is false', async () => {
 		const md = `---
 author: Thomas
 ---
@@ -220,22 +219,21 @@ corps`;
 		expect(html).not.toContain('mdsh-frontmatter');
 	});
 
-	it('échappe les valeurs front-matter pour éviter une injection HTML', async () => {
+	it('escapes front matter values to prevent HTML injection', async () => {
 		const md = `---
 author: '<img src=x onerror=alert(1)>'
 ---
 
 corps`;
 		const html = await renderMarkdown(md);
-		// La balise <img> doit être échappée (rendue comme texte) - pas
-		// d'élément exécutable dans le DOM final.
+		// Escape the <img> tag as text. The final DOM must not contain an executable element.
 		expect(html).not.toMatch(/<img\s+[^>]*src=x/i);
-		// Le mot "onerror" peut survivre comme texte (ex. "&lt;img onerror=...&gt;")
-		// mais pas comme attribut.
+		// The word "onerror" can remain as text, such as "&lt;img onerror=...&gt;".
+		// It must not remain as an attribute.
 		expect(html).not.toMatch(/<\w+[^>]*\sonerror=/i);
 	});
 
-	it('rend normalement quand le front-matter est invalide', async () => {
+	it('renders normally with invalid front matter', async () => {
 		const md = `---
 title: ::: invalid : : :
 tags: [unclosed
@@ -249,79 +247,79 @@ tags: [unclosed
 });
 
 describe('renderMarkdown - wiki-links (§5.2)', () => {
-	it('transforme [[Cible]] en <a class="wiki-link">', async () => {
+	it('converts a wiki target to a wiki-link anchor', async () => {
 		const html = await renderMarkdown('Voir [[Notes]] pour plus.');
 		expect(html).toContain('class="wiki-link"');
-		// Le data-attr est encodé URI-safe : "Notes" → "Notes" (inchangé sur ASCII).
+		// Encode the data attribute as a URI. ASCII text such as "Notes" remains unchanged.
 		expect(html).toContain('data-mdsh-wiki="Notes"');
 		expect(html).toContain('>Notes</a>');
 	});
 
-	it('transforme [[Cible|Alias]] en lien avec label alias', async () => {
+	it('converts a wiki alias to a link with an alias label', async () => {
 		const html = await renderMarkdown('Voir [[notes-projet|mes notes]] ici.');
 		expect(html).toContain('data-mdsh-wiki="notes-projet"');
 		expect(html).toContain('>mes notes</a>');
 	});
 
-	it('génère un href #mdsh-wiki-{slug}', async () => {
+	it('creates an mdsh-wiki slug href', async () => {
 		const html = await renderMarkdown('[[Mon Document]]');
 		expect(html).toContain('#mdsh-wiki-mon-document');
 	});
 
-	it('échappe les caractères HTML dans le label et encode le data-attr', async () => {
+	it('escapes label HTML and encodes the data attribute', async () => {
 		const html = await renderMarkdown('[[<script>alert(1)</script>]]');
-		// La balise <script> ne doit pas être présente sous forme exécutable.
+		// The <script> tag must not be executable.
 		expect(html).not.toMatch(/<script[^>]*>/i);
-		// Le data-attr est encodé URL-safe - préserve la cible sans risquer
-		// d'être strippé par DOMPurify (encode `<` `>` en `%3C` `%3E`).
+		// Encode the data attribute for a URL to preserve the target through DOMPurify.
+		// Encode `<` and `>` as `%3C` and `%3E`.
 		expect(html).toMatch(/data-mdsh-wiki="[^"]*%3C[^"]*"/i);
 	});
 
-	it('ne touche pas un single-bracket [text]', async () => {
+	it('keeps a single-bracket link unchanged', async () => {
 		const html = await renderMarkdown('Un [lien](https://example.com)');
 		expect(html).not.toContain('wiki-link');
 		expect(html).toContain('href="https://example.com"');
 	});
 
-	it('gère plusieurs wiki-links dans un même paragraphe', async () => {
+	it('supports multiple wiki links in one paragraph', async () => {
 		const html = await renderMarkdown('Voir [[A]] et [[B|alias B]].');
-		// Compte des occurrences de class="wiki-link"
+		// Count occurrences of class="wiki-link".
 		const matches = html.match(/class="wiki-link"/g) ?? [];
 		expect(matches.length).toBe(2);
 	});
 });
 
-describe('renderMarkdown - protection tabnabbing (P1.1)', () => {
-	it('force rel="noopener noreferrer" sur un lien externe https://', async () => {
+describe('renderMarkdown - tabnabbing protection (P1.1)', () => {
+	it('sets rel on an external HTTPS link', async () => {
 		const html = await renderMarkdown('[exemple](https://example.com)');
-		// Le lien doit porter à la fois target="_blank" et rel="noopener noreferrer"
+		// The link must have target="_blank" and rel="noopener noreferrer".
 		expect(html).toContain('target="_blank"');
 		expect(html).toContain('rel="noopener noreferrer"');
 	});
 
-	it('force rel="noopener noreferrer" sur un lien externe http://', async () => {
+	it('sets rel on an external HTTP link', async () => {
 		const html = await renderMarkdown('[insecure](http://example.com)');
 		expect(html).toContain('rel="noopener noreferrer"');
 	});
 
-	it("force rel sur un <a target='_blank'> injecté en HTML brut", async () => {
-		// Scénario : fichier .md hostile importé via drag-drop / share-target
+	it('sets rel on a raw HTML anchor with a blank target', async () => {
+		// Simulate a hostile .md file imported through drag and drop or the share target.
 		const html = await renderMarkdown('<a href="https://evil.tld" target="_blank">clic</a>');
 		expect(html).toContain('rel="noopener noreferrer"');
 	});
 
-	it("n'ajoute pas target/rel sur un lien wiki interne (#mdsh-wiki-...)", async () => {
-		// Les wiki-links génèrent href="#mdsh-wiki-<slug>" - ancre locale, pas externe.
+	it('does not add target or rel to an internal wiki link', async () => {
+		// Wiki links generate href="#mdsh-wiki-<slug>", which is a local anchor.
 		const html = await renderMarkdown('Voir [[Notes]]');
-		// Récupère uniquement le <a> du wiki-link (href="#mdsh-wiki-notes")
+		// Get only the wiki link <a> with href="#mdsh-wiki-notes".
 		const wikiLink = html.match(/<a[^>]+href="#mdsh-wiki-notes"[^>]*>/)?.[0] ?? '';
 		expect(wikiLink).toBeTruthy();
 		expect(wikiLink).not.toContain('rel="noopener noreferrer"');
 		expect(wikiLink).not.toContain('target="_blank"');
 	});
 
-	it("n'ajoute pas target/rel sur une ancre locale (#section)", async () => {
-		// Les ancres de heading sont des liens internes - ne doivent pas être altérés.
+	it('does not add target or rel to a local anchor', async () => {
+		// Heading anchors are internal links and must remain unchanged.
 		const html = await renderMarkdown('# Mon titre', { headingPermalinks: true });
 		// L'ancre permalink porte href="#mon-titre"
 		const anchor = html.match(/<a[^>]+href="#mon-titre"[^>]*>/)?.[0] ?? '';
@@ -330,8 +328,8 @@ describe('renderMarkdown - protection tabnabbing (P1.1)', () => {
 	});
 });
 
-describe('renderMarkdown - sanitization XSS', () => {
-	it('strippe les balises <script>', async () => {
+describe('renderMarkdown - XSS sanitization', () => {
+	it('removes script elements', async () => {
 		const html = await renderMarkdown('Avant\n\n<script>alert(1)</script>\n\nAprès');
 		expect(html).not.toContain('<script');
 		expect(html).not.toContain('alert(1)');
@@ -339,7 +337,7 @@ describe('renderMarkdown - sanitization XSS', () => {
 		expect(html).toContain('Après');
 	});
 
-	it('retire les attributs onerror / onload / onclick', async () => {
+	it('removes event handler attributes', async () => {
 		const html = await renderMarkdown(
 			'<img src="x" onerror="alert(1)">\n\n<div onload="alert(2)" onclick="alert(3)">x</div>'
 		);
@@ -349,20 +347,20 @@ describe('renderMarkdown - sanitization XSS', () => {
 		expect(html).not.toMatch(/alert\(\d\)/);
 	});
 
-	it('strippe les href="javascript:..."', async () => {
+	it('removes JavaScript href values', async () => {
 		const html = await renderMarkdown('[clic](javascript:alert(1))');
 		expect(html).not.toContain('javascript:');
 		expect(html).not.toContain('alert(1)');
 	});
 
-	it('strippe les <iframe>', async () => {
+	it('removes iframe elements', async () => {
 		const html = await renderMarkdown('<iframe src="https://evil.tld"></iframe>\n\nOK');
 		expect(html).not.toContain('<iframe');
 		expect(html).not.toContain('evil.tld');
 		expect(html).toContain('OK');
 	});
 
-	it('strippe <object>, <embed> et <form>', async () => {
+	it('removes object, embed, and form elements', async () => {
 		const html = await renderMarkdown(
 			'<object data="x.swf"></object>\n<embed src="x">\n<form action="//evil"><input name=pw></form>'
 		);
@@ -371,18 +369,18 @@ describe('renderMarkdown - sanitization XSS', () => {
 		expect(html).not.toContain('<form');
 	});
 
-	it('conserve les liens https:// légitimes', async () => {
+	it('keeps valid HTTPS links', async () => {
 		const html = await renderMarkdown('[ok](https://example.com/path)');
 		expect(html).toContain('href="https://example.com/path"');
 	});
 
-	it('préserve les task lists GFM après sanitization', async () => {
+	it('keeps GFM task lists after sanitization', async () => {
 		const html = await renderMarkdown('- [ ] todo\n- [x] done');
 		expect(html).toContain('type="checkbox"');
 		expect(html).toMatch(/checked/);
 	});
 
-	it('préserve le rendu KaTeX après sanitization', async () => {
+	it('keeps KaTeX output after sanitization', async () => {
 		const html = await renderMarkdown('$a^2 + b^2 = c^2$');
 		expect(html).toContain('katex');
 	});

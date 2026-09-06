@@ -11,7 +11,7 @@
 	//   <PromptModal
 	//     open={state.promptOpen}
 	//     mode="prompt"
-	//     title="Nom du workspace ?"
+	//     title="Workspace name?"
 	//     defaultValue=""
 	//     onResolve={(value) => { ... }}
 	//   />

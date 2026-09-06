@@ -11,11 +11,9 @@ trim_trailing_whitespace = true
 [*.md]
 trim_trailing_whitespace = false
 
-# YAML formel (workflows GitHub Actions, dependabot, etc.) : la spec YAML
-# interdit les tabs comme indentation de structure. On reste en tab pour
-# rester cohérent avec Prettier (`useTabs: true`) sur tout le reste, et on
-# ne formate pas activement les .yml - leur indent reste contrôlé par
-# l'auteur.
+# YAML requires spaces for structural indentation.
+# Keep tabs elsewhere to match Prettier (useTabs: true).
+# Authors control YAML indentation; do not reformat it automatically.
 [*.{yml,yaml}]
 indent_style = space
 indent_size = 2

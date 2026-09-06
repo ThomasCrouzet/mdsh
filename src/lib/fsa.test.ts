@@ -15,7 +15,7 @@ import {
 	writeHandle
 } from './fsa';
 
-// IDB dédiée aux handles - isolée de Dexie (mdsh). Purge entre chaque test.
+// Use an IndexedDB database for handles, separate from the mdsh Dexie database.
 async function wipeHandleDB() {
 	await new Promise<void>((resolve) => {
 		const req = indexedDB.deleteDatabase('mdsh-fs');
@@ -27,7 +27,7 @@ async function wipeHandleDB() {
 
 beforeEach(async () => {
 	await wipeHandleDB();
-	// Reset des globals FSA entre tests - évite les fuites d'état.
+	// Reset FSA globals between tests to prevent state leaks.
 	Reflect.deleteProperty(window, 'showOpenFilePicker');
 	Reflect.deleteProperty(window, 'showSaveFilePicker');
 	Reflect.deleteProperty(window, 'showDirectoryPicker');
@@ -38,36 +38,36 @@ afterEach(async () => {
 });
 
 describe('isFSASupported', () => {
-	it('retourne false quand les APIs ne sont pas exposées', () => {
+	it('returns false when the APIs are unavailable', () => {
 		expect(isFSASupported()).toBe(false);
 	});
 
-	it('retourne true quand showOpenFilePicker et showSaveFilePicker sont présents', () => {
+	it('returns true when both file pickers are available', () => {
 		(window as unknown as { showOpenFilePicker: () => void }).showOpenFilePicker = () => {};
 		(window as unknown as { showSaveFilePicker: () => void }).showSaveFilePicker = () => {};
 		expect(isFSASupported()).toBe(true);
 	});
 
-	it("retourne false si l'une seulement est présente", () => {
+	it('returns false when only one file picker is available', () => {
 		(window as unknown as { showOpenFilePicker: () => void }).showOpenFilePicker = () => {};
 		expect(isFSASupported()).toBe(false);
 	});
 });
 
 describe('saveHandle / getHandle / deleteHandle', () => {
-	it('stocke un handle et le relit par id', async () => {
+	it('stores a handle and reads it by ID', async () => {
 		const handle = { name: 'fake.md' } as unknown as FileSystemFileHandle;
 		await saveHandle('id-1', handle);
 		const got = await getHandle('id-1');
 		expect(got).toEqual(handle);
 	});
 
-	it('retourne null si aucun handle pour cet id', async () => {
+	it('returns null without a handle for the ID', async () => {
 		const got = await getHandle('missing');
 		expect(got).toBeNull();
 	});
 
-	it("overrides le handle existant lors d'une deuxième saveHandle", async () => {
+	it('replaces an existing handle with a second saveHandle call', async () => {
 		const h1 = { name: 'a.md' } as unknown as FileSystemFileHandle;
 		const h2 = { name: 'b.md' } as unknown as FileSystemFileHandle;
 		await saveHandle('id-x', h1);
@@ -76,7 +76,7 @@ describe('saveHandle / getHandle / deleteHandle', () => {
 		expect((got as unknown as { name: string }).name).toBe('b.md');
 	});
 
-	it("deleteHandle supprime l'entrée", async () => {
+	it('removes an entry with deleteHandle', async () => {
 		const handle = { name: 'del.md' } as unknown as FileSystemFileHandle;
 		await saveHandle('to-del', handle);
 		expect(await getHandle('to-del')).not.toBeNull();
@@ -84,11 +84,11 @@ describe('saveHandle / getHandle / deleteHandle', () => {
 		expect(await getHandle('to-del')).toBeNull();
 	});
 
-	it('deleteHandle sur id inexistant ne throw pas', async () => {
+	it('does not throw when deleteHandle receives an unknown ID', async () => {
 		await expect(deleteHandle('never-existed')).resolves.toBeUndefined();
 	});
 
-	it('stocke plusieurs handles indépendants', async () => {
+	it('stores multiple independent handles', async () => {
 		await saveHandle('a', { name: 'a' } as unknown as FileSystemFileHandle);
 		await saveHandle('b', { name: 'b' } as unknown as FileSystemFileHandle);
 		expect((await getHandle('a')) as unknown as { name: string }).toMatchObject({ name: 'a' });
@@ -96,8 +96,8 @@ describe('saveHandle / getHandle / deleteHandle', () => {
 	});
 });
 
-describe('liens chemin desktop', () => {
-	it('stocke, relit et liste un lien chemin sans le confondre avec un handle', async () => {
+describe('desktop path links', () => {
+	it('stores, reads, and lists a path link separately from handles', async () => {
 		await savePathLink('path-id', { kind: 'path', path: '/tmp/note.md' });
 
 		expect(await getPathLink('path-id')).toEqual({ kind: 'path', path: '/tmp/note.md' });
@@ -113,7 +113,7 @@ describe('liens chemin desktop', () => {
 		expect(await listHandles()).toEqual([]);
 	});
 
-	it('liste ensemble les handles FSA et les liens chemin', async () => {
+	it('lists FSA handles and path links together', async () => {
 		const handle = { name: 'browser.md' } as FileSystemFileHandle;
 		await saveHandle('fsa-id', handle);
 		await savePathLink('path-id', { kind: 'path', path: 'C:\\notes\\desktop.md' });
@@ -128,7 +128,7 @@ describe('liens chemin desktop', () => {
 		expect(await listHandles()).toEqual([{ id: 'fsa-id', handle }]);
 	});
 
-	it('utilise les identifiants et chemins comme libellés de secours', async () => {
+	it('uses IDs and paths as fallback labels', async () => {
 		const handle = {} as FileSystemFileHandle;
 		await saveHandle('sans-nom', handle);
 		await savePathLink('racine', { kind: 'path', path: '/' });
@@ -143,7 +143,7 @@ describe('liens chemin desktop', () => {
 });
 
 describe('pickDirectoryFiles', () => {
-	it('propage une erreur du sélecteur qui n’est pas une annulation', async () => {
+	it('returns a picker error that is not a cancellation', async () => {
 		(window as unknown as { showDirectoryPicker: () => Promise<never> }).showDirectoryPicker = vi
 			.fn()
 			.mockRejectedValue(new Error('permission refusée'));
@@ -153,7 +153,7 @@ describe('pickDirectoryFiles', () => {
 });
 
 describe('requestPermission', () => {
-	it('retourne true si queryPermission === "granted" (skip requestPermission)', async () => {
+	it('returns true without a request when permission is granted', async () => {
 		const requestSpy = vi.fn();
 		const handle = {
 			queryPermission: vi.fn().mockResolvedValue('granted'),
@@ -164,7 +164,7 @@ describe('requestPermission', () => {
 		expect(requestSpy).not.toHaveBeenCalled();
 	});
 
-	it('appelle requestPermission si query retourne "prompt" puis "granted"', async () => {
+	it('requests permission after a prompt result', async () => {
 		const handle = {
 			queryPermission: vi.fn().mockResolvedValue('prompt'),
 			requestPermission: vi.fn().mockResolvedValue('granted')
@@ -172,7 +172,7 @@ describe('requestPermission', () => {
 		expect(await requestPermission(handle)).toBe(true);
 	});
 
-	it('retourne false si requestPermission refuse', async () => {
+	it('returns false when requestPermission denies access', async () => {
 		const handle = {
 			queryPermission: vi.fn().mockResolvedValue('prompt'),
 			requestPermission: vi.fn().mockResolvedValue('denied')
@@ -180,12 +180,12 @@ describe('requestPermission', () => {
 		expect(await requestPermission(handle)).toBe(false);
 	});
 
-	it('retourne false si le handle ne supporte pas les permissions', async () => {
+	it('returns false when the handle does not support permissions', async () => {
 		const handle = {} as unknown as FileSystemFileHandle;
 		expect(await requestPermission(handle)).toBe(false);
 	});
 
-	it('passe le mode au handle', async () => {
+	it('passes the mode to the handle', async () => {
 		const query = vi.fn().mockResolvedValue('granted');
 		const handle = {
 			queryPermission: query,
@@ -197,11 +197,11 @@ describe('requestPermission', () => {
 });
 
 describe('pickAndOpen', () => {
-	it('retourne [] si FSA non supportée', async () => {
+	it('returns an empty list when FSA is unavailable', async () => {
 		expect(await pickAndOpen()).toEqual([]);
 	});
 
-	it('résout les handles et appelle getFile() sur chacun', async () => {
+	it('resolves handles and calls getFile on each handle', async () => {
 		const file1 = new File(['# A'], 'a.md', { type: 'text/markdown' });
 		const file2 = new File(['# B'], 'b.md', { type: 'text/markdown' });
 		const h1 = { getFile: vi.fn().mockResolvedValue(file1) };
@@ -216,7 +216,7 @@ describe('pickAndOpen', () => {
 		expect(got[1]!.file.name).toBe('b.md');
 	});
 
-	it("retourne [] si l'utilisateur annule (AbortError)", async () => {
+	it('returns an empty list after AbortError cancellation', async () => {
 		const err = new Error('abort');
 		err.name = 'AbortError';
 		(window as unknown as { showOpenFilePicker: unknown }).showOpenFilePicker = vi
@@ -226,7 +226,7 @@ describe('pickAndOpen', () => {
 		expect(await pickAndOpen()).toEqual([]);
 	});
 
-	it('propage les autres erreurs', async () => {
+	it('returns other errors', async () => {
 		(window as unknown as { showOpenFilePicker: unknown }).showOpenFilePicker = vi
 			.fn()
 			.mockRejectedValue(new Error('boom'));
@@ -236,11 +236,11 @@ describe('pickAndOpen', () => {
 });
 
 describe('pickSaveTarget', () => {
-	it('retourne null si FSA non supportée', async () => {
+	it('returns null when FSA is unavailable', async () => {
 		expect(await pickSaveTarget('foo.md')).toBeNull();
 	});
 
-	it('retourne le handle du picker', async () => {
+	it('returns the picker handle', async () => {
 		const fakeHandle = { name: 'saved.md' } as unknown as FileSystemFileHandle;
 		(window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = vi
 			.fn()
@@ -249,7 +249,7 @@ describe('pickSaveTarget', () => {
 		expect(await pickSaveTarget('foo.md')).toBe(fakeHandle);
 	});
 
-	it("retourne null si l'utilisateur annule", async () => {
+	it('returns null after user cancellation', async () => {
 		const err = new Error('abort');
 		err.name = 'AbortError';
 		(window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = vi
@@ -259,7 +259,7 @@ describe('pickSaveTarget', () => {
 		expect(await pickSaveTarget('foo.md')).toBeNull();
 	});
 
-	it('passe le suggestedName', async () => {
+	it('passes suggestedName', async () => {
 		const picker = vi.fn().mockResolvedValue({ name: 'x' });
 		(window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = picker;
 		(window as unknown as { showOpenFilePicker: unknown }).showOpenFilePicker = vi.fn();
@@ -269,7 +269,7 @@ describe('pickSaveTarget', () => {
 });
 
 describe('writeHandle', () => {
-	it('écrit le contenu via createWritable et close()', async () => {
+	it('writes content through createWritable and close', async () => {
 		const write = vi.fn().mockResolvedValue(undefined);
 		const close = vi.fn().mockResolvedValue(undefined);
 		const handle = {
@@ -280,7 +280,7 @@ describe('writeHandle', () => {
 		expect(close).toHaveBeenCalled();
 	});
 
-	it('throw si createWritable est absent', async () => {
+	it('throws when createWritable is unavailable', async () => {
 		const handle = {} as unknown as FileSystemFileHandle;
 		await expect(writeHandle(handle, 'x')).rejects.toThrow(/createWritable/);
 	});

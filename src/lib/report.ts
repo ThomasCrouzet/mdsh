@@ -1,26 +1,20 @@
 // §1.3 - Centralized error logging.
 //
-// Single entry point for all non-fatal errors/warnings of the app. Replaces the
-// scattered `console.error` / `console.warn` (files, exports, front-matter,
-// image drag-drop…). Goal: a single place decides
-//   - what is logged to the console (always, for debugging);
-//   - what surfaces to the user via a toast (`notify`), when it is actionable
-//     on their side.
+// Single entry point for all nonfatal app errors and warnings. It replaces
+// separate console calls in file, export, front-matter, and image-drop code.
+// Always log for debugging. Show a toast only when the user can act on it.
 //
-// No telemetry: consistent with the project's "zero network, zero tracking"
-// posture. `report.ts` never sends anything - it routes between `console` and
-// `notify` (local toasts), full stop.
+// Do not send telemetry. This module only routes messages to the console and
+// local notification toasts.
 //
-// Note: IndexedDB persistence keeps its dedicated helper
-// `reportPersistenceError` (storage.ts) which finely maps quota/write failure →
-// message; `report*` covers everything else.
+// IndexedDB persistence uses `reportPersistenceError` in storage.ts. That helper
+// maps quota and write failures to messages. The functions here handle other errors.
 
 import { notify } from './notify.svelte';
 
 export interface ReportOptions {
 	/**
-	 * Message presented to the user via a toast. Absent ⇒ error logged to the
-	 * console only (no visual interruption).
+	 * Message to show in a toast. If absent, log only to the console.
 	 */
 	notifyUser?: string;
 	/** Toast level (default `error`). `info` for a non-blocking warning. */
@@ -28,10 +22,10 @@ export interface ReportOptions {
 }
 
 /**
- * Logs an error (always to the console, prefixed `[mdsh] <scope>`) and, if
- * `notifyUser` is provided, drops a toast for the user.
+ * Logs an error with a `[mdsh] <scope>` prefix. Shows a toast when
+ * `notifyUser` is present.
  *
- * @param scope  Short, stable context (e.g. `export ZIP`, `chargement IndexedDB`).
+ * @param scope  Short, stable context, for example `export ZIP` or `load IndexedDB`.
  * @param err    The captured error (or any thrown value).
  */
 export function reportError(scope: string, err: unknown, opts: ReportOptions = {}): void {
@@ -43,9 +37,8 @@ export function reportError(scope: string, err: unknown, opts: ReportOptions = {
 }
 
 /**
- * Logs a non-fatal warning (console only). For the cases "we ignore cleanly and
- * continue" (invalid front-matter YAML, oversized image skipped…). Never
- * surfaces a toast - discreet usage.
+ * Logs a nonfatal warning to the console. Use it when the app can safely
+ * continue, such as after invalid YAML or an oversized image.
  *
  * @param scope   Short context.
  * @param detail  Optional detail (message, value) attached to the log.

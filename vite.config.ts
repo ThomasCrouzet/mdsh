@@ -4,18 +4,16 @@ import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import { defineConfig, loadEnv } from 'vite';
 import { bundleGraphPlugin } from './scripts/bundle-graph.mjs';
 
-// Base servie (= `paths.base` SvelteKit en prod). Sert au mapping `index.html`
-// → base dans le transform de manifeste ci-dessous (cf. manifestTransforms).
+// Served base path (`paths.base` in production).
+// The manifest transform maps `index.html` to this base path.
 const PWA_BASE = process.env.BASE_PATH ?? '';
 
 export default defineConfig(({ mode }) => {
-	// Vite ne charge PAS automatiquement `.env.local` dans `process.env` pour
-	// ce fichier de config (seul le code app le reçoit via `import.meta.env`) -
-	// `loadEnv` est requis pour lire une valeur ici.
+	// Vite does not load `.env.local` into `process.env` for this configuration.
+	// Application code receives it through `import.meta.env`. Use `loadEnv` here.
 	const env = loadEnv(mode, process.cwd(), 'VITE_');
-	// Hostnames MagicDNS supplémentaires (short hostnames hors `.ts.net`) à
-	// autoriser sur le dev server, propres à la machine de chaque contributeur -
-	// jamais codés en dur ici. Ex. `.env.local` : VITE_DEV_ALLOWED_HOSTS=my-machine
+	// Contributors can add short MagicDNS hostnames outside `.ts.net`.
+	// Keep machine-specific names in `.env.local`: VITE_DEV_ALLOWED_HOSTS=my-machine.
 	const extraAllowedHosts = (env.VITE_DEV_ALLOWED_HOSTS ?? '')
 		.split(',')
 		.map((h) => h.trim())
@@ -23,18 +21,16 @@ export default defineConfig(({ mode }) => {
 
 	return {
 		server: {
-			// Le dev server (cf. `make dev`) bind sur l'IP Tailscale ; on autorise
-			// les hostnames MagicDNS du tailnet à frapper le Host header sans
-			// déclencher la protection DNS rebinding de Vite. `.ts.net` couvre les
-			// FQDN `<machine>.tail-XXXX.ts.net` ; un short hostname additionnel se
-			// configure via `VITE_DEV_ALLOWED_HOSTS` (cf. ci-dessus). Aucune
-			// incidence en prod (Vite ne lit `server.*` qu'en dev / preview).
+			// The development server binds to the Tailscale IP (see `make dev`).
+			// Allow MagicDNS Host headers without triggering DNS rebinding protection.
+			// `.ts.net` covers `<machine>.tail-XXXX.ts.net`.
+			// Use `VITE_DEV_ALLOWED_HOSTS` for additional short hostnames.
+			// Vite reads `server.*` only in development and preview, not production.
 			allowedHosts: ['.ts.net', ...extraAllowedHosts]
 		},
 		define: {
-			// Mermaid embarque Vue (esm-bundler) qui réclame ces flags pour le
-			// tree-shaking. Les définir évite le warning console et améliore le
-			// dead-code elimination dans le chunk mermaid.
+			// Mermaid includes Vue (esm-bundler), which needs these tree-shaking flags.
+			// These flags prevent console warnings and improve dead-code removal.
 			__VUE_OPTIONS_API__: 'false',
 			__VUE_PROD_DEVTOOLS__: 'false',
 			__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false'
@@ -44,14 +40,12 @@ export default defineConfig(({ mode }) => {
 			sveltekit(),
 			bundleGraphPlugin(),
 			SvelteKitPWA({
-				// §1.2 - `prompt` (et non `autoUpdate`) : une nouvelle version ne
-				// s'installe pas en silence - `onNeedRefresh` (cf. ui/pwa-update)
-				// affiche un toast « Recharger ». Crucial pour un ÉDITEUR : pas de
-				// rechargement-surprise en pleine frappe.
+				// §1.2 - `prompt` lets `onNeedRefresh` show a Reload notification (see ui/pwa-update).
+				// Do not reload while the user writes in the editor.
 				registerType: 'prompt',
 				strategies: 'generateSW',
-				// `auto` : comme on importe `virtual:pwa-register` (ui/pwa-update),
-				// le plugin n'injecte PAS de second enregistrement - pas de doublon.
+				// `auto` detects the `virtual:pwa-register` import in ui/pwa-update.
+				// The plugin does not add a second registration.
 				injectRegister: 'auto',
 				manifest: {
 					name: 'mdsh - local-first markdown editor',
@@ -76,9 +70,8 @@ export default defineConfig(({ mode }) => {
 							purpose: 'maskable'
 						}
 					],
-					// Richer install UI (Chrome/Android) : aperçus affichés dans le
-					// prompt d'installation. `form_factor: 'wide'` car les captures
-					// (2560x1600) sont des screenshots desktop.
+					// Chrome and Android show these screenshots in the installation prompt.
+					// Use `form_factor: wide` for these 2560x1600 desktop screenshots.
 					screenshots: [
 						{
 							src: 'screenshots/mode-wysiwyg.webp',
@@ -158,25 +151,23 @@ export default defineConfig(({ mode }) => {
 					handle_links: 'preferred'
 				},
 				workbox: {
-					// Préparation hors ligne complète : chaque moteur et ses ressources
-					// sont téléchargés sans évaluation JavaScript spéculative.
+					// Download each engine and its resources for offline use.
+					// Do not evaluate JavaScript before it is needed.
 					globPatterns: [
 						'client/_app/immutable/entry/*.js',
 						'client/_app/immutable/nodes/*.js',
 						'client/_app/immutable/chunks/*.js',
-						// Worker de recherche cross-fichiers : précaché pour que la recherche
-						// fonctionne au TOUT premier lancement hors-ligne (sinon le module
-						// worker n'est jamais en cache et la recherche est muette offline).
-						// ~1,2 KB, bien sous le cap chunks.
+						// Precache the cross-file search worker for the first offline start.
+						// Without this entry, offline search has no cached worker.
+						// The worker is about 1.2 KB, below the chunk size limit.
 						'client/_app/immutable/workers/*.js',
 						'client/_app/immutable/assets/*.{css,woff2}',
 						'client/print/*.css',
 						'client/katex/**/*.css',
 						'client/katex/**/*.woff2',
-						// `index.html` est servi par adapter-static comme fallback SPA mais
-						// n'est pas dans `.svelte-kit/output/client/` (workbox lit la sortie
-						// pré-adapter). Le SW navigateFallback est généré par workbox lui-même
-						// via la config navigateFallback (cf. plus bas si on l'ajoute).
+						// adapter-static serves `index.html` as the SPA fallback.
+						// Workbox reads the pre-adapter output, which has no such file in `.svelte-kit/output/client/`.
+						// Workbox creates the service worker fallback from `navigateFallback` below.
 						'client/favicon.{ico,svg}',
 						'client/apple-touch-icon-180x180.png',
 						'client/maskable-icon-512x512.png',
@@ -184,12 +175,12 @@ export default defineConfig(({ mode }) => {
 						'client/manifest.webmanifest'
 					],
 					maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-					// Le transform conserve la réécriture du plugin vers les URLs
-					// servies et la racine exacte, y compris avec BASE_PATH=/mdsh.
+					// Keep the plugin URL mapping and the exact root path.
+					// This also applies when BASE_PATH=/mdsh.
 					manifestTransforms: [
 						(entries) => {
 							const manifest = entries
-								// Réécriture vers l'URL servie (cf. createManifestTransform du plugin).
+								// Map to the served URL (see the plugin createManifestTransform).
 								.map((e) => {
 									let url = e.url;
 									if (url.startsWith('client/')) url = url.slice(7);
@@ -197,31 +188,29 @@ export default defineConfig(({ mode }) => {
 									else if (url.startsWith('prerendered/pages/')) url = url.slice(18);
 									if (url.endsWith('.html')) {
 										if (url.startsWith('/')) url = url.slice(1);
-										// `index.html` (fallback SPA) est précaché sous l'URL RÉELLEMENT
-										// requise par le navigateur lors d'une navigation : la racine de
-										// la base AVEC slash final (`/` en local, `/mdsh/` sur Pages). Sans
-										// le slash, la clé de précache (`/mdsh`) ne matchait ni la requête
-										// de navigation (`/mdsh/`) ni le `navigateFallback` → l'app ne
-										// démarrait pas hors-ligne (et en base vide, l'entrée `''` faisait
-										// même échouer l'install du précache → cache vide).
+										// Precache `index.html` at the URL that the browser requests.
+										// Use the base root with a final slash: `/` locally or `/mdsh/` on Pages.
+										// Without the slash, `/mdsh` matched neither navigation nor `navigateFallback`.
+										// The app could not start offline. With an empty base, an empty entry
+										// prevented precache installation and left the cache empty.
 										url =
 											url === 'index.html' ? `${PWA_BASE}/` : url.slice(0, url.lastIndexOf('.'));
 									}
 									return { ...e, url };
 								})
-								// Le webmanifest est servi au runtime, pas précaché (comme le plugin).
+								// Serve the webmanifest at runtime. Do not precache it, as with the plugin.
 								.filter((e) => e.url !== 'manifest.webmanifest');
 							return { manifest };
 						}
 					],
-					// Toute navigation hors-ligne (relancement de la PWA installée, reload)
-					// retombe sur le shell SPA précaché à la racine de la base AVEC slash
-					// (cf. manifestTransforms). Doit matcher exactement la clé de précache,
-					// sinon `createHandlerBoundToURL` ne trouve rien et l'app reste blanche.
+					// Offline navigation uses the cached SPA shell at the base root with a final slash.
+					// This includes an installed PWA restart and a page reload.
+					// Match the precache key exactly (see manifestTransforms).
+					// Otherwise, `createHandlerBoundToURL` finds no entry and the page stays blank.
 					navigateFallback: `${PWA_BASE}/`,
 					navigateFallbackDenylist: [/^\/api/],
-					// Les révisions du précache remplacent aussi les CSS/polices
-					// d'impression à chaque mise à jour, sans cache stable de 30 jours.
+					// Precache revisions also replace print CSS and fonts with each update.
+					// Do not keep a separate 30-day cache.
 					cleanupOutdatedCaches: true
 				},
 				devOptions: {
@@ -232,22 +221,19 @@ export default defineConfig(({ mode }) => {
 		build: {
 			rollupOptions: {
 				output: {
-					// Approche conservative : on ne regroupe QUE les libs lazy-loadées
-					// dont la taille justifie un chunk dédié. Mermaid est exclu car la
-					// tentative précédente (commit 3f5b5ad) faisait remonter le helper
-					// `__vitePreload` dans le chunk mermaid → import statique par
-					// l'entry app + 2,5 Mio first-paint. DOMPurify est consommé
-					// uniquement par render/markdown.ts qui sera dans render-core.
-					// On vérifie après build qu'aucun de ces chunks ne devient
-					// statiquement importé par l'entry (cf. README "Build prod fail").
+					// Group only lazy-loaded libraries large enough to need a separate chunk.
+					// In commit 3f5b5ad, grouping Mermaid moved `__vitePreload` into its chunk.
+					// The app entry then imported Mermaid statically and loaded 2.5 MiB before first paint.
+					// Only render/markdown.ts uses DOMPurify; that module belongs to render-core.
+					// After the build, check that the entry does not import these chunks statically.
+					// See the production build troubleshooting instructions.
 					//
-					// §1.4 - Mermaid : NE PAS le forcer ici (cf. ci-dessus). Vérifié
-					// au build (2026-06) : le `import('mermaid')` dynamique de
-					// `render/markdown.ts` (sous garde `mermaidCodes.length > 0`) et de
-					// `milkdown-mermaid-preview.ts` laisse déjà Rollup l'isoler dans son
-					// propre chunk (~115 Ko gz). Il N'EST PAS dans le graphe statique de
-					// l'entry/nodes, et un document sans diagramme ne le charge jamais.
-					// L'isolation visée par la roadmap est donc déjà acquise par défaut.
+					// §1.4 - Do not force Mermaid into a manual chunk.
+					// The June 2026 build confirmed that Rollup already creates its separate chunk (about 115 KB gzip).
+					// Both render/markdown.ts and milkdown-mermaid-preview.ts use dynamic imports.
+					// The renderer also checks `mermaidCodes.length > 0`.
+					// Mermaid stays outside the static entry/node graph. Documents without diagrams do not load it.
+					// This meets the roadmap isolation requirement.
 					manualChunks(id: string): string | undefined {
 						if (id.includes('node_modules/marked/')) return 'render-core';
 						if (id.includes('node_modules/highlight.js/')) return 'render-highlight';

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Dexie from 'dexie';
 import { db, newId, type VersionRow, type TemplateRow } from './db';
 
-// §2.4 / §2.7 - Cadenasse le schéma Dexie v4. Si quelqu'un bumpe la version
-// sans préserver ces tables / index, ces tests cassent immédiatement.
+// §2.4 / §2.7 - Lock the Dexie v4 schema. These tests fail if an upgrade does not
+// keep the required tables and indexes.
 
 beforeEach(async () => {
 	await Promise.all([db.versions.clear(), db.templates.clear()]);
@@ -34,12 +34,12 @@ function makeTemplate(p: Partial<TemplateRow> = {}): TemplateRow {
 	};
 }
 
-describe('db.versions - schéma v4', () => {
-	it('démarre vide', async () => {
+describe('db.versions - schema v4', () => {
+	it('starts empty', async () => {
 		expect(await db.versions.toArray()).toEqual([]);
 	});
 
-	it('persiste plusieurs versions pour un même draft', async () => {
+	it('persists multiple versions for one draft', async () => {
 		await db.versions.bulkPut([
 			makeVersion({ draftId: 'd1', createdAt: 1000 }),
 			makeVersion({ draftId: 'd1', createdAt: 2000 }),
@@ -49,7 +49,7 @@ describe('db.versions - schéma v4', () => {
 		expect(d1).toHaveLength(2);
 	});
 
-	it("liste l'historique d'un draft trié par createdAt via l'index composite", async () => {
+	it('lists draft history by createdAt through the compound index', async () => {
 		await db.versions.bulkPut([
 			makeVersion({ draftId: 'd1', content: 'v2', createdAt: 2000 }),
 			makeVersion({ draftId: 'd1', content: 'v1', createdAt: 1000 }),
@@ -62,13 +62,13 @@ describe('db.versions - schéma v4', () => {
 		expect(ordered.map((v) => v.content)).toEqual(['v1', 'v2', 'v3']);
 	});
 
-	it('supprime les versions les plus anciennes (purge par récence)', async () => {
+	it('deletes the oldest versions', async () => {
 		await db.versions.bulkPut([
 			makeVersion({ id: 'a', draftId: 'd1', createdAt: 1000 }),
 			makeVersion({ id: 'b', draftId: 'd1', createdAt: 2000 }),
 			makeVersion({ id: 'c', draftId: 'd1', createdAt: 3000 })
 		]);
-		// Garde les 2 plus récentes → supprime la plus ancienne (id 'a').
+		// Keep the two latest versions and delete the oldest version with ID `a`.
 		const all = await db.versions.where('draftId').equals('d1').sortBy('createdAt');
 		const toDelete = all.slice(0, all.length - 2).map((v) => v.id);
 		await db.versions.bulkDelete(toDelete);
@@ -77,8 +77,8 @@ describe('db.versions - schéma v4', () => {
 	});
 });
 
-describe('db.templates - schéma v4', () => {
-	it('démarre vide', async () => {
+describe('db.templates - schema v4', () => {
+	it('starts empty', async () => {
 		expect(await db.templates.toArray()).toEqual([]);
 	});
 
@@ -92,14 +92,14 @@ describe('db.templates - schéma v4', () => {
 		expect(builtins[0]?.id).toBe('builtin:journal');
 	});
 
-	it('put() idempotent sur id builtin stable (pas de doublon)', async () => {
+	it('keeps put() idempotent for a stable built-in ID', async () => {
 		const t = makeTemplate({ id: 'builtin:todo', builtin: true });
 		await db.templates.put(t);
 		await db.templates.put({ ...t, updatedAt: t.updatedAt + 1 });
 		expect(await db.templates.count()).toBe(1);
 	});
 
-	it('liste triée par updatedAt', async () => {
+	it('lists records by updatedAt', async () => {
 		await db.templates.bulkPut([
 			makeTemplate({ name: 'A', updatedAt: 1000 }),
 			makeTemplate({ name: 'B', updatedAt: 3000 }),
@@ -110,15 +110,15 @@ describe('db.templates - schéma v4', () => {
 	});
 });
 
-describe('migration de schéma Dexie - additive, sans perte de données', () => {
+describe('additive Dexie schema migration without data loss', () => {
 	const DB_NAME = 'mdsh-migration-spec';
 
 	afterEach(async () => {
 		await Dexie.delete(DB_NAME);
 	});
 
-	it('un draft écrit en v1 survit à la montée v1 → v4 et les nouvelles tables existent', async () => {
-		// 1. Crée la base au SCHÉMA v1 (drafts seul) + une donnée.
+	it('keeps a v1 draft during the v1 to v4 upgrade and creates new tables', async () => {
+		// 1. Create the v1 database with only drafts and one row.
 		const v1 = new Dexie(DB_NAME);
 		v1.version(1).stores({ drafts: 'id, updatedAt, order' });
 		await v1.open();
@@ -132,7 +132,7 @@ describe('migration de schéma Dexie - additive, sans perte de données', () => 
 		});
 		v1.close();
 
-		// 2. Rouvre avec la CHAÎNE complète (réplique de MdshDB) → déclenche l'upgrade.
+		// 2. Open the complete MdshDB schema chain to start the upgrade.
 		const full = new Dexie(DB_NAME);
 		full.version(1).stores({ drafts: 'id, updatedAt, order' });
 		full.version(2).stores({ drafts: 'id, updatedAt, order', trashed: 'id, trashedAt' });
@@ -150,10 +150,10 @@ describe('migration de schéma Dexie - additive, sans perte de données', () => 
 		});
 		await full.open();
 
-		// Donnée v1 préservée après migration.
+		// The migration keeps the v1 data.
 		const draft = await full.table('drafts').get('d1');
 		expect(draft?.content).toBe('écrit en v1');
-		// Nouvelles tables opérationnelles.
+		// The new tables are operational.
 		expect(await full.table('versions').toArray()).toEqual([]);
 		expect(await full.table('templates').toArray()).toEqual([]);
 		// Index composite v4 fonctionnel.

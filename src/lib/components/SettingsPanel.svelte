@@ -218,7 +218,7 @@
 		}
 
 		// The file picker precedes the mode choice: we ask afterward.
-		// Le remplacement, la fusion et l’annulation sont trois décisions distinctes.
+		// Replacement, merge, and cancellation are separate decisions.
 		const restoreChoice = await promptStore.choose({
 			title: t('settings.restoreBackupTitle'),
 			message: t('settings.restoreBackupMessage'),

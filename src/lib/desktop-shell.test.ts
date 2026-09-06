@@ -173,7 +173,7 @@ describe('initDesktopShell', () => {
 			?.action?.();
 		await vi.waitFor(() =>
 			expect(mocks.reportError).toHaveBeenCalledWith(
-				'action du menu desktop "open"',
+				'desktop menu action "open"',
 				expect.any(Error)
 			)
 		);
@@ -184,10 +184,7 @@ describe('initDesktopShell', () => {
 		mocks.invoke.mockResolvedValue(pendingDelivery([nativeGrant('/tmp/failing.md')]));
 		listenCalls[0]![1]({ payload: [] });
 		await vi.waitFor(() =>
-			expect(mocks.reportError).toHaveBeenCalledWith(
-				'ouverture depuis un événement desktop',
-				expect.any(Error)
-			)
+			expect(mocks.reportError).toHaveBeenCalledWith('open from desktop event', expect.any(Error))
 		);
 	});
 
@@ -258,7 +255,7 @@ describe('initDesktopShell', () => {
 		closeListener({ payload: 1 });
 		await vi.waitFor(() =>
 			expect(mocks.reportError).toHaveBeenCalledWith(
-				'fermeture desktop',
+				'desktop close',
 				expect.any(Error),
 				expect.objectContaining({ notifyUser: expect.any(String) })
 			)
@@ -266,7 +263,7 @@ describe('initDesktopShell', () => {
 		expect(mocks.invoke).not.toHaveBeenCalledWith('desktop_complete_close');
 	});
 
-	it('rejoue une fermeture perdue pendant le reload après abonnement et armement', async () => {
+	it('replays a close request lost during reload after listener setup', async () => {
 		mocks.isDesktop.mockReturnValue(true);
 		let listener: ((event: { payload: number }) => void) | undefined;
 		let pending: number | undefined;
@@ -310,7 +307,7 @@ describe('initDesktopShell', () => {
 		expect(onBeforeClose).toHaveBeenCalledOnce();
 	});
 
-	it('accuse chaque demande dupliquée mais ne lance qu’une sauvegarde', async () => {
+	it('acknowledges duplicate requests but starts one save', async () => {
 		mocks.isDesktop.mockReturnValue(true);
 		let finishSave: () => void = () => {};
 		const onBeforeClose = vi.fn(
@@ -336,7 +333,7 @@ describe('initDesktopShell', () => {
 		).toHaveLength(1);
 	});
 
-	it('ne rejoue pas une fermeture reçue dont la sauvegarde a échoué après reload', async () => {
+	it('does not replay a close request after its save fails during reload', async () => {
 		mocks.isDesktop.mockReturnValue(true);
 		let pending: number | undefined = 9;
 		let listener: ((event: { payload: number }) => void) | undefined;
@@ -440,7 +437,7 @@ describe('initDesktopShell', () => {
 		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths, labels });
 
 		expect(mocks.reportError).toHaveBeenCalledWith(
-			'fichiers desktop refusés',
+			'rejected desktop files',
 			expect.objectContaining({ message: expect.stringContaining('invalid UTF-8') }),
 			expect.objectContaining({ notifyUser: expect.any(String) })
 		);
@@ -472,7 +469,10 @@ describe('initDesktopShell', () => {
 		mocks.menuItemNew.mockRejectedValueOnce(new Error('menu rebuild'));
 		window.dispatchEvent(new Event('mdsh:locale-change'));
 		await vi.waitFor(() =>
-			expect(mocks.reportWarning).toHaveBeenCalledWith('langue du menu desktop', expect.any(Error))
+			expect(mocks.reportWarning).toHaveBeenCalledWith(
+				'update desktop menu locale',
+				expect.any(Error)
+			)
 		);
 	});
 
@@ -490,7 +490,7 @@ describe('initDesktopShell', () => {
 		});
 		expect(mocks.unlisten).toHaveBeenCalledOnce();
 		expect(mocks.reportError).toHaveBeenCalledWith(
-			'protection de fermeture desktop',
+			'install desktop close guard',
 			expect.any(Error),
 			expect.objectContaining({ notifyUser: expect.any(String) })
 		);

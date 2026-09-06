@@ -27,22 +27,12 @@
 	let articleEl: HTMLElement | null = $state(null);
 
 	/**
-	 * §5.2 - Intercepts clicks on `.wiki-link`:
-	 *   - Reads the target from `data-mdsh-wiki`
-	 *   - Blocks following the href (which is a logical anchor with no DOM target)
-	 *   - Delegates to the store: navigate to the existing file, or create
-	 *     a new file (Obsidian behavior) if not found
-	 *
-	 * Delegation at the article level: a single listener for all rendered
-	 * wiki-links, robust to re-renders (DOM regenerated on every content
-	 * change).
-	 */
-	/**
-	 * Shared click/keyboard logic: walks up to the `a.wiki-link` parent of the
-	 * event target, reads the encoded target, blocks following the href
-	 * (internal anchor with no real DOM target) and delegates to the store.
-	 * Returns `true` if a wiki-link was opened (so the caller knows whether
-	 * it should consume the event).
+	 * §5.2 - Shares click and keyboard handling. Finds the parent `a.wiki-link`
+	 * and reads its encoded target from `data-mdsh-wiki`.
+	 * Blocks the logical href, which has no DOM target. The store opens an existing
+	 * file or creates a missing one, as in Obsidian.
+	 * Returns true when it opens a link. One article-level listener handles all
+	 * rendered links and continues to work after DOM rebuilds.
 	 */
 	function openWikiLinkFromEvent(e: Event): boolean {
 		const target = e.target as HTMLElement | null;
@@ -51,10 +41,8 @@
 		const encoded = link.getAttribute('data-mdsh-wiki');
 		if (!encoded) return false;
 		const wikiTarget = decodeWikiTarget(encoded);
-		// Always preventDefault: the href is an internal anchor (no real DOM
-		// target), following the link would just add a useless history entry.
-		// cmd/ctrl-click has no useful behavior on an internal mdsh link - we
-		// block it uniformly.
+		// Prevent the logical href from adding an unused browser history entry.
+		// Apply this to Cmd/Ctrl-click too; internal mdsh links have no alternate behavior.
 		e.preventDefault();
 		filesStore.openWikiLink(wikiTarget);
 		return true;
@@ -66,10 +54,9 @@
 
 	/**
 	 * §a11y (WCAG 2.1.1) - keyboard activation of wiki-links in read mode.
-	 * Without this, Tab + Enter followed the dummy `#mdsh-wiki-…` anchor instead
-	 * of opening the target file. We handle Enter and Space, taking exactly
-	 * the same path as the click. The guard on `a.wiki-link` avoids any
-	 * interference with normal typing elsewhere in the article.
+	 * Handle Enter and Space through the same path as a click. This opens the
+	 * target file instead of the logical `#mdsh-wiki-…` anchor after Tab.
+	 * The `a.wiki-link` guard prevents interference with other input in the article.
 	 */
 	function handleWikiLinkKeydown(e: KeyboardEvent) {
 		if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
