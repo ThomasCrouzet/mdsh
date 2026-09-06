@@ -16,7 +16,7 @@ const mode = args.shift();
 const archivePath = args[0] === '--archive' && args.length === 2 ? resolve(args[1]) : undefined;
 
 if (!['--check', '--write'].includes(mode) || (args.length > 0 && !archivePath)) {
-	throw new Error('Usage: node scripts/vendor-glib.mjs --check|--write [--archive fichier.crate]');
+	throw new Error('Usage: node scripts/vendor-glib.mjs --check|--write [--archive file.crate]');
 }
 
 function run(command, commandArgs, cwd) {

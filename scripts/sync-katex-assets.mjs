@@ -29,16 +29,16 @@ const excludedFamilies = [
 	{
 		family: 'KaTeX_Fraktur',
 		comment:
-			'/* @font-face Fraktur (Bold, Regular) supprimés : `\\mathfrak{}` rare, fallback navigateur. */'
+			'/* @font-face Fraktur (Bold, Regular) removed: `\\mathfrak{}` uses the browser fallback. */'
 	},
 	{
 		family: 'KaTeX_SansSerif',
 		comment:
-			'/* @font-face SansSerif (Bold, Italic, Regular) supprimés : `\\textsf{}` rare, fallback navigateur. */'
+			'/* @font-face SansSerif (Bold, Italic, Regular) removed: `\\textsf{}` uses the browser fallback. */'
 	},
 	{
 		family: 'KaTeX_Script',
-		comment: '/* @font-face Script (Regular) supprimé : `\\mathscr{}` rare, fallback navigateur. */'
+		comment: '/* @font-face Script (Regular) removed: `\\mathscr{}` uses the browser fallback. */'
 	}
 ];
 

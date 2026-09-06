@@ -69,7 +69,7 @@ jobs:
       - name: Third-party notices
         run: npm run notices:check
 
-      - name: Tests et couverture
+      - name: Tests and coverage
         run: npm run test:coverage
 
   e2e:
@@ -228,7 +228,7 @@ jobs:
       # Build with an empty BASE_PATH. staticDistDir serves ./build from the root.
       # Absolute HTML paths must start with /, not /mdsh/.
       # This also checks the custom domain case in §9.2.1.
-      - name: Build (BASE_PATH vide)
+      - name: Build (empty BASE_PATH)
         run: npm run build
         env:
           BASE_PATH: ''

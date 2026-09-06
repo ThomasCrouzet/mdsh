@@ -116,8 +116,7 @@ export function annotateCargoSbom(input, patch, sourceSha) {
 	const expectedReference = {
 		type: 'other',
 		url: patchUrl,
-		comment:
-			'Correctif de sécurité glib 0.18.5 rétroporté depuis le commit amont référencé dans pedigree.',
+		comment: 'Security patch for glib 0.18.5 backported from the upstream commit in pedigree.',
 		hashes: [{ alg: 'SHA-256', content: patchSha256 }]
 	};
 	const patchReferences = references.filter((item) => item.url === patchUrl);
