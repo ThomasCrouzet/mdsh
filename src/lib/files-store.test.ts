@@ -904,8 +904,13 @@ describe('disk delegation to disk-sync', () => {
 		expect(typeof deps.getFile).toBe('function');
 		expect(typeof deps.onCreate).toBe('function');
 		expect(typeof deps.scheduleSave).toBe('function');
-		const created = deps.onCreate('dep.md', '# Dep');
-		deps.scheduleSave(created.id);
+		const created = deps.onCreate('dep.md', 'Plain content');
+		expect(filesStore.displayTitle(created.id)).toBe('dep');
+		deps.onSyncName?.(created.id, 'Linked.MD');
+		expect(filesStore.active?.name).toBe('Linked.MD');
+		expect(filesStore.displayTitle(created.id)).toBe('Linked');
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(created.id))?.name).toBe('Linked.MD');
 	});
 
 	it('delegates paths and callbacks from openPathsFromDesktop', async () => {
@@ -938,6 +943,22 @@ describe('disk delegation to disk-sync', () => {
 		expect(id).toBe(a.id);
 		// diskDeps.getFile must find the file in the store.
 		expect(deps.getFile(a.id)?.id).toBe(a.id);
+	});
+
+	it('flushes current WYSIWYG content before disk save reads the draft', async () => {
+		const file = filesStore.createNew('wysiwyg.md', 'before');
+		window.addEventListener(
+			'mdsh:flush-editor',
+			() => filesStore.updateContent(file.id, 'latest editor content'),
+			{ once: true }
+		);
+		vi.mocked(diskSync.saveToDisk).mockImplementationOnce(async (id, deps) => {
+			expect(id).toBe(file.id);
+			expect(deps.getFile(id)?.content).toBe('latest editor content');
+			return true;
+		});
+
+		expect(await filesStore.saveToDisk(file.id)).toBe(true);
 	});
 
 	it('saves the active file with saveActiveToDisk', async () => {
