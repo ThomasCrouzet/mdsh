@@ -671,10 +671,18 @@ describe('openFromDisk desktop capability backend', () => {
 describe('saveToDisk desktop capability backend', () => {
 	function desktopDeps(file: FileItem) {
 		const scheduleSave = vi.fn();
-		const deps: DiskSyncDeps = { getFile: () => file, onCreate: () => file, scheduleSave };
+		const onSyncName = vi.fn((id: string, name: string) => {
+			if (id === file.id) file.name = name;
+		});
+		const deps: DiskSyncDeps = {
+			getFile: () => file,
+			onCreate: () => file,
+			onSyncName,
+			scheduleSave
+		};
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
-		return { deps, scheduleSave };
+		return { deps, onSyncName, scheduleSave };
 	}
 
 	it('writes with the recorded revision and stores the returned revision', async () => {
@@ -709,18 +717,19 @@ describe('saveToDisk desktop capability backend', () => {
 
 	it('returns false when the native picker is canceled', async () => {
 		const file = makeFile();
-		const { deps } = desktopDeps(file);
+		const { deps, onSyncName } = desktopDeps(file);
 		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
 		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue(null);
 
 		expect(await saveToDisk('a', deps)).toBe(false);
 		expect(diskTauri.tauriWritePath).not.toHaveBeenCalled();
+		expect(onSyncName).not.toHaveBeenCalled();
 	});
 
 	it('persists a newly selected target and writes with its native revision', async () => {
-		const file = makeFile();
-		const { deps, scheduleSave } = desktopDeps(file);
-		const pathLink = { kind: 'path' as const, path: '/tmp/new.md' };
+		const file = makeFile({ name: 'Untitled.md' });
+		const { deps, onSyncName, scheduleSave } = desktopDeps(file);
+		const pathLink = { kind: 'path' as const, path: '/tmp/Chosen.MDX' };
 		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
 		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue(pathLink);
 		vi.mocked(diskTauri.tauriReadMeta).mockResolvedValue({
@@ -738,18 +747,44 @@ describe('saveToDisk desktop capability backend', () => {
 		expect(fsa.savePathLink).toHaveBeenCalledWith('a', pathLink, 'epoch');
 		expect(file.linkedToDisk).toBe(true);
 		expect(diskTauri.tauriWritePath).toHaveBeenCalledWith(
-			'/tmp/new.md',
+			'/tmp/Chosen.MDX',
 			'contenu',
 			'sha256:selected',
 			false
 		);
 		expect(file.diskRevision).toBe('sha256:written');
+		expect(file.name).toBe('Chosen.MDX');
+		expect(onSyncName).toHaveBeenCalledWith('a', 'Chosen.MDX');
+		expect(notify.toasts.find((toast) => toast.level === 'success')?.message).toContain(
+			'Chosen.MDX'
+		);
 		expect(scheduleSave).toHaveBeenCalledWith('a');
+	});
+
+	it('reuses the persisted target after the first native save', async () => {
+		const file = makeFile({ name: 'Untitled.md' });
+		const { deps, onSyncName } = desktopDeps(file);
+		const pathLink = { kind: 'path' as const, path: '/tmp/chosen.md' };
+		vi.mocked(fsa.getPathLink).mockResolvedValueOnce(null).mockResolvedValue(pathLink);
+		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue(pathLink);
+		vi.mocked(diskTauri.tauriWritePath).mockResolvedValue({
+			lastModified: 20,
+			size: 7,
+			revision: 'sha256:written'
+		});
+
+		expect(await saveToDisk('a', deps)).toBe(true);
+		expect(await saveToDisk('a', deps)).toBe(true);
+
+		expect(diskTauri.tauriPickSaveTarget).toHaveBeenCalledOnce();
+		expect(diskTauri.tauriWritePath).toHaveBeenCalledTimes(2);
+		expect(onSyncName).toHaveBeenCalledOnce();
+		expect(file.name).toBe('chosen.md');
 	});
 
 	it('does not persist a new path when the native write fails', async () => {
 		const file = makeFile();
-		const { deps } = desktopDeps(file);
+		const { deps, onSyncName } = desktopDeps(file);
 		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
 		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue({
 			kind: 'path',
@@ -759,6 +794,27 @@ describe('saveToDisk desktop capability backend', () => {
 
 		expect(await saveToDisk('a', deps)).toBe(false);
 		expect(fsa.savePathLink).not.toHaveBeenCalled();
+		expect(onSyncName).not.toHaveBeenCalled();
+		expect(file.name).toBe('note.md');
+	});
+
+	it('keeps a concurrent draft rename after a successful native write', async () => {
+		const file = makeFile({ name: 'Untitled.md' });
+		const { deps, onSyncName } = desktopDeps(file);
+		const pathLink = { kind: 'path' as const, path: '/tmp/chosen.md' };
+		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
+		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue(pathLink);
+		vi.mocked(diskTauri.tauriWritePath).mockImplementation(async () => {
+			file.name = 'Manual.md';
+			return { lastModified: 20, size: 7, revision: 'sha256:written' };
+		});
+
+		expect(await saveToDisk('a', deps)).toBe(true);
+		expect(file.name).toBe('Manual.md');
+		expect(onSyncName).not.toHaveBeenCalled();
+		expect(notify.toasts.find((toast) => toast.level === 'success')?.message).toContain(
+			'chosen.md'
+		);
 	});
 
 	it('keeps an edit made during a native write dirty', async () => {
@@ -837,7 +893,7 @@ describe('saveToDisk desktop capability backend', () => {
 
 	it('requires a fresh native picker after the session capability expires', async () => {
 		const file = makeFile({ diskRevision: 'sha256:old' });
-		const { deps } = desktopDeps(file);
+		const { deps, onSyncName } = desktopDeps(file);
 		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
 		vi.mocked(diskTauri.tauriWritePath)
 			.mockRejectedValueOnce(new Error('Disk capability expired. Choose the file again.'))
@@ -866,6 +922,40 @@ describe('saveToDisk desktop capability backend', () => {
 			'epoch'
 		);
 		expect(file.diskRevision).toBe('sha256:reauthorized');
+		expect(file.name).toBe('reauthorized.md');
+		expect(onSyncName).toHaveBeenCalledWith('a', 'reauthorized.md');
+		expect(notify.toasts.find((toast) => toast.level === 'success')?.message).toContain(
+			'reauthorized.md'
+		);
+	});
+
+	it('keeps the old name when a retargeted path cannot be persisted', async () => {
+		const file = makeFile({ name: 'note.md', diskRevision: 'sha256:old' });
+		const { deps, onSyncName } = desktopDeps(file);
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		vi.mocked(diskTauri.tauriWritePath)
+			.mockRejectedValueOnce(new Error('Disk capability expired. Choose the file again.'))
+			.mockResolvedValueOnce({
+				lastModified: 50,
+				size: 7,
+				revision: 'sha256:reauthorized'
+			});
+		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue({
+			kind: 'path',
+			path: '/tmp/new-target.md'
+		});
+		vi.mocked(diskTauri.tauriReadMeta).mockResolvedValue({
+			lastModified: 40,
+			size: 3,
+			revision: 'sha256:selected'
+		});
+		vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('IndexedDB'));
+
+		expect(await saveToDisk('a', deps)).toBe(true);
+		expect(file.linkedToDisk).toBe(true);
+		expect(file.name).toBe('note.md');
+		expect(onSyncName).not.toHaveBeenCalled();
+		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
 	});
 });
 
@@ -938,25 +1028,59 @@ describe('guarded native imports', () => {
 	it('reactivates an existing dirty draft without branch or revision changes', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		vi.mocked(diskTauri.tauriPickAndOpen).mockResolvedValue({ files: [opened], failed: 0 });
-		const file = makeFile({ content: 'local unsaved', dirty: true, diskRevision: 'old-revision' });
+		const file = makeFile({
+			name: 'Untitled.md',
+			content: 'local unsaved',
+			dirty: true,
+			diskRevision: 'old-revision'
+		});
 		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: opened.path });
 		const onCreate = vi.fn();
 		const onActivate = vi.fn();
+		const onSyncName = vi.fn((id: string, name: string) => {
+			if (id === file.id) file.name = name;
+		});
 		const result = await openFromDisk({
 			getFile: () => file,
 			getFiles: () => [file],
 			onCreate,
 			onActivate,
+			onSyncName,
 			scheduleSave: vi.fn()
 		});
 		expect(result).toEqual([file]);
 		expect(onActivate).toHaveBeenCalledWith(file.id);
+		expect(onSyncName).toHaveBeenCalledWith(file.id, 'note.md');
 		expect(onCreate).not.toHaveBeenCalled();
 		expect(file).toMatchObject({
+			name: 'note.md',
 			content: 'local unsaved',
 			dirty: true,
 			diskRevision: 'old-revision'
 		});
+	});
+
+	it('restores a missing native baseline only when disk content is unchanged', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(diskTauri.tauriPickAndOpen).mockResolvedValue({ files: [opened], failed: 0 });
+		const file = makeFile({ content: opened.content, dirty: false, diskRevision: undefined });
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: opened.path });
+		const scheduleSave = vi.fn();
+
+		await openFromDisk({
+			getFile: () => file,
+			getFiles: () => [file],
+			onCreate: vi.fn(),
+			onActivate: vi.fn(),
+			scheduleSave
+		});
+
+		expect(file).toMatchObject({
+			diskLastModified: opened.lastModified,
+			diskSize: opened.size,
+			diskRevision: opened.revision
+		});
+		expect(scheduleSave).toHaveBeenCalledWith(file.id);
 	});
 	it('imports a native directory and keeps backend failures in the summary', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);

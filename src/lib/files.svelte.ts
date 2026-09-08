@@ -763,6 +763,15 @@ class FilesStore {
 		this.scheduleSave(id);
 	}
 
+	private syncDiskName(id: string, name: string): void {
+		const file = this.files.find((entry) => entry.id === id);
+		if (!file || !name || file.name === name) return;
+		file.name = name;
+		file.updatedAt = Date.now();
+		this.metaIndex.invalidateMeta(id);
+		this.scheduleSave(id);
+	}
+
 	// ─── Exports (delegation → export-ops.ts) ────────────────────────────────
 
 	private get exportDeps() {
@@ -839,6 +848,7 @@ class FilesStore {
 				else this.setActive(id);
 			},
 			onCreate: (name: string, content: string) => this.createNew(name, content),
+			onSyncName: (id: string, name: string) => this.syncDiskName(id, name),
 			scheduleSave: (id: string) => this.scheduleSave(id),
 			onImportRollback: (id: string) => {
 				this.detachFromView(id);

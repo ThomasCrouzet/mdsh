@@ -904,8 +904,13 @@ describe('disk delegation to disk-sync', () => {
 		expect(typeof deps.getFile).toBe('function');
 		expect(typeof deps.onCreate).toBe('function');
 		expect(typeof deps.scheduleSave).toBe('function');
-		const created = deps.onCreate('dep.md', '# Dep');
-		deps.scheduleSave(created.id);
+		const created = deps.onCreate('dep.md', 'Plain content');
+		expect(filesStore.displayTitle(created.id)).toBe('dep');
+		deps.onSyncName?.(created.id, 'Linked.MD');
+		expect(filesStore.active?.name).toBe('Linked.MD');
+		expect(filesStore.displayTitle(created.id)).toBe('Linked');
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(created.id))?.name).toBe('Linked.MD');
 	});
 
 	it('delegates paths and callbacks from openPathsFromDesktop', async () => {

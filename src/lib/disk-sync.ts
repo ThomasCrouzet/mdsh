@@ -56,6 +56,7 @@ import { reportError } from './report';
 import { reportPersistenceError } from './storage';
 import type { FileItem } from './types';
 import { getDiskLinkEpoch } from './db';
+import { pathBasename } from './disk-link';
 
 /** Dependencies injected by FilesStore - zero Svelte imports here. */
 export interface DiskSyncDeps {
@@ -67,6 +68,8 @@ export interface DiskSyncDeps {
 	onCreate: (name: string, content: string) => FileItem;
 	/** Schedules Dexie persistence of the file (delegates to `scheduleSave`). */
 	scheduleSave: (id: string) => void;
+	/** Applies the exact disk name through the store so metadata and persistence stay synchronized. */
+	onSyncName?: (id: string, name: string) => void;
 	onImportRollback?: (id: string) => void;
 }
 
@@ -232,6 +235,13 @@ async function ingestDesktopOpens(
 			if (existing) {
 				await savePathLink(existing.id, file.link, epoch);
 				deps.onActivate?.(existing.id);
+				if (existing.diskRevision === undefined && existing.content === file.content) {
+					existing.diskLastModified = file.lastModified;
+					existing.diskSize = file.size;
+					existing.diskRevision = file.revision;
+					deps.scheduleSave(existing.id);
+				}
+				if (existing.name !== file.name) deps.onSyncName?.(existing.id, file.name);
 				created.push(existing);
 				const token = file.token ?? picked.find((entry) => entry.path === file.path)?.token;
 				if (token) processedTokens.push(token);
@@ -360,6 +370,16 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 	file.brokenLink = false;
 	const current = deps.getFile(id);
 	if (current?.content === content) current.dirty = false;
+	if (
+		file.linkedToDisk &&
+		current === file &&
+		current.name === name &&
+		typeof handle.name === 'string' &&
+		handle.name.length > 0 &&
+		handle.name !== name
+	) {
+		deps.onSyncName?.(id, handle.name);
+	}
 	// §C2 - Refreshes the anti-overwrite reference after a successful write: the
 	// disk file now reflects our content, its new mtime becomes the baseline.
 	// Without this, the next save would re-trigger the divergence.
@@ -374,7 +394,7 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		file.diskSize = undefined;
 	}
 	deps.scheduleSave(id);
-	notify.success(t('disk.saved', { name }));
+	notify.success(t('disk.saved', { name: handle.name || name }));
 	return true;
 }
 
@@ -392,7 +412,7 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 	}
 	let pathRec = existingLink?.record ?? null;
 	let persistLink = false;
-	let linkPersisted = pathRec !== null;
+	let persistedPath = pathRec?.path ?? null;
 	if (!pathRec) {
 		const picked = await tauriPickSaveTarget(name);
 		if (!picked) return false;
@@ -435,20 +455,29 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 	if (persistLink) {
 		try {
 			await savePathLink(id, pathRec, epoch);
-			linkPersisted = true;
+			persistedPath = pathRec.path;
 		} catch (err) {
 			reportPersistenceError(err, 'save');
 		}
 	}
-	file.linkedToDisk = linkPersisted;
+	file.linkedToDisk = persistedPath !== null;
 	file.brokenLink = false;
 	const current = deps.getFile(id);
 	if (current?.content === content) current.dirty = false;
 	file.diskLastModified = written.lastModified;
 	file.diskSize = written.size;
 	file.diskRevision = written.revision;
+	const linkedName = pathBasename(pathRec.path);
+	if (
+		persistedPath === pathRec.path &&
+		current === file &&
+		current.name === name &&
+		linkedName !== name
+	) {
+		deps.onSyncName?.(id, linkedName);
+	}
 	deps.scheduleSave(id);
-	notify.success(t('disk.saved', { name }));
+	notify.success(t('disk.saved', { name: linkedName }));
 	return true;
 }
 

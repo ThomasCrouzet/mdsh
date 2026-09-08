@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -14,7 +14,7 @@ const binary = resolve(
 );
 const port = Number(process.env.TAURI_WEBDRIVER_PORT ?? 4457);
 const endpoint = `http://127.0.0.1:${port}`;
-const output = resolve('native-test-results');
+const output = resolve(process.env.NATIVE_TEST_OUTPUT ?? 'native-test-results');
 mkdirSync(output, { recursive: true });
 const temp = mkdtempSync(join(tmpdir(), 'mdsh-native-'));
 const title = `Native ${Date.now()}`;
@@ -248,6 +248,33 @@ async function drafts() {
 		`const done = arguments[arguments.length - 1]; const req = indexedDB.open('mdsh'); req.onerror = () => done([]); req.onsuccess = () => { const db = req.result; const q = db.transaction('drafts').objectStore('drafts').getAll(); q.onsuccess = () => { db.close(); done(q.result); }; };`
 	);
 }
+/** @param {string} label */
+async function saveLinkedFile(label) {
+	await until(
+		() =>
+			execute(`return document.querySelector('.mdsh-shell')?.getAttribute('aria-busy') === 'false'
+			&& !document.querySelector('.mdsh-shell')?.hasAttribute('inert')
+			&& Array.from(document.querySelectorAll('section button')).some(button =>
+				['Close import report', 'Fermer le bilan d’import'].includes(button.textContent.trim()));`),
+		`${label}: import complete and editor ready`
+	);
+	const before = statSync(fixture, { bigint: true }).mtimeNs;
+	const draft = (await drafts()).find(
+		(/** @type {{name: string}} */ item) => item.name === `${title} été.md`
+	);
+	assert.ok(draft, `${label}: linked draft exists`);
+	await execute(`
+		window.dispatchEvent(new KeyboardEvent('keydown', {
+			key: 'S', code: 'KeyS', metaKey: ${process.platform === 'darwin'},
+			ctrlKey: ${process.platform !== 'darwin'}, shiftKey: true, bubbles: true, cancelable: true
+		}));
+	`);
+	// No dialog is answered. Only a direct native write can complete this check.
+	await until(async () => statSync(fixture, { bigint: true }).mtimeNs !== before, label);
+	assert.equal(readFileSync(fixture, 'utf8'), draft.content);
+	passed(label);
+}
+
 try {
 	launch();
 	await connect();
@@ -281,6 +308,7 @@ try {
 			),
 		'opened file durably stored'
 	);
+	await saveLinkedFile('native opened file saves without a path dialog');
 	await execute("localStorage.setItem('mdsh:locale', 'fr');");
 	await reload();
 	await click('button[data-mode="source"]');
@@ -318,6 +346,25 @@ try {
 		1
 	);
 	passed('single instance and file delivery without duplicates');
+	await saveLinkedFile('native reopened file saves without a path dialog');
+	const beforeRestart = once(
+		/** @type {import('node:child_process').ChildProcess} */ (app),
+		'exit'
+	);
+	await executeAsync(
+		`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_request_close').then(() => done(true), error => done({ error: String(error) }));`
+	).catch(() => {});
+	await Promise.race([
+		beforeRestart,
+		delay(15_000).then(() => {
+			throw new Error('Native close before disk test blocked');
+		})
+	]);
+	app = undefined;
+	session = '';
+	launch();
+	await connect();
+	await saveLinkedFile('native reopened file saves after process restart without a path dialog');
 	await click('button[data-mode="wysiwyg"]');
 	await until(
 		() => execute('return !!document.querySelector(".milkdown .ProseMirror")'),
