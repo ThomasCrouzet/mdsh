@@ -5,6 +5,19 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.5.2](https://github.com/ThomasCrouzet/mdsh/compare/v1.5.1...v1.5.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* clear the old disk link before changing targets ([7612118](https://github.com/ThomasCrouzet/mdsh/commit/76121181028ec37ecda9d0093dd9f18280d1ff3e))
+* flush editor content before saving to disk ([1a93f0c](https://github.com/ThomasCrouzet/mdsh/commit/1a93f0cdac4cf8dbc066673902e8ebadc8356ed4))
+* keep benchmark errors out of HTTP responses ([d4e653c](https://github.com/ThomasCrouzet/mdsh/commit/d4e653c134d11f5fc7e4fb7324d0ec52f6889d44))
+* protect draft state and disk saves ([2f64fd1](https://github.com/ThomasCrouzet/mdsh/commit/2f64fd117d173a33a4fabed6bf570873145f4e9e))
+* protect draft state and disk saves ([335c106](https://github.com/ThomasCrouzet/mdsh/commit/335c106f7b7ef998eb9bbf57fba2b953b9cbcdee))
+* sync disk names and reopen linked files ([#79](https://github.com/ThomasCrouzet/mdsh/issues/79)) ([7aec530](https://github.com/ThomasCrouzet/mdsh/commit/7aec5309e3821f6bdfee55e0691f5028fdfda7d7))
+* sync disk names and restore safe reopen revisions ([32787a3](https://github.com/ThomasCrouzet/mdsh/commit/32787a3be1401ce503702f9dbf31d5e7e6b4dede))
+
 ## [1.5.1](https://github.com/ThomasCrouzet/mdsh/compare/v1.5.0...v1.5.1) (2026-09-06)
 
 
