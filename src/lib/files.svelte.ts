@@ -992,6 +992,7 @@ class FilesStore {
 		return this.saveToDisk(this.active.id);
 	}
 	async saveToDisk(id: string): Promise<boolean> {
+		this.dispatchEditorFlush();
 		return diskSaveToDisk(id, this.diskDeps);
 	}
 	async unlinkFromDisk(id: string): Promise<void> {

@@ -945,6 +945,22 @@ describe('disk delegation to disk-sync', () => {
 		expect(deps.getFile(a.id)?.id).toBe(a.id);
 	});
 
+	it('flushes current WYSIWYG content before disk save reads the draft', async () => {
+		const file = filesStore.createNew('wysiwyg.md', 'before');
+		window.addEventListener(
+			'mdsh:flush-editor',
+			() => filesStore.updateContent(file.id, 'latest editor content'),
+			{ once: true }
+		);
+		vi.mocked(diskSync.saveToDisk).mockImplementationOnce(async (id, deps) => {
+			expect(id).toBe(file.id);
+			expect(deps.getFile(id)?.content).toBe('latest editor content');
+			return true;
+		});
+
+		expect(await filesStore.saveToDisk(file.id)).toBe(true);
+	});
+
 	it('saves the active file with saveActiveToDisk', async () => {
 		filesStore.createNew('a.md', '# A');
 		const b = filesStore.createNew('b.md', '# B');

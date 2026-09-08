@@ -254,6 +254,8 @@ async function saveLinkedFile(label) {
 		() =>
 			execute(`return document.querySelector('.mdsh-shell')?.getAttribute('aria-busy') === 'false'
 			&& !document.querySelector('.mdsh-shell')?.hasAttribute('inert')
+			&& (document.querySelector('button[data-mode="wysiwyg"]')?.getAttribute('aria-checked') !== 'true'
+				|| !!document.querySelector('.milkdown .ProseMirror'))
 			&& Array.from(document.querySelectorAll('section button')).some(button =>
 				['Close import report', 'Fermer le bilan d’import'].includes(button.textContent.trim()));`),
 		`${label}: import complete and editor ready`
@@ -271,7 +273,17 @@ async function saveLinkedFile(label) {
 	`);
 	// No dialog is answered. Only a direct native write can complete this check.
 	await until(async () => statSync(fixture, { bigint: true }).mtimeNs !== before, label);
-	assert.equal(readFileSync(fixture, 'utf8'), draft.content);
+	const savedContent = readFileSync(fixture, 'utf8');
+	assert.ok(savedContent.includes(title));
+	// WYSIWYG serialization can update the draft before its debounce completes.
+	await until(
+		async () =>
+			(await drafts()).some(
+				(/** @type {{id: string, content: string}} */ item) =>
+					item.id === draft.id && item.content === savedContent
+			),
+		`${label}: saved content matches the durable draft`
+	);
 	passed(label);
 }
 
@@ -308,6 +320,7 @@ try {
 			),
 		'opened file durably stored'
 	);
+	await click('button[data-mode="wysiwyg"]');
 	await saveLinkedFile('native opened file saves without a path dialog');
 	await execute("localStorage.setItem('mdsh:locale', 'fr');");
 	await reload();
