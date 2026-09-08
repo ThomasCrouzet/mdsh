@@ -6,6 +6,9 @@ Open the [web app](https://thomascrouzet.github.io/mdsh/) and create a document.
 
 Closing a tab keeps the document in the library. The delete command moves it to the trash for 30 days. Open the library and trash from the sidebar.
 
+Source mode keeps a separate undo history for each recently used draft. A change of draft cannot undo content from another draft.
+The current browser session keeps editor positions for up to 32 recently used drafts. Reloading clears undo history, but keeps these positions.
+
 <a id="install-the-pwa"></a>
 
 ## Install the PWA
@@ -19,6 +22,15 @@ A new version waits for IndexedDB writes before it reloads the app. If a local s
 A selection or folder can contain up to 300 files and 64 MiB. Each file can contain up to 16 MiB. The app rejects binary files, prohibited control characters, and text that is not UTF-8. It shows a result for each rejection. If you cancel an import, the app keeps imported documents and reports how many it added.
 
 A document with at least 262,144 characters opens first in source mode. You must confirm before you change to visual rendering because parsing can take more time.
+
+On supported systems, opening a file with the installed PWA uses the same import limits.
+
+## Search and disk links
+
+Whole-word search includes Unicode letters, marks, numbers, and underscores. Apostrophes and hyphens separate words. Search and replacement use the same boundaries.
+
+Before saving a linked file, the app compares its content with the last saved reference. If the check fails, it stops the save.
+An older link without a reference requires an explicit decision before the first write. Use a new target if you cannot verify the file.
 
 ## Local and remote images
 
@@ -38,7 +50,9 @@ Settings shows whether the browser granted persistent storage. It also shows the
 
 A backup contains open and closed documents, workspaces, and custom templates. It excludes trash, version history, browser file handles, and Desktop path permissions. The format accepts up to 3,000 documents, 300 workspaces, 16 MiB per document, and 64 MiB in total. The app checks these limits before it reports a successful download. You cannot recover an encrypted backup without its passphrase.
 
-Replace mode keeps old documents in the trash and preserves variants that share an identifier. Merge mode assigns new identifiers after collisions and updates workspace references.
+Replace mode keeps old documents in the trash and preserves variants that share an identifier. Merge mode assigns new identifiers to added drafts and updates workspace references.
+
+Replace mode also disconnects disk links. Imported content cannot reuse an old file permission. Merge mode keeps links for existing local drafts.
 
 ## Export
 
@@ -49,6 +63,9 @@ The standalone HTML file embeds its styles, images, and required KaTeX fonts. Yo
 ## Keyboard shortcuts
 
 The Commands menu shows all active shortcuts. In Settings, you can customize commands, detect conflicts, and restore defaults. The app saves web and Desktop profiles separately. Content-editing shortcuts have priority when the cursor is in the editor.
+
+In the sidebar, focus a draft and press Space to change its selection. Press Enter to open the draft.
+Focus another draft and press Shift+Space to select the range. The buttons expose their selection state to screen readers.
 
 ## Desktop Beta app
 

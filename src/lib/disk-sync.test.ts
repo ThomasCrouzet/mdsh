@@ -8,10 +8,14 @@ import type { FileItem } from './types';
 // jsdom does not provide the native File System Access API.
 vi.mock('./fsa', () => ({
 	isFSASupported: vi.fn(() => true),
+	getFsaLink: vi.fn(),
 	getHandle: vi.fn(),
 	getPathLink: vi.fn(),
+	getPathLinkWithEpoch: vi.fn(),
 	requestPermission: vi.fn(),
 	pickSaveTarget: vi.fn(),
+	revisionForFile: vi.fn(),
+	revisionForText: vi.fn(),
 	saveHandle: vi.fn(),
 	savePathLink: vi.fn(),
 	writeHandle: vi.fn(),
@@ -23,6 +27,11 @@ vi.mock('./fsa', () => ({
 vi.mock('./desktop', () => ({
 	isDesktop: vi.fn(() => false)
 }));
+
+vi.mock('./db', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('./db')>();
+	return { ...actual, getDiskLinkEpoch: vi.fn(async () => 'epoch') };
+});
 
 vi.mock('./disk-tauri', () => ({
 	tauriPickDirectoryAndOpen: vi.fn(async () => ({ files: [], failed: 0 })),
@@ -41,6 +50,7 @@ vi.mock('./disk-tauri', () => ({
 import * as fsa from './fsa';
 import * as desktop from './desktop';
 import * as diskTauri from './disk-tauri';
+import * as database from './db';
 import {
 	openFromDisk,
 	openDirectoryFromDisk,
@@ -102,7 +112,15 @@ beforeEach(() => {
 	// Use FSA support without desktop support by default.
 	vi.mocked(fsa.isFSASupported).mockReturnValue(true);
 	vi.mocked(desktop.isDesktop).mockReturnValue(false);
+	vi.mocked(fsa.getFsaLink).mockResolvedValue(null);
 	vi.mocked(fsa.getPathLink).mockResolvedValue(null);
+	vi.mocked(fsa.getPathLinkWithEpoch).mockImplementation(async (id) => {
+		const record = await fsa.getPathLink(id);
+		return record ? { record, epoch: 'epoch' } : null;
+	});
+	vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:disk');
+	vi.mocked(fsa.revisionForText).mockResolvedValue('sha256:local');
+	vi.mocked(database.getDiskLinkEpoch).mockResolvedValue('epoch');
 });
 
 describe('openFromDisk', () => {
@@ -152,9 +170,29 @@ describe('openFromDisk', () => {
 		expect(created[0]!.diskSize).toBe(fileA.size);
 		// Persist one handle per file.
 		expect(fsa.saveHandle).toHaveBeenCalledTimes(2);
-		expect(fsa.saveHandle).toHaveBeenCalledWith('id-a.md', hA);
+		expect(fsa.saveHandle).toHaveBeenCalledWith('id-a.md', hA, 'sha256:disk', 'epoch');
 		// Do not show a partial toast when all files succeed.
 		expect(notify.toasts).toHaveLength(0);
+	});
+
+	it('keeps the byte revision when UTF-8 decoding removes a BOM', async () => {
+		const source = '\uFEFF# Title';
+		const file = fakeFile('bom.md', source, { size: new TextEncoder().encode(source).byteLength });
+		const handle = { tag: 'BOM' } as unknown as FileSystemFileHandle;
+		vi.mocked(fsa.pickAndOpen).mockResolvedValue([{ handle, file }]);
+		vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:bytes-with-bom');
+
+		const created = await openFromDisk(depsFor([]));
+
+		expect(created[0]?.content).toBe('# Title');
+		expect(fsa.revisionForFile).toHaveBeenCalledWith(file);
+		expect(fsa.revisionForText).not.toHaveBeenCalled();
+		expect(fsa.saveHandle).toHaveBeenCalledWith(
+			'id-bom.md',
+			handle,
+			'sha256:bytes-with-bom',
+			'epoch'
+		);
 	});
 
 	it('continues after an unreadable file and shows a partial info toast', async () => {
@@ -226,7 +264,11 @@ describe('saveToDisk', () => {
 		const handleWithFile = {
 			getFile: vi.fn().mockResolvedValue(written)
 		} as unknown as FileSystemFileHandle;
-		vi.mocked(fsa.getHandle).mockResolvedValue(handleWithFile);
+		vi.mocked(fsa.getFsaLink).mockResolvedValue({
+			handle: handleWithFile,
+			revision: 'sha256:disk',
+			epoch: 'epoch'
+		});
 		vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
 
@@ -244,7 +286,11 @@ describe('saveToDisk', () => {
 	});
 
 	it('returns false without a toast when handle permission is denied', async () => {
-		vi.mocked(fsa.getHandle).mockResolvedValue(handle);
+		vi.mocked(fsa.getFsaLink).mockResolvedValue({
+			handle,
+			revision: 'sha256:disk',
+			epoch: 'epoch'
+		});
 		vi.mocked(fsa.requestPermission).mockResolvedValue(false);
 		expect(await saveToDisk('a', deps)).toBe(false);
 		expect(notify.toasts).toHaveLength(0);
@@ -252,7 +298,11 @@ describe('saveToDisk', () => {
 	});
 
 	it('returns false and marks the link broken after a write failure', async () => {
-		vi.mocked(fsa.getHandle).mockResolvedValue(handle);
+		vi.mocked(fsa.getFsaLink).mockResolvedValue({
+			handle,
+			revision: 'sha256:disk',
+			epoch: 'epoch'
+		});
 		vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 		vi.mocked(fsa.writeHandle).mockRejectedValue(new Error('disk fail'));
 		const ok = await saveToDisk('a', deps);
@@ -269,7 +319,7 @@ describe('saveToDisk', () => {
 			value: vi.fn().mockResolvedValue(written),
 			configurable: true
 		});
-		vi.mocked(fsa.getHandle).mockResolvedValue(null);
+		vi.mocked(fsa.getFsaLink).mockResolvedValue(null);
 		vi.mocked(fsa.pickSaveTarget).mockResolvedValue(picked);
 		vi.mocked(fsa.saveHandle).mockResolvedValue(undefined);
 		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
@@ -278,12 +328,52 @@ describe('saveToDisk', () => {
 
 		expect(ok).toBe(true);
 		expect(fsa.pickSaveTarget).toHaveBeenCalledWith('note.md');
-		expect(fsa.saveHandle).toHaveBeenCalledWith('a', picked);
+		expect(fsa.saveHandle).toHaveBeenCalledWith('a', picked, 'sha256:local', 'epoch');
 		expect(file.linkedToDisk).toBe(true);
 	});
 
+	it('does not persist a new handle when the write fails', async () => {
+		const picked = { tag: 'picked' } as unknown as FileSystemFileHandle;
+		vi.mocked(fsa.pickSaveTarget).mockResolvedValue(picked);
+		vi.mocked(fsa.writeHandle).mockRejectedValue(new Error('disk fail'));
+
+		expect(await saveToDisk('a', deps)).toBe(false);
+		expect(fsa.saveHandle).not.toHaveBeenCalled();
+	});
+
+	it('writes one content snapshot and keeps a later edit dirty', async () => {
+		const picked = { tag: 'picked' } as unknown as FileSystemFileHandle;
+		let releaseHash!: (revision: string) => void;
+		vi.mocked(fsa.pickSaveTarget).mockResolvedValue(picked);
+		vi.mocked(fsa.revisionForText).mockImplementation(
+			() => new Promise<string>((resolve) => (releaseHash = resolve))
+		);
+		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
+
+		const saving = saveToDisk('a', deps);
+		await vi.waitFor(() => expect(fsa.revisionForText).toHaveBeenCalledWith('contenu'));
+		file.content = 'later edit';
+		releaseHash('sha256:snapshot');
+
+		expect(await saving).toBe(true);
+		expect(fsa.writeHandle).toHaveBeenCalledWith(picked, 'contenu');
+		expect(fsa.saveHandle).toHaveBeenCalledWith('a', picked, 'sha256:snapshot', 'epoch');
+		expect(file.dirty).toBe(true);
+	});
+
+	it('persists the epoch captured before a replacement restore race', async () => {
+		const picked = { tag: 'picked' } as unknown as FileSystemFileHandle;
+		vi.mocked(database.getDiskLinkEpoch).mockResolvedValueOnce('before-restore');
+		vi.mocked(fsa.pickSaveTarget).mockResolvedValue(picked);
+		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
+
+		expect(await saveToDisk('a', deps)).toBe(true);
+		expect(fsa.saveHandle).toHaveBeenCalledWith('a', picked, 'sha256:local', 'before-restore');
+		expect(database.getDiskLinkEpoch).toHaveBeenCalledTimes(1);
+	});
+
 	it('returns false without a write after picker cancellation', async () => {
-		vi.mocked(fsa.getHandle).mockResolvedValue(null);
+		vi.mocked(fsa.getFsaLink).mockResolvedValue(null);
 		vi.mocked(fsa.pickSaveTarget).mockResolvedValue(null);
 		expect(await saveToDisk('a', deps)).toBe(false);
 		expect(fsa.writeHandle).not.toHaveBeenCalled();
@@ -293,14 +383,17 @@ describe('saveToDisk', () => {
 	it('clears the baseline when a read after write fails', async () => {
 		const getFile = vi.fn().mockRejectedValue(new Error('relecture KO'));
 		const h = { getFile } as unknown as FileSystemFileHandle;
-		vi.mocked(fsa.getHandle).mockResolvedValue(h);
+		vi.mocked(fsa.getFsaLink).mockResolvedValue({
+			handle: h,
+			revision: 'sha256:disk',
+			epoch: 'epoch'
+		});
 		vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
-		// With no file.diskLastModified, skip the mtime guard. Then make the post-write getFile call throw.
 		const ok = await saveToDisk('a', deps);
-		expect(ok).toBe(true);
-		expect(file.diskLastModified).toBeUndefined();
-		expect(file.diskSize).toBeUndefined();
+		expect(ok).toBe(false);
+		expect(fsa.writeHandle).not.toHaveBeenCalled();
+		expect(file.brokenLink).toBe(true);
 	});
 
 	describe('overwrite guard for mtime conflicts (§C2)', () => {
@@ -320,7 +413,12 @@ describe('saveToDisk', () => {
 				.mockResolvedValueOnce(onDisk) // check anti-écrasement
 				.mockResolvedValueOnce(writtenAfter); // rafraîchissement baseline
 			const h = { getFile } as unknown as FileSystemFileHandle;
-			vi.mocked(fsa.getHandle).mockResolvedValue(h);
+			vi.mocked(fsa.getFsaLink).mockResolvedValue({
+				handle: h,
+				revision: 'sha256:before',
+				epoch: 'epoch'
+			});
+			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:changed');
 			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 			vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
 			const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(true);
@@ -338,7 +436,12 @@ describe('saveToDisk', () => {
 			const onDisk = new File(['autre'], 'note.md');
 			Object.defineProperty(onDisk, 'lastModified', { value: 9999, configurable: true });
 			const h = { getFile: vi.fn().mockResolvedValue(onDisk) } as unknown as FileSystemFileHandle;
-			vi.mocked(fsa.getHandle).mockResolvedValue(h);
+			vi.mocked(fsa.getFsaLink).mockResolvedValue({
+				handle: h,
+				revision: 'sha256:before',
+				epoch: 'epoch'
+			});
+			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:changed');
 			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 			const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
 
@@ -355,7 +458,12 @@ describe('saveToDisk', () => {
 			const onDisk = new File(['taille differente'], 'note.md');
 			Object.defineProperty(onDisk, 'lastModified', { value: 1000, configurable: true });
 			const h = { getFile: vi.fn().mockResolvedValue(onDisk) } as unknown as FileSystemFileHandle;
-			vi.mocked(fsa.getHandle).mockResolvedValue(h);
+			vi.mocked(fsa.getFsaLink).mockResolvedValue({
+				handle: h,
+				revision: 'sha256:before',
+				epoch: 'epoch'
+			});
+			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:changed');
 			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 			const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
 
@@ -371,7 +479,11 @@ describe('saveToDisk', () => {
 			Object.defineProperty(writtenAfter, 'lastModified', { value: 2000, configurable: true });
 			const getFile = vi.fn().mockResolvedValueOnce(onDisk).mockResolvedValueOnce(writtenAfter);
 			const h = { getFile } as unknown as FileSystemFileHandle;
-			vi.mocked(fsa.getHandle).mockResolvedValue(h);
+			vi.mocked(fsa.getFsaLink).mockResolvedValue({
+				handle: h,
+				revision: 'sha256:disk',
+				epoch: 'epoch'
+			});
 			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 			vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
 			const confirmSpy = vi.spyOn(promptStore, 'confirm');
@@ -383,7 +495,19 @@ describe('saveToDisk', () => {
 			confirmSpy.mockRestore();
 		});
 
-		it('logs a read failure during the check and continues the write', async () => {
+		it('requires confirmation when a legacy link has no stored revision', async () => {
+			const onDisk = new File(['contenu'], 'note.md');
+			const h = { getFile: vi.fn().mockResolvedValue(onDisk) } as unknown as FileSystemFileHandle;
+			vi.mocked(fsa.getFsaLink).mockResolvedValue({ handle: h, revision: null, epoch: 'epoch' });
+			const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
+
+			expect(await saveToDisk('a', deps)).toBe(false);
+			expect(confirmSpy).toHaveBeenCalled();
+			expect(fsa.writeHandle).not.toHaveBeenCalled();
+			confirmSpy.mockRestore();
+		});
+
+		it('blocks the write when the revision check fails', async () => {
 			const writtenAfter = new File(['contenu'], 'note.md');
 			Object.defineProperty(writtenAfter, 'lastModified', { value: 3000, configurable: true });
 			const getFile = vi
@@ -391,17 +515,22 @@ describe('saveToDisk', () => {
 				.mockRejectedValueOnce(new Error('lecture check KO')) // check anti-écrasement
 				.mockResolvedValueOnce(writtenAfter); // rafraîchissement baseline post-write
 			const h = { getFile } as unknown as FileSystemFileHandle;
-			vi.mocked(fsa.getHandle).mockResolvedValue(h);
+			vi.mocked(fsa.getFsaLink).mockResolvedValue({
+				handle: h,
+				revision: 'sha256:disk',
+				epoch: 'epoch'
+			});
 			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 			vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
 			const confirmSpy = vi.spyOn(promptStore, 'confirm');
 
 			const ok = await saveToDisk('a', deps);
 
-			// Log a failed check read and continue the write.
+			// A failed preflight read cannot prove that the file is unchanged.
 			expect(confirmSpy).not.toHaveBeenCalled();
 			expect(console.error).toHaveBeenCalled();
-			expect(ok).toBe(true);
+			expect(ok).toBe(false);
+			expect(fsa.writeHandle).not.toHaveBeenCalled();
 			confirmSpy.mockRestore();
 		});
 	});
@@ -497,10 +626,14 @@ describe('openFromDisk desktop capability backend', () => {
 		expect(created[0]!.linkedToDisk).toBe(true);
 		expect(created[0]!.diskLastModified).toBe(42);
 		expect(created[0]!.diskRevision).toBe('sha256:open');
-		expect(fsa.savePathLink).toHaveBeenCalledWith('id-note.md', {
-			kind: 'path',
-			path: '/tmp/note.md'
-		});
+		expect(fsa.savePathLink).toHaveBeenCalledWith(
+			'id-note.md',
+			{
+				kind: 'path',
+				path: '/tmp/note.md'
+			},
+			'epoch'
+		);
 		expect(fsa.pickAndOpen).not.toHaveBeenCalled();
 	});
 
@@ -602,7 +735,7 @@ describe('saveToDisk desktop capability backend', () => {
 		});
 
 		expect(await saveToDisk('a', deps)).toBe(true);
-		expect(fsa.savePathLink).toHaveBeenCalledWith('a', pathLink);
+		expect(fsa.savePathLink).toHaveBeenCalledWith('a', pathLink, 'epoch');
 		expect(file.linkedToDisk).toBe(true);
 		expect(diskTauri.tauriWritePath).toHaveBeenCalledWith(
 			'/tmp/new.md',
@@ -612,6 +745,43 @@ describe('saveToDisk desktop capability backend', () => {
 		);
 		expect(file.diskRevision).toBe('sha256:written');
 		expect(scheduleSave).toHaveBeenCalledWith('a');
+	});
+
+	it('does not persist a new path when the native write fails', async () => {
+		const file = makeFile();
+		const { deps } = desktopDeps(file);
+		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
+		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue({
+			kind: 'path',
+			path: '/tmp/new.md'
+		});
+		vi.mocked(diskTauri.tauriWritePath).mockRejectedValue(new Error('disk full'));
+
+		expect(await saveToDisk('a', deps)).toBe(false);
+		expect(fsa.savePathLink).not.toHaveBeenCalled();
+	});
+
+	it('keeps an edit made during a native write dirty', async () => {
+		const file = makeFile({ content: 'snapshot' });
+		const { deps } = desktopDeps(file);
+		let releaseWrite!: (value: { lastModified: number; size: number; revision: string }) => void;
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		vi.mocked(diskTauri.tauriWritePath).mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					releaseWrite = resolve;
+				})
+		);
+
+		const saving = saveToDisk('a', deps);
+		await vi.waitFor(() =>
+			expect(diskTauri.tauriWritePath).toHaveBeenCalledWith('/tmp/note.md', 'snapshot', null, false)
+		);
+		file.content = 'later edit';
+		releaseWrite({ lastModified: 2, size: 8, revision: 'sha256:snapshot' });
+
+		expect(await saving).toBe(true);
+		expect(file.dirty).toBe(true);
 	});
 
 	it('cancels when the native final revision check reports a conflict', async () => {
@@ -687,10 +857,14 @@ describe('saveToDisk desktop capability backend', () => {
 		});
 
 		expect(await saveToDisk('a', deps)).toBe(true);
-		expect(fsa.savePathLink).toHaveBeenCalledWith('a', {
-			kind: 'path',
-			path: '/tmp/reauthorized.md'
-		});
+		expect(fsa.savePathLink).toHaveBeenCalledWith(
+			'a',
+			{
+				kind: 'path',
+				path: '/tmp/reauthorized.md'
+			},
+			'epoch'
+		);
 		expect(file.diskRevision).toBe('sha256:reauthorized');
 	});
 });

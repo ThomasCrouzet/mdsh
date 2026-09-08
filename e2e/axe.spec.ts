@@ -2,9 +2,11 @@
  * Axe-core accessibility scan for release-blocking serious/critical issues.
  * Complements e2e/a11y.spec.ts (skip-link + focus trap).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { resetAppState, createFirstFile, openPalette } from './helpers';
+
+test.use({ reducedMotion: 'reduce' });
 
 function violationSummary(
 	violations: Array<{ impact: string | null; id: string; nodes: Array<{ target: unknown }> }>
@@ -19,7 +21,12 @@ function violationSummary(
 		.join('\n');
 }
 
-async function expectNoBlockingViolations(builder: AxeBuilder): Promise<void> {
+async function expectNoBlockingViolations(page: Page, builder: AxeBuilder): Promise<void> {
+	await page.evaluate(async () => {
+		await Promise.all(
+			document.getAnimations().map((animation) => animation.finished.catch(() => {}))
+		);
+	});
 	const results = await builder.analyze();
 	const blocking = results.violations.filter(
 		(violation) => violation.impact === 'critical' || violation.impact === 'serious'
@@ -40,7 +47,7 @@ test.describe('Axe accessibility scan', () => {
 			);
 			await page.reload();
 			await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-			await expectNoBlockingViolations(new AxeBuilder({ page }));
+			await expectNoBlockingViolations(page, new AxeBuilder({ page }));
 		}
 	});
 
@@ -54,10 +61,13 @@ test.describe('Axe accessibility scan', () => {
 			await page.reload();
 			await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 			await expect(page.locator('.cm-content')).toHaveAttribute('aria-label');
-			await expectNoBlockingViolations(new AxeBuilder({ page }).include('#main'));
+			await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('#main'));
 			await openPalette(page);
 			await expect(page.locator('.mdsh-dialog-panel')).toHaveCSS('opacity', '1');
-			await expectNoBlockingViolations(new AxeBuilder({ page }).include('.mdsh-dialog-panel'));
+			await expectNoBlockingViolations(
+				page,
+				new AxeBuilder({ page }).include('.mdsh-dialog-panel')
+			);
 			await page.keyboard.press('Escape');
 		}
 	});
@@ -72,16 +82,16 @@ test.describe('Axe accessibility scan', () => {
 			await page.reload();
 			await page.locator('button[data-mode="wysiwyg"]').click();
 			await expect(page.locator('.ProseMirror')).toHaveAttribute('aria-label');
-			await expectNoBlockingViolations(new AxeBuilder({ page }).include('#main'));
+			await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('#main'));
 
 			await page.locator('button[data-mode="read"]').click();
 			await expect(page.locator('.mdsh-preview')).toBeVisible();
-			await expectNoBlockingViolations(new AxeBuilder({ page }).include('#main'));
+			await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('#main'));
 
 			await page.keyboard.press('ControlOrMeta+,');
 			await expect(page.getByRole('dialog')).toBeVisible();
 			await expect(page.locator('.mdsh-dialog-panel')).toHaveCSS('opacity', '1');
-			await expectNoBlockingViolations(new AxeBuilder({ page }).include('[role="dialog"]'));
+			await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('[role="dialog"]'));
 			await page.keyboard.press('Escape');
 		}
 	});
@@ -95,11 +105,82 @@ test.describe('Axe accessibility scan', () => {
 				theme
 			);
 			await page.reload();
-			await expectNoBlockingViolations(new AxeBuilder({ page }));
+			await expectNoBlockingViolations(page, new AxeBuilder({ page }));
 			await page.locator('main [data-testid="welcome-new"]').click();
 			await expect(page.locator('.cm-content')).toBeVisible();
 			await expect(page.locator('.cm-content')).toHaveAttribute('aria-label');
-			await expectNoBlockingViolations(new AxeBuilder({ page }).include('#main'));
+			await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('#main'));
 		}
 	});
+});
+
+test('secondary panels pass accessibility checks in both themes', async ({ page }) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	for (const theme of ['light', 'dark']) {
+		await page.evaluate((value) => localStorage.setItem('mdsh:theme', value), theme);
+		await page.reload();
+		for (const command of [
+			'Recherche cross-fichiers',
+			'Charger un workspace',
+			'Gérer les liens disque',
+			'Historique des versions',
+			'Graphe des liens',
+			'Mode présentation'
+		]) {
+			await openPalette(page);
+			await page.getByRole('combobox').fill(command);
+			await page.keyboard.press('Enter');
+			await expect(
+				page.getByRole('dialog', { name: 'Palette de commandes', exact: true })
+			).toHaveCount(0);
+			await expect(page.getByRole('dialog')).toBeVisible();
+			await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('[role="dialog"]'));
+			await page.keyboard.press('Escape');
+			await expect(page.getByRole('dialog')).toHaveCount(0);
+		}
+	}
+});
+
+test('workspace controls remain reachable at 200 percent CSS zoom', async ({ page }) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await page.evaluate(() => {
+		document.documentElement.style.zoom = '2';
+	});
+	await openPalette(page);
+	await expect(page.getByRole('combobox')).toBeInViewport();
+	await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('[role="dialog"]'));
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('search errors and nested workspace prompts pass accessibility checks', async ({ page }) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	for (const theme of ['light', 'dark']) {
+		await page.evaluate((value) => localStorage.setItem('mdsh:theme', value), theme);
+		await page.reload();
+		await openPalette(page);
+		await page.getByRole('combobox').fill('Recherche cross-fichiers');
+		await page.keyboard.press('Enter');
+		await page.getByRole('button', { name: 'Utiliser une expression régulière' }).click();
+		await page.getByRole('combobox').fill('[[');
+		await expect(page.getByRole('alert')).toContainText('Regex invalide');
+		await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('[role="dialog"]'));
+		await page.keyboard.press('Escape');
+		await openPalette(page);
+		await page.getByRole('combobox').fill('Charger un workspace');
+		await page.keyboard.press('Enter');
+		await page.getByRole('button', { name: 'Sauvegarder le workspace courant' }).click();
+		const prompt = page.getByRole('dialog', { name: 'Nom du workspace ?' });
+		await expect(prompt).toBeVisible();
+		await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('[role="dialog"]'));
+		await page.keyboard.press('Escape');
+		await expect(prompt).toHaveCount(0);
+		await expect(
+			page.getByRole('button', { name: 'Sauvegarder le workspace courant' })
+		).toBeFocused();
+		await page.keyboard.press('Escape');
+	}
 });

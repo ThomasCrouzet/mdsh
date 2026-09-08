@@ -14,7 +14,14 @@ vi.mock('../disk-tauri', () => ({
 	tauriSaveExportBlob: (blob: Blob, name: string) => desktopMocks.tauriSaveExportBlob(blob, name)
 }));
 
-import { db, newId, type DraftRow, type WorkspaceRow, type TemplateRow } from '../db';
+import {
+	db,
+	newId,
+	DISK_LINK_EPOCH_KEY,
+	type DraftRow,
+	type WorkspaceRow,
+	type TemplateRow
+} from '../db';
 import {
 	BACKUP_FORMAT,
 	BACKUP_SCHEMA_VERSION,
@@ -49,7 +56,8 @@ async function clearAll() {
 		db.workspaces.clear(),
 		db.templates.clear(),
 		db.versions.clear(),
-		db.trashed.clear()
+		db.trashed.clear(),
+		db.metadata.clear()
 	]);
 }
 
@@ -207,6 +215,7 @@ describe('applyBackup - replace', () => {
 	});
 
 	it('replaces all existing state', async () => {
+		await db.metadata.put({ key: DISK_LINK_EPOCH_KEY, value: 'before' });
 		await db.drafts.put(draft({ id: 'old', name: 'old.md' }));
 		const backup: BackupFile = {
 			format: BACKUP_FORMAT,
@@ -220,6 +229,7 @@ describe('applyBackup - replace', () => {
 		expect(counts.drafts).toBe(1);
 		const all = await db.drafts.toArray();
 		expect(all.map((d) => d.id)).toEqual(['new']); // 'old' a disparu
+		expect((await db.metadata.get(DISK_LINK_EPOCH_KEY))?.value).not.toBe('before');
 	});
 
 	it('keeps a replaced document and history in durable recovery', async () => {
@@ -243,6 +253,27 @@ describe('applyBackup - replace', () => {
 		await applyBackup(backup, 'replace');
 		expect(await db.versions.count()).toBe(1);
 		expect((await db.trashed.get('old'))?.file.content).toBe('courant');
+	});
+
+	it('rolls back the epoch when replacement data cannot be written', async () => {
+		await db.metadata.put({ key: DISK_LINK_EPOCH_KEY, value: 'before' });
+		await db.drafts.put(draft({ id: 'old', name: 'old.md' }));
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ id: 'new', name: 'new.md' })],
+			workspaces: [],
+			templates: []
+		};
+		const write = vi.spyOn(db.drafts, 'bulkPut').mockRejectedValueOnce(new Error('write failed'));
+
+		await expect(applyBackup(backup, 'replace')).rejects.toThrow('write failed');
+		write.mockRestore();
+
+		expect(await db.drafts.get('old')).toBeDefined();
+		expect(await db.drafts.get('new')).toBeUndefined();
+		expect((await db.metadata.get(DISK_LINK_EPOCH_KEY))?.value).toBe('before');
 	});
 });
 
@@ -293,13 +324,17 @@ describe('applyBackup - merge', () => {
 			],
 			templates: []
 		} satisfies BackupFile;
-		await applyBackup(backup, 'merge');
+		const firstCounts = await applyBackup(backup, 'merge');
+		expect(firstCounts).toMatchObject({ drafts: 1, workspaces: 1, templates: 0 });
+		expect(firstCounts.unchanged).toEqual({ drafts: 0, workspaces: 0, templates: 0 });
 		const variant = (await db.drafts.toArray()).find((row) => row.id !== 'a');
 		expect((await db.drafts.get('a'))?.content).toBe('local récent');
 		expect(variant?.content).toBe('ancien importé');
 		expect((await db.workspaces.get('w'))?.fileIds).toEqual([variant?.id]);
 		expect((await db.workspaces.get('w'))?.activeId).toBe(variant?.id);
-		await applyBackup(backup, 'merge');
+		const secondCounts = await applyBackup(backup, 'merge');
+		expect(secondCounts).toMatchObject({ drafts: 0, workspaces: 0, templates: 0 });
+		expect(secondCounts.unchanged).toEqual({ drafts: 1, workspaces: 1, templates: 0 });
 		expect(await db.drafts.count()).toBe(2);
 		expect(await db.workspaces.count()).toBe(1);
 	});
@@ -319,9 +354,10 @@ describe('applyBackup - merge', () => {
 		};
 		await applyBackup(backup, 'merge');
 		const all = await db.drafts.orderBy('order').toArray();
-		expect(all.map((d) => d.id)).toEqual(['a', 'b', 'c']);
+		expect(all.map((d) => d.name)).toEqual(['a.md', 'b.md', 'c.md']);
 		// Give 'c' an order greater than the existing maximum of 1. This gives 2 without a collision.
-		expect(all.find((d) => d.id === 'c')?.order).toBe(2);
+		expect(all.find((d) => d.name === 'c.md')?.order).toBe(2);
+		expect(all.find((d) => d.name === 'c.md')?.id).not.toBe('c');
 	});
 
 	it('keeps local content and imports a variant without order changes', async () => {
@@ -359,6 +395,41 @@ describe('applyBackup - merge', () => {
 		expect(await db.templates.count()).toBe(3);
 	});
 
+	it('reports exact added and unchanged counts', async () => {
+		const existingDraft = draft({ id: 'd', name: 'same.md', createdAt: 1, updatedAt: 2 });
+		const existingWorkspace = workspace({
+			id: 'w',
+			fileIds: ['d'],
+			activeId: 'd',
+			createdAt: 1,
+			updatedAt: 2
+		});
+		const existingTemplate = template({ id: 't', createdAt: 1, updatedAt: 2 });
+		await Promise.all([
+			db.drafts.put(existingDraft),
+			db.workspaces.put(existingWorkspace),
+			db.templates.put(existingTemplate)
+		]);
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 3,
+			drafts: [existingDraft],
+			workspaces: [existingWorkspace],
+			templates: [existingTemplate]
+		};
+
+		const counts = await applyBackup(backup, 'merge');
+
+		expect(counts).toEqual({
+			drafts: 0,
+			workspaces: 0,
+			templates: 0,
+			unchanged: { drafts: 1, workspaces: 1, templates: 1 },
+			skipped: 0
+		});
+	});
+
 	it('adds new drafts with increasing order during merge', async () => {
 		await db.drafts.put(draft({ id: 'a', name: 'a.md', order: 3 }));
 		const backup: BackupFile = {
@@ -375,9 +446,9 @@ describe('applyBackup - merge', () => {
 		await applyBackup(backup, 'merge');
 		const all = await db.drafts.orderBy('order').toArray();
 		// Keep the existing item first. Put new items after max(order), which is 3.
-		expect(all.map((d) => d.id)).toEqual(['a', 'x', 'y']);
-		expect(all.find((d) => d.id === 'x')?.order).toBe(4);
-		expect(all.find((d) => d.id === 'y')?.order).toBe(5);
+		expect(all.map((d) => d.name)).toEqual(['a.md', 'x.md', 'y.md']);
+		expect(all.find((d) => d.name === 'x.md')?.order).toBe(4);
+		expect(all.find((d) => d.name === 'y.md')?.order).toBe(5);
 	});
 
 	it('starts merged draft order at zero in an empty database', async () => {
@@ -395,9 +466,10 @@ describe('applyBackup - merge', () => {
 		const counts = await applyBackup(backup, 'merge');
 		expect(counts.drafts).toBe(2);
 		const all = await db.drafts.orderBy('order').toArray();
-		expect(all.map((d) => d.id)).toEqual(['p', 'q']);
-		expect(all.find((d) => d.id === 'p')?.order).toBe(0);
-		expect(all.find((d) => d.id === 'q')?.order).toBe(1);
+		expect(all.map((d) => d.name)).toEqual(['p.md', 'q.md']);
+		expect(all.find((d) => d.name === 'p.md')?.order).toBe(0);
+		expect(all.find((d) => d.name === 'q.md')?.order).toBe(1);
+		expect(all.every((row) => row.id !== 'p' && row.id !== 'q')).toBe(true);
 	});
 
 	it('rejects partial restoration without explicit acceptance', async () => {

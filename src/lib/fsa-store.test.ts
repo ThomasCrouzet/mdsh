@@ -128,8 +128,8 @@ describe('listHandles', () => {
 		expect(ids).toEqual(['keep']);
 	});
 
-	it('returns an empty list when IndexedDB is unavailable', async () => {
-		// Simulate unavailable IndexedDB. openHandleDB rejects, and listHandles must return [] without throwing.
+	it('reports an error when IndexedDB is unavailable', async () => {
+		// Simulate unavailable IndexedDB. The caller must distinguish this error from an empty store.
 		const original = globalThis.indexedDB;
 		Object.defineProperty(globalThis, 'indexedDB', {
 			value: {
@@ -144,7 +144,7 @@ describe('listHandles', () => {
 			configurable: true
 		});
 		try {
-			expect(await listHandles()).toEqual([]);
+			await expect(listHandles()).rejects.toThrow('no idb');
 		} finally {
 			Object.defineProperty(globalThis, 'indexedDB', {
 				value: original,

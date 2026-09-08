@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { encryptString, decryptString, isEncryptedEnvelope, ENVELOPE_VERSION } from './crypto';
 
 describe('encryptString / decryptString', () => {
@@ -27,6 +27,26 @@ describe('encryptString / decryptString', () => {
 		const env = await encryptString('secret', 'pass');
 		const tampered = { ...env, ct: env.ct.slice(0, -4) + 'AAAA' };
 		await expect(decryptString(tampered, 'pass')).rejects.toThrow();
+	});
+
+	it('rejects unsupported formats and malformed field sizes before deriving a key', async () => {
+		const env = await encryptString('secret', 'pass');
+		const derive = vi.spyOn(globalThis.crypto.subtle, 'deriveKey');
+		try {
+			for (const changes of [
+				{ v: 2 },
+				{ kdf: 'unknown' },
+				{ salt: btoa('short') },
+				{ iv: btoa('short') },
+				{ ct: btoa('short') },
+				{ iter: 600_001 }
+			]) {
+				await expect(decryptString({ ...env, ...changes } as typeof env, 'pass')).rejects.toThrow();
+			}
+			expect(derive).not.toHaveBeenCalled();
+		} finally {
+			derive.mockRestore();
+		}
 	});
 
 	it('rejects an empty encryption passphrase', async () => {

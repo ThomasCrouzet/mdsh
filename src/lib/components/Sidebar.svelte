@@ -212,6 +212,15 @@
 	// Focus stays on the button after the move to chain several
 	// moves in a row.
 	async function handleFileKey(e: KeyboardEvent, id: string) {
+		if (e.key === ' ' && !e.altKey) {
+			e.preventDefault();
+			if (e.shiftKey && lastClickedId) filesStore.selectionRange(lastClickedId, id);
+			else {
+				filesStore.selectionToggle(id);
+				lastClickedId = id;
+			}
+			return;
+		}
 		if (!e.altKey) return;
 		if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
 		const dir = e.key === 'ArrowUp' ? -1 : 1;
@@ -475,7 +484,8 @@
 							onclick={(e) => handleSelect(e, file.id)}
 							onkeydown={(e) => handleFileKey(e, file.id)}
 							data-file-id={file.id}
-							aria-label={`${label}${dirtyHint}${isSelected ? t('sidebar.selectedSuffix') : ''}`}
+							aria-label={`${label}${dirtyHint}${isSelected ? t('sidebar.selectedSuffix') : ''}${file.brokenLink ? '. ' + t('sidebar.brokenDiskLink') : ''}`}
+							aria-pressed={isSelected}
 							aria-current={isActive ? 'true' : undefined}
 						>
 							<span class="flex-shrink-0" aria-hidden="true">

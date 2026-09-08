@@ -100,3 +100,16 @@ describe('replaceInFiles', () => {
 		expect(out.total).toBe(1);
 	});
 });
+
+describe('Unicode whole-word replacement', () => {
+	it('keeps partial words and replaces accented words at punctuation boundaries', () => {
+		const result = replaceInFiles(
+			[{ id: 'x', name: 'x.md', content: "été étéx xété l'été été-été" }],
+			'été',
+			'hiver',
+			{ caseSensitive: false, wholeWord: true, useRegex: false }
+		);
+		expect(result.total).toBe(4);
+		expect(result.results[0]?.content).toBe("hiver étéx xété l'hiver hiver-hiver");
+	});
+});

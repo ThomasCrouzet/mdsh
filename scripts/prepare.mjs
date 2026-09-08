@@ -13,4 +13,4 @@ function run(command, args, required) {
 }
 
 run('npx', ['svelte-kit', 'sync'], true);
-run('npx', ['lefthook', 'install'], false);
+if (!process.env.CI) run('npx', ['lefthook', 'install'], false);

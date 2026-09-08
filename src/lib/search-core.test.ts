@@ -7,6 +7,23 @@ const corpus = [
 ];
 
 describe('matchInCorpus', () => {
+	it.each(['été', 'élève', 'café', 'cafe\u0301', 'word', '123'])(
+		'matches Unicode word boundaries for %s',
+		(word) => {
+			const result = matchInCorpus(
+				[
+					{
+						id: 'x',
+						name: 'x.md',
+						content: `${word}\npre${word}post\n${word}x\nx${word}\n'${word}'`
+					}
+				],
+				{ query: word, caseSensitive: false, wholeWord: true, useRegex: false }
+			);
+			expect(result.hits.map((hit) => hit.line)).toEqual([1, 5]);
+		}
+	);
+
 	it('returns empty for short queries', () => {
 		expect(
 			matchInCorpus(corpus, { query: 'h', caseSensitive: false, wholeWord: false, useRegex: false })

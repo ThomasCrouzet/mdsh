@@ -172,6 +172,13 @@ describe('applyRemoteImagePolicy', () => {
 });
 
 describe('hardenExternalLink', () => {
+	it('hardens an actual SVG anchor', () => {
+		const anchor = document.createElementNS('http://www.w3.org/2000/svg', 'a');
+		anchor.setAttribute('href', 'https://example.test');
+		hardenExternalLink(anchor);
+		expect(anchor.getAttribute('rel')).toBe('noopener noreferrer');
+		expect(anchor.getAttribute('target')).toBe('_blank');
+	});
 	it('hardens only external anchors', () => {
 		const attrs: Record<string, string> = { href: 'https://example.test' };
 		hardenExternalLink({

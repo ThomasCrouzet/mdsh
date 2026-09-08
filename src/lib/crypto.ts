@@ -22,11 +22,9 @@ export const ENVELOPE_VERSION = 1;
 // envelope (`iter`) and read back at decryption → increasing this constant only
 // affects NEW backups; older ones (250k) remain readable.
 const PBKDF2_ITERATIONS = 600_000;
-// Defense-in-depth cap: `iter` is read back from an IMPORTED envelope (so
-// potentially hostile). An oversized `iter` (e.g. 2e9) would run PBKDF2 forever
-// at decryption (self-DoS). We bound it at 10M (>> the current 600k, covers any
-// reasonable increase); below 1 or non-integer = invalid envelope.
-const MAX_PBKDF2_ITERATIONS = 10_000_000;
+// Version 1 supports the historical 250k and current 600k work factors.
+// Reject larger imported work factors before key derivation.
+const MAX_PBKDF2_ITERATIONS = PBKDF2_ITERATIONS;
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 
@@ -139,9 +137,13 @@ export async function decryptString(env: EncryptedEnvelope, passphrase: string):
 	let iv: Uint8Array;
 	let ct: Uint8Array;
 	try {
+		if (env.salt.length !== 24 || env.iv.length !== 16) throw new Error('Invalid field length');
 		salt = fromBase64(env.salt);
 		iv = fromBase64(env.iv);
 		ct = fromBase64(env.ct);
+		if (salt.length !== SALT_BYTES || iv.length !== IV_BYTES || ct.length < 16) {
+			throw new Error('Invalid field length');
+		}
 	} catch {
 		const e = new Error(t('crypto.invalidEnvelopeEncoding'));
 		e.name = 'DecryptError';
@@ -166,6 +168,8 @@ export function isEncryptedEnvelope(v: unknown): v is EncryptedEnvelope {
 	if (typeof v !== 'object' || v === null) return false;
 	const e = v as Record<string, unknown>;
 	return (
+		e.v === ENVELOPE_VERSION &&
+		e.kdf === 'PBKDF2-SHA256' &&
 		e.alg === 'AES-GCM' &&
 		typeof e.salt === 'string' &&
 		typeof e.iv === 'string' &&

@@ -2,11 +2,29 @@ import { ImportSession, type ImportOptions, type ImportReport } from './import-l
 import { IMPORT_LIMITS } from './config';
 import { browser } from '$app/environment';
 import { t } from '$lib/i18n';
-import { isPathLinkRecord, pathBasename, type PathLinkRecord } from './disk-link';
+import { getDiskLinkEpoch, LEGACY_DISK_LINK_EPOCH } from './db';
+import {
+	isPathLinkRecord,
+	isStoredFsaLinkRecord,
+	pathBasename,
+	type PathLinkRecord,
+	type StoredPathLinkRecord
+} from './disk-link';
 
 export interface StoredHandle {
 	id: string;
 	handle: FileSystemFileHandle;
+}
+
+export interface FsaLinkRecord {
+	handle: FileSystemFileHandle;
+	revision: string | null;
+	epoch: string;
+}
+
+export interface PathLinkWithEpoch {
+	record: PathLinkRecord;
+	epoch: string;
 }
 
 /** Unified disk link entry for DiskLinksPanel / broken-link checks. */
@@ -130,52 +148,110 @@ export async function pickDirectoryFiles(options: ImportOptions = {}): Promise<{
 	};
 }
 
-export async function saveHandle(id: string, handle: FileSystemFileHandle): Promise<void> {
+export async function saveHandle(
+	id: string,
+	handle: FileSystemFileHandle,
+	revision: string | null = null,
+	capturedEpoch?: string
+): Promise<void> {
 	if (!browser) return;
+	const epoch = capturedEpoch ?? (await getDiskLinkEpoch());
 	const db = await openHandleDB();
 	await new Promise<void>((resolve, reject) => {
 		const tx = db.transaction(HANDLE_STORE, 'readwrite');
-		tx.objectStore(HANDLE_STORE).put(handle, id);
+		tx.objectStore(HANDLE_STORE).put({ kind: 'fsa', handle, revision, epoch }, id);
 		tx.oncomplete = () => resolve();
 		tx.onerror = () => reject(tx.error);
 	});
 }
 
 /** Persists a path-based disk link (desktop). Overwrites any prior FSA handle. */
-export async function savePathLink(id: string, record: PathLinkRecord): Promise<void> {
+export async function savePathLink(
+	id: string,
+	record: PathLinkRecord,
+	capturedEpoch?: string
+): Promise<void> {
 	if (!browser) return;
+	const epoch = capturedEpoch ?? (await getDiskLinkEpoch());
 	const db = await openHandleDB();
 	await new Promise<void>((resolve, reject) => {
 		const tx = db.transaction(HANDLE_STORE, 'readwrite');
-		tx.objectStore(HANDLE_STORE).put(record, id);
+		tx.objectStore(HANDLE_STORE).put({ ...record, epoch }, id);
 		tx.oncomplete = () => resolve();
 		tx.onerror = () => reject(tx.error);
 	});
 }
 
-export async function getHandle(id: string): Promise<FileSystemFileHandle | null> {
-	if (!browser) return null;
+async function getStoredLink(id: string): Promise<unknown> {
 	const db = await openHandleDB();
-	const value = await new Promise<unknown>((resolve, reject) => {
+	return new Promise<unknown>((resolve, reject) => {
 		const tx = db.transaction(HANDLE_STORE, 'readonly');
 		const req = tx.objectStore(HANDLE_STORE).get(id);
 		req.onsuccess = () => resolve(req.result);
 		req.onerror = () => reject(req.error);
 	});
-	if (value == null || isPathLinkRecord(value)) return null;
-	return value as FileSystemFileHandle;
+}
+
+function matchesEpoch(value: unknown, epoch: string): boolean {
+	if (isStoredFsaLinkRecord(value)) return value.epoch === epoch;
+	if (isPathLinkRecord(value)) {
+		const stored = value as StoredPathLinkRecord;
+		return (
+			stored.epoch === epoch || (stored.epoch === undefined && epoch === LEGACY_DISK_LINK_EPOCH)
+		);
+	}
+	return value != null && epoch === LEGACY_DISK_LINK_EPOCH;
+}
+
+export async function getFsaLink(id: string): Promise<FsaLinkRecord | null> {
+	if (!browser) return null;
+	const [value, epoch] = await Promise.all([getStoredLink(id), getDiskLinkEpoch()]);
+	if (!matchesEpoch(value, epoch) || isPathLinkRecord(value)) return null;
+	if (isStoredFsaLinkRecord(value)) {
+		return { handle: value.handle, revision: value.revision, epoch: value.epoch };
+	}
+	return { handle: value as FileSystemFileHandle, revision: null, epoch };
+}
+
+export async function getHandle(id: string): Promise<FileSystemFileHandle | null> {
+	return (await getFsaLink(id))?.handle ?? null;
 }
 
 export async function getPathLink(id: string): Promise<PathLinkRecord | null> {
+	return (await getPathLinkWithEpoch(id))?.record ?? null;
+}
+
+export async function getPathLinkWithEpoch(id: string): Promise<PathLinkWithEpoch | null> {
 	if (!browser) return null;
-	const db = await openHandleDB();
-	const value = await new Promise<unknown>((resolve, reject) => {
-		const tx = db.transaction(HANDLE_STORE, 'readonly');
-		const req = tx.objectStore(HANDLE_STORE).get(id);
-		req.onsuccess = () => resolve(req.result);
-		req.onerror = () => reject(req.error);
-	});
-	return isPathLinkRecord(value) ? value : null;
+	const [value, epoch] = await Promise.all([getStoredLink(id), getDiskLinkEpoch()]);
+	if (!matchesEpoch(value, epoch) || !isPathLinkRecord(value)) return null;
+	return { record: { kind: 'path', path: value.path }, epoch };
+}
+
+export async function revisionForText(content: string): Promise<string> {
+	const bytes = new TextEncoder().encode(content);
+	const digest = await crypto.subtle.digest('SHA-256', bytes);
+	return `sha256:${Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, '0')
+	).join('')}`;
+}
+
+export async function revisionForFile(file: File): Promise<string> {
+	let buffer: ArrayBuffer;
+	if (typeof file.arrayBuffer === 'function') {
+		buffer = await file.arrayBuffer();
+	} else {
+		buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(reader.result as ArrayBuffer);
+			reader.onerror = () => reject(reader.error);
+			reader.readAsArrayBuffer(file);
+		});
+	}
+	const digest = await crypto.subtle.digest('SHA-256', buffer);
+	return `sha256:${Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, '0')
+	).join('')}`;
 }
 
 export async function deleteHandle(id: string): Promise<void> {
@@ -258,8 +334,7 @@ export async function writeHandle(handle: FileSystemFileHandle, content: string)
  * Returns a `{ id, handle }` array ordered by IDB's internal order (insertion
  * order for an object store without an index).
  *
- * Returns an empty array when IndexedDB or FSA is unavailable, or when the
- * quota is exceeded. This lets the panel show that no link exists.
+ * Propagates IndexedDB errors so callers can show a retry action.
  */
 export async function listHandles(): Promise<Array<{ id: string; handle: FileSystemFileHandle }>> {
 	const all = await listDiskLinks();
@@ -270,46 +345,48 @@ export async function listHandles(): Promise<Array<{ id: string; handle: FileSys
 
 /**
  * Lists every disk link (FSA handles + desktop path records) stored in IDB.
- * Fail-soft: returns `[]` if IDB is unavailable.
+ * Propagates IndexedDB errors so callers do not confuse a load failure with
+ * an empty link collection.
  */
 export async function listDiskLinks(): Promise<StoredDiskLink[]> {
 	if (!browser) return [];
-	try {
-		const db = await openHandleDB();
-		const entries = await new Promise<StoredDiskLink[]>((resolve, reject) => {
-			const tx = db.transaction(HANDLE_STORE, 'readonly');
-			const store = tx.objectStore(HANDLE_STORE);
-			const out: StoredDiskLink[] = [];
-			const req = store.openCursor();
-			req.onsuccess = () => {
-				const cursor = req.result;
-				if (cursor) {
-					const id = String(cursor.key);
-					const value = cursor.value;
-					if (isPathLinkRecord(value)) {
-						out.push({
-							id,
-							kind: 'path',
-							path: value.path,
-							label: pathBasename(value.path) || value.path
-						});
-					} else if (value != null) {
-						const handle = value as FileSystemFileHandle;
-						const name =
-							typeof handle.name === 'string' && handle.name.length > 0 ? handle.name : id;
-						out.push({ id, kind: 'fsa', handle, label: name });
-					}
+	const [db, epoch] = await Promise.all([openHandleDB(), getDiskLinkEpoch()]);
+	const entries = await new Promise<StoredDiskLink[]>((resolve, reject) => {
+		const tx = db.transaction(HANDLE_STORE, 'readonly');
+		const store = tx.objectStore(HANDLE_STORE);
+		const out: StoredDiskLink[] = [];
+		const req = store.openCursor();
+		req.onsuccess = () => {
+			const cursor = req.result;
+			if (cursor) {
+				const id = String(cursor.key);
+				const value = cursor.value;
+				if (!matchesEpoch(value, epoch)) {
 					cursor.continue();
-				} else {
-					resolve(out);
+					return;
 				}
-			};
-			req.onerror = () => reject(req.error);
-		});
-		return entries;
-	} catch {
-		return [];
-	}
+				if (isPathLinkRecord(value)) {
+					out.push({
+						id,
+						kind: 'path',
+						path: value.path,
+						label: pathBasename(value.path) || value.path
+					});
+				} else if (value != null) {
+					const handle = isStoredFsaLinkRecord(value)
+						? value.handle
+						: (value as FileSystemFileHandle);
+					const name = typeof handle.name === 'string' && handle.name.length > 0 ? handle.name : id;
+					out.push({ id, kind: 'fsa', handle, label: name });
+				}
+				cursor.continue();
+			} else {
+				resolve(out);
+			}
+		};
+		req.onerror = () => reject(req.error);
+	});
+	return entries;
 }
 
 /**

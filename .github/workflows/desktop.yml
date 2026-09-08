@@ -17,21 +17,68 @@ on:
         description: Source release tag used for the Desktop Beta
         required: true
         type: string
+      validation_run_id:
+        description: Successful Desktop push run reused for this release
+        required: false
+        default: ''
+        type: string
+      validated_sha:
+        description: Commit SHA validated by the reused Desktop push run
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: desktop-${{ inputs.release_tag || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   RELEASE_TAG: ${{ inputs.release_tag || '' }}
+  VALIDATED_SHA: ${{ inputs.validated_sha || '' }}
+  VALIDATION_RUN_ID: ${{ inputs.validation_run_id || '' }}
 
 jobs:
-  resolve-source:
+  changes:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.filter.outputs.required }}
+    steps:
+      - name: Checkout change range
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect Desktop changes
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -n "$RELEASE_TAG" ] || [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = 'pull_request' ]; then
+            git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" | node scripts/desktop-changes.mjs >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = 'push' ] && [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = 'push' ]; then
+            git diff --name-only -z "$BEFORE_SHA" "$HEAD_SHA" | node scripts/desktop-changes.mjs >> "$GITHUB_OUTPUT"
+          else
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  resolve-source:
+    needs: changes
+    if: needs.changes.outputs.required == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       sha: ${{ steps.source.outputs.sha }}
     steps:
@@ -42,11 +89,19 @@ jobs:
           persist-credentials: false
       - name: Resolve and validate source identity
         id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           node --input-type=module <<'JS'
           import { appendFileSync, readFileSync } from 'node:fs';
           import { execFileSync } from 'node:child_process';
           const tag = process.env.RELEASE_TAG;
+          const validatedSha = process.env.VALIDATED_SHA;
+          const validationRunId = process.env.VALIDATION_RUN_ID;
+          if (Boolean(validatedSha) !== Boolean(validationRunId)) {
+            throw new Error('validated_sha and validation_run_id must be supplied together');
+          }
           const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
           if (tag && tag !== `v${version}`) throw new Error('Source tag/version mismatch');
           const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -57,16 +112,44 @@ jobs:
             if (tagSha !== sha) throw new Error('Release tag does not identify checked out source');
             if (process.env.GITHUB_SHA !== sha) throw new Error('Run the release workflow from the source tag so provenance identifies the same commit');
           }
+          if (validatedSha) {
+            if (validatedSha !== sha) throw new Error('Reused Desktop validation has a different source SHA');
+            const run = JSON.parse(execFileSync('gh', [
+              'api',
+              `repos/${process.env.GH_REPO}/actions/runs/${validationRunId}`
+            ], { encoding: 'utf8' }));
+            if (run.head_sha !== sha || run.event !== 'push' || run.conclusion !== 'success') {
+              throw new Error('Reused Desktop validation is not a successful push run for this source SHA');
+            }
+            if (run.path !== '.github/workflows/desktop.yml') {
+              throw new Error('Reused validation did not run the Desktop workflow');
+            }
+            const jobs = JSON.parse(execFileSync('gh', [
+              'api',
+              `repos/${process.env.GH_REPO}/actions/runs/${validationRunId}/jobs?per_page=100`
+            ], { encoding: 'utf8' })).jobs;
+            for (const prefix of ['validate-desktop (', 'native-smoke (']) {
+              const matching = jobs.filter((job) => job.name.startsWith(prefix));
+              if (matching.length !== 4 || matching.some((job) => job.conclusion !== 'success')) {
+                throw new Error(`Reused validation does not contain four successful ${prefix} jobs`);
+              }
+            }
+            if (!jobs.some((job) => job.name === 'desktop-validation' && job.conclusion === 'success')) {
+              throw new Error('Reused validation has no successful desktop-validation gate');
+            }
+          }
           appendFileSync(process.env.GITHUB_OUTPUT, `sha=${sha}\n`);
           JS
 
   validate-desktop:
     needs: resolve-source
+    if: inputs.validated_sha == ''
     strategy:
       fail-fast: false
       matrix:
         platform: [ubuntu-24.04, windows-2022, macos-14, macos-15-intel]
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -93,6 +176,7 @@ jobs:
         uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: src-tauri -> target
+          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
       - name: Format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Clippy
@@ -111,11 +195,13 @@ jobs:
 
   native-smoke:
     needs: [resolve-source, validate-desktop]
+    if: inputs.validated_sha == '' && needs.validate-desktop.result == 'success'
     strategy:
       fail-fast: false
       matrix:
         platform: [ubuntu-24.04, windows-2022, macos-14, macos-15-intel]
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 30
     steps:
       - name: Checkout verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -140,6 +226,7 @@ jobs:
         uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: src-tauri -> target
+          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
       - name: Build isolated native test app
@@ -162,9 +249,41 @@ jobs:
           path: native-test-results/
           retention-days: 14
 
+  desktop-validation:
+    name: desktop-validation
+    needs: [changes, resolve-source, validate-desktop, native-smoke]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check validation result
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          VALIDATION_REQUIRED: ${{ needs.changes.outputs.required }}
+          RESOLVE_RESULT: ${{ needs.resolve-source.result }}
+          VALIDATE_RESULT: ${{ needs.validate-desktop.result }}
+          SMOKE_RESULT: ${{ needs.native-smoke.result }}
+        run: |
+          if [ "$CHANGES_RESULT" != 'success' ]; then
+            echo 'Desktop change detection failed.' >&2
+            exit 1
+          fi
+          if [ "$VALIDATION_REQUIRED" != 'true' ]; then
+            echo 'Desktop validation is not required for these paths.'
+          elif [ -n "$VALIDATED_SHA" ]; then
+            test "$RESOLVE_RESULT" = 'success'
+            test "$VALIDATE_RESULT" = 'skipped'
+            test "$SMOKE_RESULT" = 'skipped'
+            echo "Reused Desktop validation run $VALIDATION_RUN_ID for $VALIDATED_SHA."
+          else
+            test "$RESOLVE_RESULT" = 'success'
+            test "$VALIDATE_RESULT" = 'success'
+            test "$SMOKE_RESULT" = 'success'
+          fi
+
   build-desktop:
-    needs: [resolve-source, validate-desktop, native-smoke]
-    if: inputs.release_tag != ''
+    needs: [resolve-source, desktop-validation]
+    if: ${{ !cancelled() && inputs.release_tag != '' && needs.resolve-source.result == 'success' && needs.desktop-validation.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -178,6 +297,7 @@ jobs:
           - platform: windows-2022
             args: ''
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -203,6 +323,7 @@ jobs:
         uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: src-tauri -> target
+          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
       - name: Build workflow artifacts
@@ -216,9 +337,10 @@ jobs:
           uploadWorkflowArtifacts: true
 
   build-sbom:
-    needs: [resolve-source, validate-desktop]
-    if: inputs.release_tag != ''
+    needs: [resolve-source, desktop-validation]
+    if: ${{ !cancelled() && inputs.release_tag != '' && needs.resolve-source.result == 'success' && needs.desktop-validation.result == 'success' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -268,8 +390,9 @@ jobs:
 
   publish-desktop-beta:
     needs: [resolve-source, build-desktop, build-sbom]
-    if: inputs.release_tag != ''
+    if: ${{ !cancelled() && inputs.release_tag != '' && needs.resolve-source.result == 'success' && needs.build-desktop.result == 'success' && needs.build-sbom.result == 'success' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
       id-token: write

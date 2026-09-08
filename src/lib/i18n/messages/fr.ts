@@ -5,6 +5,28 @@ import type { MessageKey } from './en';
 
 export const fr: Record<MessageKey, string> = {
 	// backup
+	'settings.restoreUnchangedSuffix': ' {n} élément(s) inchangé(s) conservé(s).',
+	'source.cmFind': 'Rechercher',
+	'source.cmReplace': 'Remplacer',
+	'source.cmNext': 'suivant',
+	'source.cmPrevious': 'précédent',
+	'source.cmAll': 'tout sélectionner',
+	'source.cmMatchCase': 'respecter la casse',
+	'source.cmRegexp': 'expression régulière',
+	'source.cmByWord': 'mot entier',
+	'source.cmReplaceAction': 'remplacer',
+	'source.cmReplaceAll': 'tout remplacer',
+	'source.cmClose': 'fermer',
+	'source.cmGoToLine': 'Aller à la ligne',
+	'source.cmGo': 'aller',
+	'source.cmReplacedOne': 'occurrence remplacée à la ligne $',
+	'source.cmReplacedMany': '$ occurrence(s) remplacée(s)',
+	'source.cmCurrentMatch': 'occurrence courante',
+	'source.cmOnLine': 'à la ligne',
+	'source.cmControlCharacter': 'caractère de contrôle',
+	'source.cmSelectionDeleted': 'sélection supprimée',
+	'panels.loadFailed': 'Les données n’ont pas pu être chargées. Réessayez.',
+	'search.replaceFailed': 'Le remplacement a échoué. Les brouillons n’ont pas été remplacés.',
 	'backup.tooLarge':
 		'La sauvegarde dépasse les limites : 64 Mio au total, 3 000 documents et 16 Mio par document.',
 	'backup.encryptedInvalidJson': 'Fichier chiffré illisible : ce n’est pas du JSON valide.',
@@ -344,7 +366,7 @@ export const fr: Record<MessageKey, string> = {
 	'palette.showToc': 'Afficher la table des matières',
 	'palette.templateNamePlaceholder': 'ex. Compte-rendu',
 	'palette.templateNamePrompt': 'Nom du modèle ?',
-	'palette.templateSaved': 'Modele enregistre.',
+	'palette.templateSaved': 'Modèle enregistré.',
 	'palette.theme': 'Thème : {theme} - changer',
 	'palette.themeHint': 'Cycle système → clair → sombre',
 	'palette.tocHint': 'Mode lecture uniquement (desktop)',
@@ -362,7 +384,7 @@ export const fr: Record<MessageKey, string> = {
 	'palette.workspaceFileCount': '{n} fichier(s)',
 	'palette.workspaceNamePlaceholder': 'ex. Notes meeting',
 	'palette.workspaceNamePrompt': 'Nom du workspace ?',
-	'palette.workspaceSaved': 'Workspace enregistre.',
+	'palette.workspaceSaved': 'Espace de travail enregistré.',
 
 	// presentation
 	'presentation.dialogAria': 'Mode présentation',

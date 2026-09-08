@@ -22,7 +22,7 @@ export function computeStats(markdown: string): DocStats {
 	const chars = markdown.length;
 	const words = stripped.trim().length === 0 ? 0 : stripped.trim().split(/\s+/).length;
 	const lines = markdown.length === 0 ? 0 : markdown.split('\n').length;
-	const readMinutes = Math.max(1, Math.round(words / WPM));
+	const readMinutes = words === 0 ? 0 : Math.max(1, Math.round(words / WPM));
 
 	return { chars, words, lines, readMinutes };
 }

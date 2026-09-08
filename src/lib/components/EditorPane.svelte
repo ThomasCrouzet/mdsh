@@ -88,11 +88,14 @@
 <div class="mdsh-content-col relative flex min-h-0 min-w-0 flex-1 flex-col">
 	{#if activeFile}
 		{#if mode === 'source'}
-			<SourceEditor
-				bind:this={sourceEditorEl}
-				content={activeFile.content}
-				onChange={onEditorChange}
-			/>
+			{#key activeFile.id}
+				<SourceEditor
+					bind:this={sourceEditorEl}
+					fileId={activeFile.id}
+					content={activeFile.content}
+					onChange={onEditorChange}
+				/>
+			{/key}
 		{:else if mode === 'read'}
 			<ReadView fileId={activeFile.id} content={activeFile.content} {onArticleRef} />
 		{:else}

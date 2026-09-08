@@ -23,6 +23,19 @@ export interface PathLinkRecord {
 	path: string;
 }
 
+/** Internal path record in mdsh-fs. Missing epoch identifies a legacy record. */
+export interface StoredPathLinkRecord extends PathLinkRecord {
+	epoch?: string;
+}
+
+/** Internal FSA record in mdsh-fs. A null revision requires an overwrite decision. */
+export interface StoredFsaLinkRecord {
+	kind: 'fsa';
+	handle: FileSystemFileHandle;
+	revision: string | null;
+	epoch: string;
+}
+
 /**
  * True when a value stored in `mdsh-fs` is a path link record (desktop).
  * FSA stores a raw `FileSystemFileHandle`, which has no `kind: 'path'`.
@@ -31,6 +44,19 @@ export function isPathLinkRecord(value: unknown): value is PathLinkRecord {
 	if (typeof value !== 'object' || value === null) return false;
 	const rec = value as Record<string, unknown>;
 	return rec.kind === 'path' && typeof rec.path === 'string' && rec.path.length > 0;
+}
+
+export function isStoredFsaLinkRecord(value: unknown): value is StoredFsaLinkRecord {
+	if (typeof value !== 'object' || value === null) return false;
+	const record = value as Record<string, unknown>;
+	return (
+		record.kind === 'fsa' &&
+		typeof record.handle === 'object' &&
+		record.handle !== null &&
+		(record.revision === null || typeof record.revision === 'string') &&
+		typeof record.epoch === 'string' &&
+		record.epoch.length > 0
+	);
 }
 
 /** Last path segment of a POSIX or Windows path (for display names). */

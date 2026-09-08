@@ -11,6 +11,8 @@
 	// "Save" button at the top, which acts as a natural entry point.
 
 	import { tick } from 'svelte';
+	import LoadError from './LoadError.svelte';
+	import { reportPersistenceError } from '$lib/storage';
 	import { browser } from '$app/environment';
 	import { t } from '$lib/i18n';
 	import { workspaceStore } from '$lib/workspaces.svelte';
@@ -28,11 +30,24 @@
 
 	let saveButton: HTMLButtonElement | null = $state(null);
 
+	let loadError = $state(false);
+	let loading = $state(false);
+	async function loadWorkspaces() {
+		loading = true;
+		loadError = false;
+		try {
+			await workspaceStore.load();
+		} catch (error) {
+			loadError = true;
+			reportPersistenceError(error, 'load');
+		} finally {
+			loading = false;
+			await tick();
+			saveButton?.focus();
+		}
+	}
 	$effect(() => {
-		if (!open || !browser) return;
-		void workspaceStore.load().then(() => {
-			tick().then(() => saveButton?.focus());
-		});
+		if (open && browser) void loadWorkspaces();
 	});
 
 	async function handleSave(): Promise<void> {
@@ -126,7 +141,9 @@
 			</header>
 
 			<div class="max-h-[60vh] overflow-y-auto">
-				{#if !workspaceStore.loaded}
+				{#if loadError}
+					<LoadError onRetry={() => void loadWorkspaces()} busy={loading} />
+				{:else if !workspaceStore.loaded}
 					<p class="px-4 py-6 text-center text-xs text-fg-dim">{t('workspaces.loading')}</p>
 				{:else if workspaceStore.workspaces.length === 0}
 					<p class="px-4 py-6 text-center text-xs text-fg-dim">

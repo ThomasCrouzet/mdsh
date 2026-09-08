@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import LoadError from './LoadError.svelte';
+	import { reportPersistenceError } from '$lib/storage';
 	import { browser } from '$app/environment';
 	import { t } from '$lib/i18n';
 	import { filesStore } from '$lib/files.svelte';
@@ -581,14 +583,28 @@
 		return all.filter((c) => normalizeCommandSearch(`${c.label} ${c.keywords ?? ''}`).includes(q));
 	});
 
+	let loadError = $state(false);
+	let loading = $state(false);
+	async function loadSavedCommands() {
+		loading = true;
+		loadError = false;
+		const results = await Promise.allSettled([workspaceStore.load(), templatesStore.load()]);
+		for (const result of results) {
+			if (result.status === 'rejected') {
+				loadError = true;
+				reportPersistenceError(result.reason, 'load');
+			}
+		}
+		loading = false;
+	}
+
 	$effect(() => {
 		if (open) {
 			query = '';
 			selected = 0;
 			// Load workspaces + templates on first open so that
 			// the direct commands appear in the list.
-			void workspaceStore.load();
-			void templatesStore.load();
+			void loadSavedCommands();
 			tick().then(() => inputEl?.focus());
 		}
 	});
@@ -648,6 +664,9 @@
 			class="mdsh-dialog-panel flex w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border
 			       bg-bg-1 shadow-2xl animate-fade-in"
 		>
+			{#if loadError}
+				<LoadError onRetry={() => void loadSavedCommands()} busy={loading} />
+			{/if}
 			<!-- §B1.5 - ARIA combobox + listbox pattern: the input drives the listbox
 			     via aria-activedescendant. Before: no role nor announcement of
 			     the highlighted item, the SR saw just a text field without context. -->
@@ -695,7 +714,12 @@
 				class="max-h-80 overflow-y-auto py-1.5"
 			>
 				{#if filtered.length === 0}
-					<li class="px-4 py-6 text-center text-xs text-fg-dim" role="presentation">
+					<li
+						class="px-4 py-6 text-center text-xs text-fg-dim"
+						role="option"
+						aria-disabled="true"
+						aria-selected="false"
+					>
 						{t('palette.noCommand')}
 					</li>
 				{:else}

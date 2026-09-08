@@ -6,6 +6,7 @@
 	import { promptStore } from '$lib/prompt.svelte';
 	import { notify } from '$lib/notify.svelte';
 	import { reportError } from '$lib/report';
+	import { reportPersistenceError } from '$lib/storage';
 	import { replaceInFilesAsync } from '$lib/replace-worker';
 	import type { Hit } from '$lib/types';
 	import type { SearchRequest, SearchResponse } from '$lib/workers/search.worker';
@@ -37,6 +38,8 @@
 	let wholeWord = $state(false);
 	let useRegex = $state(false);
 	let regexError = $state<string | null>(null);
+	let queryError = $state<string | null>(null);
+	let replacing = $state(false);
 
 	// §2.6 - Cross-file replacement (opt-in: toggled via the replace button).
 	let showReplace = $state(false);
@@ -66,9 +69,15 @@
 		lastCorpusFingerprint = '';
 	}
 	function createWorker(): void {
-		worker = new Worker(new URL('$lib/workers/search.worker.ts', import.meta.url), {
-			type: 'module'
-		});
+		try {
+			worker = new Worker(new URL('$lib/workers/search.worker.ts', import.meta.url), {
+				type: 'module'
+			});
+		} catch (error) {
+			queryError = t('search.unavailable');
+			reportError('search worker creation', error);
+			return;
+		}
 		worker.addEventListener('message', (e: MessageEvent<SearchResponse>) => {
 			// Ignore stale responses (the user typed in the meantime).
 			if (e.data.id !== lastSentQueryId) return;
@@ -84,7 +93,7 @@
 			notify.error(t('search.unavailable'));
 			stopWorker();
 			hits = [];
-			regexError = t('search.unavailable');
+			queryError = t('search.unavailable');
 		});
 	}
 	onMount(() => {
@@ -122,6 +131,8 @@
 		const _opts = [caseSensitive, wholeWord, useRegex];
 		void _opts;
 		if (!open) return;
+		queryError = null;
+		regexError = null;
 		if (q.length < 2) {
 			if (searchTimeout) stopWorker();
 			hits = [];
@@ -165,11 +176,18 @@
 					}
 				: {})
 		};
-		worker.postMessage(req);
+		try {
+			worker.postMessage(req);
+		} catch (error) {
+			stopWorker();
+			queryError = t('search.unavailable');
+			reportError('search request', error);
+			return;
+		}
 		searchTimeout = setTimeout(() => {
 			stopWorker();
 			hits = [];
-			regexError = t('search.timeout');
+			queryError = t('search.timeout');
 		}, 1000);
 	});
 
@@ -214,31 +232,49 @@
 	// updateContent → history snapshot → undoable via the history.
 	async function handleReplaceAll(): Promise<void> {
 		const q = debouncedQuery.trim();
-		if (q.length < 2) return;
+		if (q.length < 2 || replacing) return;
+		replacing = true;
+		queryError = null;
 		const opts = { caseSensitive, wholeWord, useRegex };
-		const slices = filesStore.files.map((f) => ({ id: f.id, name: f.name, content: f.content }));
-		const preview = await replaceInFilesAsync(slices, q, replacement, opts);
-		if (preview.regexError) {
-			regexError = preview.regexError;
-			return;
+		const replacementValue = replacement;
+		try {
+			const slices = filesStore.files.map((f) => ({ id: f.id, name: f.name, content: f.content }));
+			const preview = await replaceInFilesAsync(slices, q, replacementValue, opts);
+			if (preview.regexError) {
+				queryError = preview.regexError;
+				return;
+			}
+			if (preview.total === 0) {
+				notify.info(t('search.noOccurrence'));
+				return;
+			}
+			const ok = await promptStore.confirm({
+				title: t('search.confirmTitle', { n: preview.total }),
+				message:
+					t('search.confirmInFiles', { n: preview.results.length }) +
+					' ' +
+					t('search.confirmUndoable'),
+				confirmLabel: t('search.replaceAll'),
+				danger: true
+			});
+			if (!ok) return;
+			const res = await filesStore.replaceInAll(q, replacementValue, opts);
+			if (res.regexError) {
+				queryError = res.regexError;
+				return;
+			}
+			if (res.occurrences === 0) {
+				notify.info(t('search.noOccurrence'));
+				return;
+			}
+			notify.success(t('search.replacedSummary', { n: res.occurrences, files: res.files }));
+			onClose();
+		} catch (error) {
+			queryError = t('search.replaceFailed');
+			reportPersistenceError(error, 'save');
+		} finally {
+			replacing = false;
 		}
-		if (preview.total === 0) {
-			notify.info(t('search.noOccurrence'));
-			return;
-		}
-		const ok = await promptStore.confirm({
-			title: t('search.confirmTitle', { n: preview.total }),
-			message:
-				t('search.confirmInFiles', { n: preview.results.length }) +
-				' ' +
-				t('search.confirmUndoable'),
-			confirmLabel: t('search.replaceAll'),
-			danger: true
-		});
-		if (!ok) return;
-		const res = await filesStore.replaceInAll(q, replacement, opts);
-		notify.success(t('search.replacedSummary', { n: res.occurrences, files: res.files }));
-		onClose();
 	}
 
 	function handleKey(e: KeyboardEvent) {
@@ -301,9 +337,9 @@
 					autocomplete="off"
 					role="combobox"
 					aria-controls="search-listbox"
-					aria-expanded={hits.length > 0}
+					aria-expanded={hits.length > 0 && !queryError && !regexError}
 					aria-autocomplete="list"
-					aria-activedescendant={hits[selected]?.fileId != null
+					aria-activedescendant={!queryError && !regexError && hits[selected]?.fileId != null
 						? `search-hit-${hits[selected]!.fileId}-${hits[selected]!.line}-${selected}`
 						: undefined}
 					aria-label={t('search.inputLabel')}
@@ -363,7 +399,7 @@
 				>
 					<Replace size={14} />
 				</button>
-				{#if debouncedQuery.trim().length >= 2 && !regexError}
+				{#if debouncedQuery.trim().length >= 2 && !regexError && !queryError}
 					<span class="text-xs text-fg-dim" aria-live="polite" aria-atomic="true"
 						>{t('search.resultCount', { n: hits.length })}</span
 					>
@@ -395,34 +431,45 @@
 						type="button"
 						class="shrink-0 rounded border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-bg-2 hover:text-fg disabled:opacity-40"
 						onclick={() => void handleReplaceAll()}
-						disabled={debouncedQuery.trim().length < 2}
+						disabled={replacing || debouncedQuery.trim().length < 2}
 					>
 						{t('search.replaceAll')}
 					</button>
 				</div>
 			{/if}
 
-			{#if regexError}
+			{#if queryError || regexError}
 				<div
 					class="border-b border-border bg-danger/10 px-3 py-1.5 text-xs text-danger"
 					role="alert"
 				>
-					{t('search.invalidRegex', { error: regexError })}
+					{queryError ?? t('search.invalidRegex', { error: regexError ?? '' })}
 				</div>
 			{/if}
 
 			<ul
 				id="search-listbox"
+				hidden={Boolean(queryError || regexError)}
 				role="listbox"
 				aria-label={t('search.resultsLabel')}
 				class="max-h-[60vh] overflow-y-auto py-1"
 			>
 				{#if query.trim().length < 2}
-					<li class="px-4 py-6 text-center text-xs text-fg-dim" role="presentation">
+					<li
+						class="px-4 py-6 text-center text-xs text-fg-dim"
+						role="option"
+						aria-disabled="true"
+						aria-selected="false"
+					>
 						{t('search.minChars')}
 					</li>
 				{:else if hits.length === 0}
-					<li class="px-4 py-6 text-center text-xs text-fg-dim" role="presentation">
+					<li
+						class="px-4 py-6 text-center text-xs text-fg-dim"
+						role="option"
+						aria-disabled="true"
+						aria-selected="false"
+					>
 						{t('search.noResult')}
 					</li>
 				{:else}

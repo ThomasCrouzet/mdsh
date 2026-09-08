@@ -11,6 +11,8 @@
 	// `browser`. The lists stay empty on the SSR side.
 
 	import { tick } from 'svelte';
+	import LoadError from './LoadError.svelte';
+	import { reportPersistenceError } from '$lib/storage';
 	import { browser } from '$app/environment';
 	import { t } from '$lib/i18n';
 	import { keyboardStore } from '$lib/ui/keyboard.svelte';
@@ -54,6 +56,7 @@
 
 	let entries = $state<DiskLink[]>([]);
 	let loading = $state(false);
+	let loadError = $state(false);
 	let closeButton: HTMLButtonElement | null = $state(null);
 
 	function findFileName(id: string, fallbackLabel: string): { name: string; orphan: boolean } {
@@ -69,6 +72,7 @@
 	async function refresh(): Promise<void> {
 		if (!browser) return;
 		loading = true;
+		loadError = false;
 		try {
 			const raw = await listDiskLinks();
 			entries = raw.map((entry) => {
@@ -92,6 +96,9 @@
 					status: 'unknown' as const
 				};
 			});
+		} catch (error) {
+			loadError = true;
+			reportPersistenceError(error, 'load');
 		} finally {
 			loading = false;
 		}
@@ -206,6 +213,8 @@
 					<p class="px-4 py-6 text-center text-xs text-fg-dim">
 						{t('diskLinks.notSupported')}
 					</p>
+				{:else if loadError}
+					<LoadError onRetry={() => void refresh()} busy={loading} />
 				{:else if loading && entries.length === 0}
 					<p class="px-4 py-6 text-center text-xs text-fg-dim">{t('diskLinks.loading')}</p>
 				{:else if entries.length === 0}

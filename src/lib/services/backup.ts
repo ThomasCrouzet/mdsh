@@ -18,7 +18,14 @@ import { readUtf8File, ImportReadError, validateMarkdownContent } from '../impor
 // fake-indexeddb), no dependency on the runes stores. The DOM helpers
 // (download / file read) are guarded with `typeof document/window`.
 
-import { db, newId, type DraftRow, type WorkspaceRow, type TemplateRow } from '../db';
+import {
+	db,
+	newId,
+	DISK_LINK_EPOCH_KEY,
+	type DraftRow,
+	type WorkspaceRow,
+	type TemplateRow
+} from '../db';
 import { encryptString, decryptString, isEncryptedEnvelope } from '../crypto';
 import { t } from '$lib/i18n';
 
@@ -45,6 +52,11 @@ export interface RestoreCounts {
 	drafts: number;
 	workspaces: number;
 	templates: number;
+	unchanged: {
+		drafts: number;
+		workspaces: number;
+		templates: number;
+	};
 	/**
 	 * Total number of entries present in the file but REJECTED as corrupted
 	 * (invalid drafts/workspaces/templates filtered out by `parseBackup`). > 0 ⇒ the
@@ -274,9 +286,16 @@ export async function applyBackup(
 ): Promise<RestoreCounts> {
 	backup = parseBackupWithReport(serializeBackup(backup)).backup;
 	if (skipped > 0) throw new BackupParseError(t('backup.notMdshBackup'));
+	const counts: RestoreCounts = {
+		drafts: 0,
+		workspaces: 0,
+		templates: 0,
+		unchanged: { drafts: 0, workspaces: 0, templates: 0 },
+		skipped
+	};
 	await db.transaction(
 		'rw',
-		[db.drafts, db.workspaces, db.templates, db.versions, db.trashed],
+		[db.drafts, db.workspaces, db.templates, db.versions, db.trashed, db.metadata],
 		async () => {
 			if (mode === 'replace') {
 				// Keep a durable recovery point, including writes from other tabs that
@@ -294,16 +313,19 @@ export async function applyBackup(
 					});
 				}
 				await Promise.all([db.drafts.clear(), db.workspaces.clear(), db.templates.clear()]);
+				await db.metadata.put({ key: DISK_LINK_EPOCH_KEY, value: newId() });
 				await Promise.all([
 					db.drafts.bulkPut(backup.drafts),
 					db.workspaces.bulkPut(backup.workspaces),
 					db.templates.bulkPut(backup.templates)
 				]);
+				counts.drafts = backup.drafts.length;
+				counts.workspaces = backup.workspaces.length;
+				counts.templates = backup.templates.length;
 				return;
 			}
 			// merge
 			const existing = await db.drafts.toArray();
-			const currentById = new Map(existing.map((d) => [d.id, d]));
 			const allDrafts = [...existing];
 			const importedIdMap = new Map<string, string>();
 			let maxOrder = existing.reduce((m, d) => Math.max(m, d.order), -1);
@@ -319,8 +341,7 @@ export async function applyBackup(
 					importedIdMap.set(d.id, sameVariant.id);
 					return null;
 				}
-				const collision = currentById.has(d.id);
-				const id = collision ? newId() : d.id;
+				const id = newId();
 				const row = { ...d, id, order: ++maxOrder };
 				importedIdMap.set(d.id, id);
 				allDrafts.push(row);
@@ -329,12 +350,14 @@ export async function applyBackup(
 			const existingWorkspaces = await db.workspaces.toArray();
 			const workspaceIds = new Set(existingWorkspaces.map((row) => row.id));
 			const workspacesToPut = backup.workspaces.flatMap((workspace) => {
+				const fileIds = workspace.fileIds.flatMap((id) => {
+					const mapped = importedIdMap.get(id);
+					return mapped ? [mapped] : [];
+				});
 				const mapped = {
 					...workspace,
-					fileIds: [...new Set(workspace.fileIds.map((id) => importedIdMap.get(id) ?? id))],
-					activeId: workspace.activeId
-						? (importedIdMap.get(workspace.activeId) ?? workspace.activeId)
-						: null
+					fileIds: [...new Set(fileIds)],
+					activeId: workspace.activeId ? (importedIdMap.get(workspace.activeId) ?? null) : null
 				};
 				const identical = existingWorkspaces.some(
 					(row) =>
@@ -366,14 +389,17 @@ export async function applyBackup(
 				db.workspaces.bulkPut(workspacesToPut),
 				db.templates.bulkPut(templatesToPut)
 			]);
+			counts.drafts = draftsToPut.filter((row) => row !== null).length;
+			counts.workspaces = workspacesToPut.length;
+			counts.templates = templatesToPut.length;
+			counts.unchanged = {
+				drafts: backup.drafts.length - counts.drafts,
+				workspaces: backup.workspaces.length - counts.workspaces,
+				templates: backup.templates.length - counts.templates
+			};
 		}
 	);
-	return {
-		drafts: backup.drafts.length,
-		workspaces: backup.workspaces.length,
-		templates: backup.templates.length,
-		skipped
-	};
+	return counts;
 }
 
 // ─── DOM orchestration (download / file read) ───────────────────────────────

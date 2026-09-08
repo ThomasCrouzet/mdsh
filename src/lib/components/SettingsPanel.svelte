@@ -232,20 +232,24 @@
 
 		const dismiss = spinnerStore.show(t('settings.restoringBackup'));
 		try {
-			// Flush local keystrokes first so merge restore does not cancelAll
-			// and drop unflushed edits on drafts that stay after the merge.
-			await filesStore.flushPendingAwait();
+			// The restore service saves pending edits before it changes persisted drafts.
 			const counts = await restoreFromText(text, replace ? 'replace' : 'merge', passphrase);
 			await Promise.all([filesStore.reload(), workspaceStore.reload(), templatesStore.reload()]);
 			// Partial restore: warn if corrupted entries were
 			// skipped, so as not to imply a complete recovery.
 			const skippedSuffix =
 				counts.skipped > 0 ? t('settings.restoreSkippedSuffix', { n: counts.skipped }) : '';
+			const unchanged =
+				counts.unchanged.drafts + counts.unchanged.workspaces + counts.unchanged.templates;
+			const unchangedSuffix =
+				unchanged > 0 ? t('settings.restoreUnchangedSuffix', { n: unchanged }) : '';
 			notify.success(
 				t('settings.backupRestored', {
 					drafts: counts.drafts,
 					workspaces: counts.workspaces
-				}) + skippedSuffix
+				}) +
+					skippedSuffix +
+					unchangedSuffix
 			);
 		} catch (err) {
 			reportError('backup restore', err, {

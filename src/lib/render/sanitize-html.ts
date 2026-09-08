@@ -148,7 +148,7 @@ export function applyRemoteImagePolicy(html: string, allowRemoteImages: boolean)
 
 /** Forces `target=_blank` + `rel=noopener noreferrer` on external http(s) links. */
 export function hardenExternalLink(node: SanitizeNode): void {
-	if (node.tagName !== 'A' || !node.hasAttribute?.('href')) return;
+	if (node.tagName?.toLowerCase() !== 'a' || !node.hasAttribute?.('href')) return;
 	const href = node.getAttribute?.('href') ?? '';
 	if (/^https?:/i.test(href)) {
 		node.setAttribute?.('target', '_blank');
