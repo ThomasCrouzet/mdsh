@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
 	deleteHandle,
+	getFsaLink,
 	getHandle,
 	getPathLink,
 	isFSASupported,
@@ -10,10 +11,13 @@ import {
 	pickAndOpen,
 	pickSaveTarget,
 	requestPermission,
+	revisionForFile,
+	revisionForText,
 	saveHandle,
 	savePathLink,
 	writeHandle
 } from './fsa';
+import { db, DISK_LINK_EPOCH_KEY } from './db';
 
 // Use an IndexedDB database for handles, separate from the mdsh Dexie database.
 async function wipeHandleDB() {
@@ -27,6 +31,7 @@ async function wipeHandleDB() {
 
 beforeEach(async () => {
 	await wipeHandleDB();
+	await db.metadata.clear();
 	// Reset FSA globals between tests to prevent state leaks.
 	Reflect.deleteProperty(window, 'showOpenFilePicker');
 	Reflect.deleteProperty(window, 'showSaveFilePicker');
@@ -35,6 +40,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await wipeHandleDB();
+	await db.metadata.clear();
 });
 
 describe('isFSASupported', () => {
@@ -57,9 +63,14 @@ describe('isFSASupported', () => {
 describe('saveHandle / getHandle / deleteHandle', () => {
 	it('stores a handle and reads it by ID', async () => {
 		const handle = { name: 'fake.md' } as unknown as FileSystemFileHandle;
-		await saveHandle('id-1', handle);
+		await saveHandle('id-1', handle, 'sha256:known');
 		const got = await getHandle('id-1');
 		expect(got).toEqual(handle);
+		expect(await getFsaLink('id-1')).toEqual({
+			handle,
+			revision: 'sha256:known',
+			epoch: 'legacy'
+		});
 	});
 
 	it('returns null without a handle for the ID', async () => {
@@ -93,6 +104,33 @@ describe('saveHandle / getHandle / deleteHandle', () => {
 		await saveHandle('b', { name: 'b' } as unknown as FileSystemFileHandle);
 		expect((await getHandle('a')) as unknown as { name: string }).toMatchObject({ name: 'a' });
 		expect((await getHandle('b')) as unknown as { name: string }).toMatchObject({ name: 'b' });
+	});
+
+	it('rejects handles from a previous restore epoch', async () => {
+		const handle = { name: 'old.md' } as unknown as FileSystemFileHandle;
+		await saveHandle('old', handle, 'sha256:old');
+		await db.metadata.put({ key: DISK_LINK_EPOCH_KEY, value: 'replacement' });
+
+		expect(await getHandle('old')).toBeNull();
+		expect(await getFsaLink('old')).toBeNull();
+		expect(await listDiskLinks()).toEqual([]);
+	});
+
+	it('keeps a captured pre-restore epoch on a late handle write', async () => {
+		const handle = { name: 'late.md' } as unknown as FileSystemFileHandle;
+		await db.metadata.put({ key: DISK_LINK_EPOCH_KEY, value: 'after-restore' });
+
+		await saveHandle('late', handle, 'sha256:late', 'before-restore');
+
+		expect(await getFsaLink('late')).toBeNull();
+	});
+});
+
+describe('disk revisions', () => {
+	it('uses the same content hash for text and files', async () => {
+		const expected = 'sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+		expect(await revisionForText('abc')).toBe(expected);
+		expect(await revisionForFile(new File(['abc'], 'note.md'))).toBe(expected);
 	});
 });
 

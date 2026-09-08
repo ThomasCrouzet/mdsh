@@ -20,6 +20,7 @@
 		MAX_IMAGE_BYTES
 	} from '$lib/render/image-media';
 	import { ImageMarkdownRoundTrip } from '$lib/render/image-markdown';
+	import { editorStateCache } from '$lib/editor-state';
 
 	interface Props {
 		fileId: string;
@@ -49,6 +50,8 @@
 	// at mount to correctly route a late keystroke (flush or asynchronous
 	// `markdownUpdated`) to the right file even after a tab switch.
 	let mountedFileId: string | null = null;
+	let refreshMountedLocale: (() => void) | null = null;
+	let saveMountedPosition: (() => void) | null = null;
 
 	// Module cache: loaded on first call, reused afterwards.
 	// CSS import order is critical: Crepe defaults -> frame-dark -> our overrides.
@@ -68,10 +71,51 @@
 		return crepeModulePromise;
 	}
 
+	async function restoreEditorPosition(
+		instance: CrepeType,
+		id: string,
+		token: number
+	): Promise<void> {
+		const position = editorStateCache.getPosition(id, 'wysiwyg');
+		if (!position) return;
+		try {
+			const [{ editorViewCtx }, { TextSelection }] = await Promise.all([
+				import('@milkdown/kit/core'),
+				import('@milkdown/kit/prose/state')
+			]);
+			if (token !== mountToken) return;
+			const editorView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
+			const maxPosition = editorView.state.doc.content.size;
+			const anchor = editorView.state.doc.resolve(Math.min(position.anchor, maxPosition));
+			const head = editorView.state.doc.resolve(Math.min(position.head, maxPosition));
+			const selection = TextSelection.between(anchor, head);
+			editorView.dispatch(editorView.state.tr.setSelection(selection));
+			requestAnimationFrame(() => {
+				if (token === mountToken) container.scrollTop = position.scrollTop;
+			});
+		} catch (error) {
+			reportError('visual editor position restore', error);
+		}
+	}
+
 	async function mount(initial: string, token: number, idForMount: string) {
 		if (!container) return;
 		loadError = false;
-		const { Crepe } = await loadCrepeModule();
+		const [
+			{ Crepe },
+			{ editorViewCtx },
+			{ linkTooltipConfig: linkTooltipConfigCtx },
+			{ imageBlockConfig: imageBlockConfigCtx },
+			{ inlineImageConfig: inlineImageConfigCtx },
+			{ codeBlockConfig: codeBlockConfigCtx }
+		] = await Promise.all([
+			loadCrepeModule(),
+			import('@milkdown/kit/core'),
+			import('@milkdown/kit/component/link-tooltip'),
+			import('@milkdown/kit/component/image-block'),
+			import('@milkdown/kit/component/image-inline'),
+			import('@milkdown/kit/component/code-block')
+		]);
 		if (token !== mountToken) return;
 		let roundTrip = new ImageMarkdownRoundTrip(initial);
 		lastEditorMarkdown = initial;
@@ -85,6 +129,43 @@
 					image.referrerPolicy = 'no-referrer';
 					image.crossOrigin = 'anonymous';
 				});
+		};
+		const blockEditConfig = blockEditLabels();
+		const toolbarConfig = toolbarLabels();
+		const linkTooltipConfig = { inputPlaceholder: t('editor.linkPlaceholder') };
+		const imageBlockConfig = {
+			blockUploadButton: t('editor.imageUpload'),
+			inlineUploadButton: t('editor.imageUpload'),
+			blockUploadPlaceholderText: t('editor.imageLinkPlaceholder'),
+			inlineUploadPlaceholderText: t('editor.imageLinkPlaceholder'),
+			blockCaptionPlaceholderText: t('editor.imageCaption'),
+			blockConfirmButton: t('prompt.confirm'),
+			inlineConfirmButton: t('prompt.confirm'),
+			proxyDomURL: editorImageSource,
+			onUpload: async (file: File) => {
+				try {
+					const embedded = await embedImageFile(file);
+					roundTrip.registerUpload(embedded.dataUri, embedded.alt);
+					return embedded.dataUri;
+				} catch (error) {
+					const limitMb = String(MAX_IMAGE_BYTES / (1024 * 1024));
+					if (error instanceof ImageFileError && error.code === 'too-large') {
+						notify.error(t('imageDrop.tooLargeOne', { name: file.name, limitMb }));
+					} else {
+						notify.error(t('imageDrop.unreadable', { n: 1 }));
+					}
+					throw error;
+				}
+			},
+			onImageLoadError: () => {
+				notify.error(t('imageDrop.unreadable', { n: 1 }));
+			}
+		};
+		const placeholderConfig = { text: t('editor.placeholder'), mode: 'block' as const };
+		const codeMirrorConfig = {
+			previewLabel: t('editor.previewLabel'),
+			previewLoading: t('editor.previewLoading'),
+			renderPreview: renderMermaidPreview
 		};
 		const instance = new Crepe({
 			root: container,
@@ -103,51 +184,17 @@
 				[Crepe.Feature.TopBar]: false
 			},
 			featureConfigs: {
-				[Crepe.Feature.BlockEdit]: blockEditLabels(),
-				[Crepe.Feature.Toolbar]: toolbarLabels(),
-				[Crepe.Feature.LinkTooltip]: { inputPlaceholder: t('editor.linkPlaceholder') },
-				[Crepe.Feature.ImageBlock]: {
-					blockUploadButton: t('editor.imageUpload'),
-					inlineUploadButton: t('editor.imageUpload'),
-					blockUploadPlaceholderText: t('editor.imageLinkPlaceholder'),
-					inlineUploadPlaceholderText: t('editor.imageLinkPlaceholder'),
-					blockCaptionPlaceholderText: t('editor.imageCaption'),
-					blockConfirmButton: t('prompt.confirm'),
-					inlineConfirmButton: t('prompt.confirm'),
-					proxyDomURL: editorImageSource,
-					onUpload: async (file: File) => {
-						try {
-							const embedded = await embedImageFile(file);
-							roundTrip.registerUpload(embedded.dataUri, embedded.alt);
-							return embedded.dataUri;
-						} catch (error) {
-							const limitMb = String(MAX_IMAGE_BYTES / (1024 * 1024));
-							if (error instanceof ImageFileError && error.code === 'too-large') {
-								notify.error(t('imageDrop.tooLargeOne', { name: file.name, limitMb }));
-							} else {
-								notify.error(t('imageDrop.unreadable', { n: 1 }));
-							}
-							throw error;
-						}
-					},
-					onImageLoadError: () => {
-						notify.error(t('imageDrop.unreadable', { n: 1 }));
-					}
-				},
-				[Crepe.Feature.Placeholder]: {
-					text: t('editor.placeholder'),
-					mode: 'block'
-				},
+				[Crepe.Feature.BlockEdit]: blockEditConfig,
+				[Crepe.Feature.Toolbar]: toolbarConfig,
+				[Crepe.Feature.LinkTooltip]: linkTooltipConfig,
+				[Crepe.Feature.ImageBlock]: imageBlockConfig,
+				[Crepe.Feature.Placeholder]: placeholderConfig,
 				// Mermaid live-preview: we hook into the Crepe code-block's
 				// `renderPreview` (cf. @milkdown/components/src/code-block/config.ts).
 				// Latex already uses this hook (chained via `prev.renderPreview`);
 				// the chain falls through to our function when the language is not
 				// `latex` - where we filter `mermaid` and lazy-load the lib.
-				[Crepe.Feature.CodeMirror]: {
-					previewLabel: t('editor.previewLabel'),
-					previewLoading: t('editor.previewLoading'),
-					renderPreview: renderMermaidPreview
-				}
+				[Crepe.Feature.CodeMirror]: codeMirrorConfig
 			}
 		});
 		instance.on((listener) => {
@@ -175,9 +222,207 @@
 			await instance.destroy().catch(() => {});
 			return;
 		}
+		refreshMountedLocale = () => {
+			const previousSlashGroups = [
+				{
+					label: blockEditConfig.textGroup.label,
+					items: [
+						blockEditConfig.textGroup.text.label,
+						blockEditConfig.textGroup.h1.label,
+						blockEditConfig.textGroup.h2.label,
+						blockEditConfig.textGroup.h3.label,
+						blockEditConfig.textGroup.h4.label,
+						blockEditConfig.textGroup.h5.label,
+						blockEditConfig.textGroup.h6.label,
+						blockEditConfig.textGroup.quote.label,
+						blockEditConfig.textGroup.divider.label
+					]
+				},
+				{
+					label: blockEditConfig.listGroup.label,
+					items: [
+						blockEditConfig.listGroup.bulletList.label,
+						blockEditConfig.listGroup.orderedList.label,
+						blockEditConfig.listGroup.taskList.label
+					]
+				},
+				{
+					label: blockEditConfig.advancedGroup.label,
+					items: [
+						blockEditConfig.advancedGroup.image.label,
+						blockEditConfig.advancedGroup.codeBlock.label,
+						blockEditConfig.advancedGroup.table.label,
+						blockEditConfig.advancedGroup.math.label
+					]
+				}
+			];
+			Object.assign(blockEditConfig, blockEditLabels());
+			const previousToolbarLabels = { ...toolbarConfig };
+			Object.assign(toolbarConfig, toolbarLabels());
+			linkTooltipConfig.inputPlaceholder = t('editor.linkPlaceholder');
+			imageBlockConfig.blockUploadButton = t('editor.imageUpload');
+			imageBlockConfig.inlineUploadButton = t('editor.imageUpload');
+			imageBlockConfig.blockUploadPlaceholderText = t('editor.imageLinkPlaceholder');
+			imageBlockConfig.inlineUploadPlaceholderText = t('editor.imageLinkPlaceholder');
+			imageBlockConfig.blockCaptionPlaceholderText = t('editor.imageCaption');
+			imageBlockConfig.blockConfirmButton = t('prompt.confirm');
+			imageBlockConfig.inlineConfirmButton = t('prompt.confirm');
+			placeholderConfig.text = t('editor.placeholder');
+			codeMirrorConfig.previewLabel = t('editor.previewLabel');
+			codeMirrorConfig.previewLoading = t('editor.previewLoading');
+
+			// Crepe resolves feature options into Milkdown context objects during
+			// creation. Mutate those objects so existing node views and future views
+			// use the selected locale without replacing the editor instance.
+			instance.editor.action((ctx) => {
+				ctx.update(linkTooltipConfigCtx.key, (current) => {
+					current.inputPlaceholder = linkTooltipConfig.inputPlaceholder;
+					return current;
+				});
+				ctx.update(imageBlockConfigCtx.key, (current) => {
+					current.uploadButton = imageBlockConfig.blockUploadButton;
+					current.uploadPlaceholderText = imageBlockConfig.blockUploadPlaceholderText;
+					current.captionPlaceholderText = imageBlockConfig.blockCaptionPlaceholderText;
+					current.confirmButton = imageBlockConfig.blockConfirmButton;
+					return current;
+				});
+				ctx.update(inlineImageConfigCtx.key, (current) => {
+					current.uploadButton = imageBlockConfig.inlineUploadButton;
+					current.uploadPlaceholderText = imageBlockConfig.inlineUploadPlaceholderText;
+					current.confirmButton = imageBlockConfig.inlineConfirmButton;
+					return current;
+				});
+				ctx.update(codeBlockConfigCtx.key, (current) => {
+					current.previewLabel = codeMirrorConfig.previewLabel;
+					current.previewLoading = codeMirrorConfig.previewLoading;
+					return current;
+				});
+				// Crepe bundles its placeholder slice into the main package entry.
+				// Resolve this internal slice by its stable context name.
+				ctx.update('placeholderConfigCtx', (current: { text: string; mode: 'doc' | 'block' }) => {
+					current.text = placeholderConfig.text;
+					return current;
+				});
+				const editorView = ctx.get(editorViewCtx);
+				editorView.dispatch(editorView.state.tr);
+			});
+
+			container
+				.querySelector<HTMLElement>('.ProseMirror')
+				?.setAttribute('aria-label', t('editor.ariaLabel'));
+			container
+				.querySelectorAll<HTMLElement>('[data-placeholder]')
+				.forEach((element) => element.setAttribute('data-placeholder', placeholderConfig.text));
+
+			const slashGroups = [
+				{
+					label: blockEditConfig.textGroup.label,
+					items: [
+						blockEditConfig.textGroup.text.label,
+						blockEditConfig.textGroup.h1.label,
+						blockEditConfig.textGroup.h2.label,
+						blockEditConfig.textGroup.h3.label,
+						blockEditConfig.textGroup.h4.label,
+						blockEditConfig.textGroup.h5.label,
+						blockEditConfig.textGroup.h6.label,
+						blockEditConfig.textGroup.quote.label,
+						blockEditConfig.textGroup.divider.label
+					]
+				},
+				{
+					label: blockEditConfig.listGroup.label,
+					items: [
+						blockEditConfig.listGroup.bulletList.label,
+						blockEditConfig.listGroup.orderedList.label,
+						blockEditConfig.listGroup.taskList.label
+					]
+				},
+				{
+					label: blockEditConfig.advancedGroup.label,
+					items: [
+						blockEditConfig.advancedGroup.image.label,
+						blockEditConfig.advancedGroup.codeBlock.label,
+						blockEditConfig.advancedGroup.table.label,
+						blockEditConfig.advancedGroup.math.label
+					]
+				}
+			];
+			const slashLabels = slashGroups.flatMap((group) => group.items);
+			const previousSlashLabels = previousSlashGroups.flatMap((group) => group.items);
+			const groupTranslations = new Map(
+				previousSlashGroups.map((group, index) => [group.label, slashGroups[index]?.label])
+			);
+			const itemTranslations = new Map(
+				previousSlashLabels.map((label, index) => [label, slashLabels[index]])
+			);
+			container
+				.querySelectorAll<HTMLElement>(
+					'.milkdown-slash-menu .tab-group li, .milkdown-slash-menu .menu-group h6'
+				)
+				.forEach((element) => {
+					const label = groupTranslations.get(element.textContent ?? '');
+					if (label) element.textContent = label;
+				});
+			container
+				.querySelectorAll<HTMLElement>('.milkdown-slash-menu [data-index] > span:last-child')
+				.forEach((element) => {
+					const label = itemTranslations.get(element.textContent ?? '');
+					if (label) element.textContent = label;
+				});
+
+			container.querySelectorAll<HTMLInputElement>('.milkdown-link-edit input').forEach((input) => {
+				input.placeholder = linkTooltipConfig.inputPlaceholder;
+				input.setAttribute('aria-label', linkTooltipConfig.inputPlaceholder);
+			});
+			container
+				.querySelectorAll<HTMLElement>('.image-edit .placeholder .text')
+				.forEach((element) => (element.textContent = t('editor.imageLinkPlaceholder')));
+			container
+				.querySelectorAll<HTMLInputElement>('.image-edit .link-input-area')
+				.forEach((input) => input.setAttribute('aria-label', t('editor.imageLinkPlaceholder')));
+			container.querySelectorAll<HTMLInputElement>('.caption-input').forEach((input) => {
+				input.placeholder = imageBlockConfig.blockCaptionPlaceholderText;
+				input.setAttribute('aria-label', imageBlockConfig.blockCaptionPlaceholderText);
+			});
+			container
+				.querySelectorAll<HTMLElement>('.milkdown-code-block .preview-label')
+				.forEach((element) => (element.textContent = codeMirrorConfig.previewLabel));
+
+			const toolbarKeys = {
+				bold: 'boldLabel',
+				italic: 'italicLabel',
+				code: 'codeLabel',
+				link: 'linkLabel',
+				strikethrough: 'strikethroughLabel',
+				latex: 'latexLabel'
+			} as const;
+			for (const [item, labelKey] of Object.entries(toolbarKeys)) {
+				const button = container.querySelector<HTMLButtonElement>(
+					`.milkdown-toolbar [data-toolbar-item="${item}"]`
+				);
+				if (!button) continue;
+				const previousLabel = previousToolbarLabels[labelKey];
+				const nextLabel = toolbarConfig[labelKey];
+				const previousTitle = button.title;
+				const suffix = previousTitle.startsWith(previousLabel)
+					? previousTitle.slice(previousLabel.length)
+					: '';
+				button.setAttribute('aria-label', nextLabel);
+				button.title = nextLabel + suffix;
+			}
+		};
+		refreshMountedLocale();
 		const proseMirror = container.querySelector<HTMLElement>('.ProseMirror');
 		proseMirror?.setAttribute('aria-label', t('editor.ariaLabel'));
 		instance.setReadonly(readonly);
+		saveMountedPosition = () => {
+			const editorView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
+			editorStateCache.setPosition(idForMount, 'wysiwyg', {
+				anchor: editorView.state.selection.anchor,
+				head: editorView.state.selection.head,
+				scrollTop: container.scrollTop
+			});
+		};
 		crepe = instance;
 		imageRoundTrip = roundTrip;
 		imageObserver = new MutationObserver(applyImageAlternatives);
@@ -189,8 +434,10 @@
 		});
 		applyImageAlternatives();
 		mountedFileId = idForMount;
+		await restoreEditorPosition(instance, idForMount, token);
 		const flushCurrentContent = () => {
 			if (token !== mountToken) return;
+			saveMountedPosition?.();
 			const markdown = roundTrip.restore(instance.getMarkdown());
 			lastEditorMarkdown = markdown;
 			onFlush?.(idForMount, markdown);
@@ -221,6 +468,9 @@
 			const instance = crepe;
 			const id = mountedFileId;
 			crepe = null;
+			refreshMountedLocale = null;
+			saveMountedPosition?.();
+			saveMountedPosition = null;
 			const roundTrip = imageRoundTrip;
 			imageRoundTrip = null;
 			mountedFileId = null;
@@ -243,7 +493,6 @@
 	$effect(() => {
 		const id = fileId;
 		void retryVersion;
-		void i18n.locale;
 		const snapshot = untrack(() => content);
 		const token = ++mountToken;
 		void (async () => {
@@ -255,6 +504,11 @@
 			loadError = true;
 			reportError('visual editor load', error);
 		});
+	});
+
+	$effect(() => {
+		void i18n.locale;
+		refreshMountedLocale?.();
 	});
 
 	$effect(() => {

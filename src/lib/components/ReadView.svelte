@@ -13,6 +13,8 @@
 	import { themeStore } from '$lib/ui/theme.svelte';
 	import { notify } from '$lib/notify.svelte';
 	import { reportError } from '$lib/report';
+	import { editorStateCache } from '$lib/editor-state';
+	import { onDestroy, tick } from 'svelte';
 
 	interface Props {
 		fileId: string;
@@ -25,6 +27,27 @@
 
 	let { fileId, content, onArticleRef }: Props = $props();
 	let articleEl: HTMLElement | null = $state(null);
+	let readScroller: HTMLDivElement | null = $state(null);
+	let positionFileId: string | null = null;
+
+	function saveReadPosition(id: string): void {
+		if (!readScroller) return;
+		editorStateCache.setPosition(id, 'read', {
+			anchor: 0,
+			head: 0,
+			scrollTop: readScroller.scrollTop
+		});
+	}
+
+	function restoreReadPosition(id: string): void {
+		const position = editorStateCache.getPosition(id, 'read');
+		if (!position) return;
+		void tick().then(() => {
+			requestAnimationFrame(() => {
+				if (readScroller && fileId === id) readScroller.scrollTop = position.scrollTop;
+			});
+		});
+	}
 
 	/**
 	 * §5.2 - Shares click and keyboard handling. Finds the parent `a.wiki-link`
@@ -69,6 +92,15 @@
 		onArticleRef?.(articleEl);
 	});
 
+	$effect(() => {
+		const id = fileId;
+		const scroller = readScroller;
+		if (!scroller) return;
+		if (positionFileId && positionFileId !== id) saveReadPosition(positionFileId);
+		positionFileId = id;
+		restoreReadPosition(id);
+	});
+
 	let html = $state('');
 	// §B3.1 - `loading` is now gated by a 200 ms timer. Before: a "Rendering…"
 	// flash on every switch (~50 ms typical). The pattern mirrors
@@ -102,6 +134,7 @@
 			if (fid !== fileId) return; // the file changed in the meantime
 			html = out;
 			hasBlockedRemoteImages = out.includes('data-mdsh-remote-');
+			restoreReadPosition(fid);
 		} catch (e) {
 			if (seq !== renderSeq) return;
 			err = e instanceof Error ? e.message : String(e);
@@ -170,10 +203,16 @@
 		void themeStore.pref;
 		void doRender(c, f);
 	});
+
+	onDestroy(() => {
+		if (positionFileId) saveReadPosition(positionFileId);
+	});
 </script>
 
+<svelte:window onpagehide={() => positionFileId && saveReadPosition(positionFileId)} />
+
 <div class="mdsh-read-wrapper">
-	<div class="mdsh-read">
+	<div class="mdsh-read" bind:this={readScroller}>
 		{#if err}
 			<div class="mdsh-read-error" role="alert">
 				<strong>{t('read.renderError')}</strong>

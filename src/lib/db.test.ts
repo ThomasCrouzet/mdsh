@@ -117,7 +117,7 @@ describe('additive Dexie schema migration without data loss', () => {
 		await Dexie.delete(DB_NAME);
 	});
 
-	it('keeps a v1 draft during the v1 to v4 upgrade and creates new tables', async () => {
+	it('keeps a v1 draft during the v1 to v5 upgrade and creates new tables', async () => {
 		// 1. Create the v1 database with only drafts and one row.
 		const v1 = new Dexie(DB_NAME);
 		v1.version(1).stores({ drafts: 'id, updatedAt, order' });
@@ -148,6 +148,14 @@ describe('additive Dexie schema migration without data loss', () => {
 			versions: 'id, draftId, createdAt, [draftId+createdAt]',
 			templates: 'id, updatedAt'
 		});
+		full.version(5).stores({
+			drafts: 'id, updatedAt, order',
+			trashed: 'id, trashedAt',
+			workspaces: 'id, updatedAt',
+			versions: 'id, draftId, createdAt, [draftId+createdAt]',
+			templates: 'id, updatedAt',
+			metadata: 'key'
+		});
 		await full.open();
 
 		// The migration keeps the v1 data.
@@ -156,6 +164,7 @@ describe('additive Dexie schema migration without data loss', () => {
 		// The new tables are operational.
 		expect(await full.table('versions').toArray()).toEqual([]);
 		expect(await full.table('templates').toArray()).toEqual([]);
+		expect(await full.table('metadata').toArray()).toEqual([]);
 		// Index composite v4 fonctionnel.
 		await full
 			.table('versions')

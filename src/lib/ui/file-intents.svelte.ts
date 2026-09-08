@@ -12,7 +12,7 @@
 // called in onMount (browser only).
 
 import { browser } from '$app/environment';
-import { reportError } from '$lib/report';
+import { registerFileLaunch, type FileLaunchQueue } from '$lib/launch-files';
 import { t } from '$lib/i18n';
 
 interface FilesStoreRef {
@@ -20,6 +20,7 @@ interface FilesStoreRef {
 	displayTitle: (id: string) => string;
 	createNew: (name?: string, content?: string) => void;
 	flushPending: () => void;
+	importFiles: (files: File[]) => Promise<unknown>;
 }
 
 export interface FileIntentsOptions {
@@ -98,28 +99,10 @@ export function createFileIntents(opts: FileIntentsOptions) {
 
 	// §A - PWA File Handling API integration (opening .md files from the OS).
 	// Called in onMount (browser only) after filesStore.load().
-	async function handleLaunchQueue() {
-		const nav = navigator as Navigator & {
-			launchQueue?: {
-				setConsumer: (cb: (params: { files: FileSystemFileHandle[] }) => void) => void;
-			};
-		};
-		if (!nav.launchQueue) return;
-		const store = opts.getFilesStore();
-		nav.launchQueue.setConsumer(async ({ files }) => {
-			if (!files || files.length === 0) return;
-			for (const h of files) {
-				try {
-					const file = await h.getFile();
-					const content = await file.text();
-					store.createNew(file.name, content);
-				} catch (err) {
-					reportError('launch queue', err, {
-						notifyUser: t('fileIntents.openReceivedFailed')
-					});
-				}
-			}
-		});
+	function handleLaunchQueue() {
+		if (!browser) return;
+		const queue = (window as Window & { launchQueue?: FileLaunchQueue }).launchQueue;
+		registerFileLaunch(queue, (files) => opts.getFilesStore().importFiles(files));
 	}
 
 	return {

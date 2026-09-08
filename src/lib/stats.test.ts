@@ -8,6 +8,7 @@ describe('computeStats', () => {
 		expect(s.words).toBe(0);
 		expect(s.chars).toBe(0);
 		expect(s.lines).toBe(0);
+		expect(s.readMinutes).toBe(0);
 	});
 
 	it('counts words and characters', () => {

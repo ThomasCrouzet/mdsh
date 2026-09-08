@@ -11,12 +11,10 @@ permissions:
   contents: read
 
 # Use one concurrency group per ref. A global pages group combines main and all pull requests.
-# With cancel-in-progress=false, only the newest pending run survives in that queue.
-# Older pending runs, including main deployments, are cancelled before a job starts.
-# The github.ref suffix gives each branch or pull request its own queue.
+# Cancel obsolete pull request runs. Let a main deployment finish once it starts.
 concurrency:
   group: pages-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Use Node.js 24 for JavaScript actions before the required transition.
 # actions/cache@v4 otherwise uses Node 20, which GitHub deprecated in June 2026.
@@ -26,6 +24,7 @@ env:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,9 +56,6 @@ jobs:
       - name: Full dependency audit
         run: npm audit --audit-level=high
 
-      - name: Sync SvelteKit
-        run: npm run prepare
-
       - name: Type check
         run: npm run check
 
@@ -75,6 +71,7 @@ jobs:
   e2e:
     needs: check
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,9 +97,6 @@ jobs:
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
-
-      - name: Sync SvelteKit
-        run: npx svelte-kit sync
 
       # Cache Playwright browsers in ~/.cache/ms-playwright to avoid repeated downloads (about 150 MB for Chromium and WebKit).
       # Use the lockfile in the cache key because it fixes the @playwright/test version.
@@ -142,6 +136,7 @@ jobs:
   build:
     needs: check
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
       # Build in parallel with an empty BASE_PATH for custom domains and /mdsh for GitHub Pages.
       # Only the /mdsh variant supplies the deployment artifact.
@@ -199,6 +194,7 @@ jobs:
     # The assertions and budgets are defined in the repository config files.
     needs: check
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -247,6 +243,7 @@ jobs:
     # Do not deploy pull requests. Publish code only after merge.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     # Only this job needs permission to publish to Pages.
     permissions:
       contents: read

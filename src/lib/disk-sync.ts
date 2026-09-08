@@ -24,12 +24,16 @@ import { isDesktop } from './desktop';
 import {
 	checkHandle,
 	deleteHandle,
+	getFsaLink,
 	getHandle,
 	getPathLink,
+	getPathLinkWithEpoch,
 	isFSASupported,
 	pickAndOpen,
 	pickSaveTarget,
 	requestPermission,
+	revisionForFile,
+	revisionForText,
 	saveHandle,
 	savePathLink,
 	writeHandle
@@ -49,7 +53,9 @@ import { t } from '$lib/i18n';
 import { notify } from './notify.svelte';
 import { promptStore } from './prompt.svelte';
 import { reportError } from './report';
+import { reportPersistenceError } from './storage';
 import type { FileItem } from './types';
+import { getDiskLinkEpoch } from './db';
 
 /** Dependencies injected by FilesStore - zero Svelte imports here. */
 export interface DiskSyncDeps {
@@ -110,13 +116,14 @@ async function openFromDiskFsa(deps: DiskSyncDeps, options: ImportOptions): Prom
 				failed++;
 				continue;
 			}
+			const epoch = await getDiskLinkEpoch();
 			item = deps.onCreate(file.name, content);
 			item.linkedToDisk = true;
 			// §C2 - Records the disk state (mtime + size) at open time. Serves as a
 			// reference to detect an external modification before a future write.
 			item.diskLastModified = file.lastModified;
 			item.diskSize = file.size;
-			await saveHandle(item.id, handle);
+			await saveHandle(item.id, handle, await revisionForFile(file), epoch);
 			created.push(item);
 			session.accept();
 		} catch (err) {
@@ -214,6 +221,7 @@ async function ingestDesktopOpens(
 		if (!(await session.pause())) break;
 		let createdItem: FileItem | undefined;
 		try {
+			const epoch = await getDiskLinkEpoch();
 			let existing: FileItem | undefined;
 			for (const candidate of deps.getFiles?.() ?? []) {
 				if ((await getPathLink(candidate.id))?.path === file.path) {
@@ -222,7 +230,7 @@ async function ingestDesktopOpens(
 				}
 			}
 			if (existing) {
-				await savePathLink(existing.id, file.link);
+				await savePathLink(existing.id, file.link, epoch);
 				deps.onActivate?.(existing.id);
 				created.push(existing);
 				const token = file.token ?? picked.find((entry) => entry.path === file.path)?.token;
@@ -238,7 +246,7 @@ async function ingestDesktopOpens(
 			item.diskLastModified = file.lastModified;
 			item.diskSize = file.size;
 			item.diskRevision = file.revision;
-			await savePathLink(item.id, file.link);
+			await savePathLink(item.id, file.link, epoch);
 			created.push(item);
 			if (file.token) processedTokens.push(file.token);
 			session.accept();
@@ -285,57 +293,73 @@ export async function saveToDisk(id: string, deps: DiskSyncDeps): Promise<boolea
 
 async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Promise<boolean> {
 	if (!isFSASupported()) return false;
-	let handle = await getHandle(id);
-	if (handle) {
+	const content = file.content;
+	const name = file.name;
+	let existingLink: Awaited<ReturnType<typeof getFsaLink>>;
+	let epoch: string;
+	try {
+		existingLink = await getFsaLink(id);
+		epoch = existingLink?.epoch ?? (await getDiskLinkEpoch());
+	} catch (err) {
+		reportPersistenceError(err, 'load');
+		return false;
+	}
+	let handle = existingLink?.handle ?? null;
+	const hadLink = handle !== null;
+	if (handle && existingLink) {
 		const ok = await requestPermission(handle, 'readwrite');
 		if (!ok) return false;
-		// §C2 - Anti-overwrite guard: before rewriting an already-linked file, we
-		// re-read its current disk state and compare it to the recorded reference
-		// (mtime/size at open or at the last mdsh write). If the file changed
-		// outside the app (cloud sync, git, another editor), a write would
-		// silently and irreversibly overwrite it → we ask for explicit
-		// confirmation before proceeding.
-		if (file.diskLastModified !== undefined) {
-			try {
-				const onDisk = await handle.getFile();
-				const diverged =
-					onDisk.lastModified !== file.diskLastModified ||
-					(file.diskSize !== undefined && onDisk.size !== file.diskSize);
-				if (diverged) {
-					const overwrite = await confirmOverwrite(file.name);
-					if (!overwrite) {
-						notify.info(t('disk.saveCancelled', { name: file.name }));
-						return false;
-					}
-				}
-			} catch (err) {
-				// Read impossible (file deleted/moved): we let the write below
-				// handle the failure and flag the broken link. We only log, without
-				// blocking (the write may recreate the file).
-				reportError('disk mtime check', err);
+		let onDiskRevision: string;
+		try {
+			onDiskRevision = await revisionForFile(await handle.getFile());
+		} catch (err) {
+			file.brokenLink = true;
+			notify.error(t('disk.saveFailed', { name }));
+			reportError('disk revision check', err);
+			return false;
+		}
+		if (existingLink.revision === null || onDiskRevision !== existingLink.revision) {
+			const overwrite = await confirmOverwrite(name);
+			if (!overwrite) {
+				notify.info(t('disk.saveCancelled', { name }));
+				return false;
 			}
 		}
 	} else {
-		const picked = await pickSaveTarget(file.name);
+		const picked = await pickSaveTarget(name);
 		if (!picked) return false;
 		handle = picked;
-		await saveHandle(id, handle);
+	}
+	let writtenRevision: string;
+	try {
+		writtenRevision = await revisionForText(content);
+	} catch (err) {
+		notify.error(t('disk.saveFailed', { name }));
+		reportError('disk revision', err);
+		return false;
 	}
 	try {
-		await writeHandle(handle, file.content);
+		await writeHandle(handle, content);
 	} catch (err) {
 		// §6.9 / J3 - Write refused / file not found: we flag the link as broken,
 		// notify (toast - the failure was silent, the caller had no catch) and
 		// return false. The sidebar also displays the ⚠ badge to unlink or
 		// re-target.
 		file.brokenLink = true;
-		notify.error(t('disk.saveFailed', { name: file.name }));
+		notify.error(t('disk.saveFailed', { name }));
 		reportError('saveToDisk', err);
 		return false;
 	}
-	file.linkedToDisk = true;
+	try {
+		await saveHandle(id, handle, writtenRevision, epoch);
+		file.linkedToDisk = true;
+	} catch (err) {
+		file.linkedToDisk = hadLink;
+		reportPersistenceError(err, 'save');
+	}
 	file.brokenLink = false;
-	file.dirty = false;
+	const current = deps.getFile(id);
+	if (current?.content === content) current.dirty = false;
 	// §C2 - Refreshes the anti-overwrite reference after a successful write: the
 	// disk file now reflects our content, its new mtime becomes the baseline.
 	// Without this, the next save would re-trigger the divergence.
@@ -350,49 +374,57 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		file.diskSize = undefined;
 	}
 	deps.scheduleSave(id);
-	notify.success(t('disk.saved', { name: file.name }));
+	notify.success(t('disk.saved', { name }));
 	return true;
 }
 
 async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps): Promise<boolean> {
-	let pathRec = await getPathLink(id);
+	const content = file.content;
+	const name = file.name;
+	let existingLink: Awaited<ReturnType<typeof getPathLinkWithEpoch>>;
+	let epoch: string;
+	try {
+		existingLink = await getPathLinkWithEpoch(id);
+		epoch = existingLink?.epoch ?? (await getDiskLinkEpoch());
+	} catch (err) {
+		reportPersistenceError(err, 'load');
+		return false;
+	}
+	let pathRec = existingLink?.record ?? null;
+	let persistLink = false;
+	let linkPersisted = pathRec !== null;
 	if (!pathRec) {
-		const picked = await tauriPickSaveTarget(file.name);
+		const picked = await tauriPickSaveTarget(name);
 		if (!picked) return false;
 		pathRec = picked;
-		await savePathLink(id, pathRec);
+		persistLink = true;
 		const selected = await tauriReadMeta(pathRec.path);
 		file.diskRevision = selected?.revision;
 	}
 	let written;
 	try {
-		written = await tauriWritePath(pathRec.path, file.content, file.diskRevision ?? null, false);
+		written = await tauriWritePath(pathRec.path, content, file.diskRevision ?? null, false);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		if (message.includes('disk conflict')) {
-			const overwrite = await confirmOverwrite(file.name);
+			const overwrite = await confirmOverwrite(name);
 			if (!overwrite) {
-				notify.info(t('disk.saveCancelled', { name: file.name }));
+				notify.info(t('disk.saveCancelled', { name }));
 				return false;
 			}
 			try {
-				written = await tauriWritePath(pathRec.path, file.content, file.diskRevision ?? null, true);
+				written = await tauriWritePath(pathRec.path, content, file.diskRevision ?? null, true);
 			} catch (retryError) {
 				return reportDesktopWriteFailure(file, retryError);
 			}
 		} else if (message.includes('capability expired')) {
-			const picked = await tauriPickSaveTarget(file.name);
+			const picked = await tauriPickSaveTarget(name);
 			if (!picked) return false;
 			pathRec = picked;
-			await savePathLink(id, pathRec);
+			persistLink = true;
 			const selected = await tauriReadMeta(pathRec.path);
 			try {
-				written = await tauriWritePath(
-					pathRec.path,
-					file.content,
-					selected?.revision ?? null,
-					false
-				);
+				written = await tauriWritePath(pathRec.path, content, selected?.revision ?? null, false);
 			} catch (retryError) {
 				return reportDesktopWriteFailure(file, retryError);
 			}
@@ -400,14 +432,23 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 			return reportDesktopWriteFailure(file, err);
 		}
 	}
-	file.linkedToDisk = true;
+	if (persistLink) {
+		try {
+			await savePathLink(id, pathRec, epoch);
+			linkPersisted = true;
+		} catch (err) {
+			reportPersistenceError(err, 'save');
+		}
+	}
+	file.linkedToDisk = linkPersisted;
 	file.brokenLink = false;
-	file.dirty = false;
+	const current = deps.getFile(id);
+	if (current?.content === content) current.dirty = false;
 	file.diskLastModified = written.lastModified;
 	file.diskSize = written.size;
 	file.diskRevision = written.revision;
 	deps.scheduleSave(id);
-	notify.success(t('disk.saved', { name: file.name }));
+	notify.success(t('disk.saved', { name }));
 	return true;
 }
 

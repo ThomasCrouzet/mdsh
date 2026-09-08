@@ -52,6 +52,7 @@ vi.mock('./fsa', async (importOriginal) => {
 	return {
 		...actual,
 		isFSASupported: vi.fn(() => false),
+		listDiskLinks: vi.fn(async () => []),
 		getHandle: vi.fn(async () => null),
 		getPathLink: vi.fn(async () => null),
 		pickDirectoryFiles: vi.fn(async () => ({
@@ -95,6 +96,7 @@ function receiveCrossTab(message: CrossTabMessage): void {
 
 beforeEach(async () => {
 	vi.mocked(fsa.isFSASupported).mockReturnValue(false);
+	vi.mocked(fsa.listDiskLinks).mockResolvedValue([]);
 	vi.mocked(fsa.getHandle).mockResolvedValue(null);
 	vi.mocked(fsa.getPathLink).mockResolvedValue(null);
 	vi.mocked(fsa.pickDirectoryFiles).mockResolvedValue({
@@ -451,12 +453,10 @@ describe('load', () => {
 			draftRow('none', 'none.md', '', 2)
 		]);
 		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
-		vi.mocked(fsa.getHandle).mockImplementation(async (id) =>
-			id === 'fsa' ? ({ name: 'fsa.md' } as FileSystemFileHandle) : null
-		);
-		vi.mocked(fsa.getPathLink).mockImplementation(async (id) =>
-			id === 'path' ? { kind: 'path', path: '/tmp/path.md' } : null
-		);
+		vi.mocked(fsa.listDiskLinks).mockResolvedValue([
+			{ id: 'fsa', kind: 'fsa', handle: {} as FileSystemFileHandle, label: 'fsa.md' },
+			{ id: 'path', kind: 'path', path: '/tmp/path.md', label: 'path.md' }
+		]);
 
 		await filesStore.reload(false);
 
@@ -1049,14 +1049,9 @@ describe('closeMany / openMany', () => {
 
 	it('restores linkedToDisk from a path link in openMany', async () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
-		vi.mocked(fsa.getHandle).mockResolvedValue(null);
-		vi.mocked(fsa.getPathLink).mockImplementation(async (id: string) =>
-			id === 'linked'
-				? ({ path: '/tmp/linked.md', kind: 'path' as const } as Awaited<
-						ReturnType<typeof fsa.getPathLink>
-					>)
-				: null
-		);
+		vi.mocked(fsa.listDiskLinks).mockResolvedValue([
+			{ id: 'linked', kind: 'path', path: '/tmp/linked.md', label: 'linked.md' }
+		]);
 		filesStore.openMany([draftRow('linked', 'linked.md', '# L', 0)]);
 		await vi.waitFor(() => {
 			expect(filesStore.files.find((f) => f.id === 'linked')?.linkedToDisk).toBe(true);
@@ -1504,10 +1499,9 @@ describe('defensive workspace reopen and links', () => {
 	});
 	it('restores an FSA handle and ignores a row without links', async () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
-		vi.mocked(fsa.getHandle).mockImplementation(async (id) =>
-			id === 'handle' ? ({} as FileSystemFileHandle) : null
-		);
-		vi.mocked(fsa.getPathLink).mockResolvedValue(null);
+		vi.mocked(fsa.listDiskLinks).mockResolvedValue([
+			{ id: 'handle', kind: 'fsa', handle: {} as FileSystemFileHandle, label: 'handle.md' }
+		]);
 		filesStore.openMany([
 			{ ...draftRow('handle', 'handle.md'), open: true },
 			{ ...draftRow('plain', 'plain.md'), open: true }

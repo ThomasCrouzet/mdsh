@@ -1,16 +1,18 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import type { EditorView } from '@codemirror/view';
-	import { t } from '$lib/i18n';
+	import { i18n, t } from '$lib/i18n';
 	import { reportError } from '$lib/report';
+	import { editorStateCache, type EditorPosition } from '$lib/editor-state';
 
 	interface Props {
+		fileId: string;
 		content: string;
 		readonly?: boolean;
 		onChange: (markdown: string) => void;
 	}
 
-	let { content, readonly = false, onChange }: Props = $props();
+	let { fileId, content, readonly = false, onChange }: Props = $props();
 
 	let host: HTMLDivElement;
 	let view: EditorView | null = null;
@@ -28,6 +30,8 @@
 	// Buffered if the value is set before the lazy-load completes.
 	let pendingTypewriter = false;
 	let typewriterCompartmentRef: import('@codemirror/state').Compartment | null = null;
+	let localeCompartmentRef: import('@codemirror/state').Compartment | null = null;
+	let activeCM: CMModule | null = null;
 
 	/*
 	 * CodeMirror is heavy (~150 KB). Lazy-loaded on the first mount of source
@@ -37,6 +41,7 @@
 	 */
 	type CMModule = {
 		EditorState: typeof import('@codemirror/state').EditorState;
+		Transaction: typeof import('@codemirror/state').Transaction;
 		Compartment: typeof import('@codemirror/state').Compartment;
 		EditorView: typeof import('@codemirror/view').EditorView;
 		keymap: typeof import('@codemirror/view').keymap;
@@ -46,11 +51,13 @@
 		indentWithTab: typeof import('@codemirror/commands').indentWithTab;
 		defaultKeymap: typeof import('@codemirror/commands').defaultKeymap;
 		history: typeof import('@codemirror/commands').history;
+		historyField: typeof import('@codemirror/commands').historyField;
 		historyKeymap: typeof import('@codemirror/commands').historyKeymap;
 		syntaxHighlighting: typeof import('@codemirror/language').syntaxHighlighting;
 		defaultHighlightStyle: typeof import('@codemirror/language').defaultHighlightStyle;
 		search: typeof import('@codemirror/search').search;
 		openSearchPanel: typeof import('@codemirror/search').openSearchPanel;
+		closeSearchPanel: typeof import('@codemirror/search').closeSearchPanel;
 		searchKeymap: typeof import('@codemirror/search').searchKeymap;
 		setSearchQuery: typeof import('@codemirror/search').setSearchQuery;
 		SearchQuery: typeof import('@codemirror/search').SearchQuery;
@@ -69,6 +76,62 @@
 		});
 	}
 
+	function codeMirrorPhrases(): Record<string, string> {
+		return {
+			Find: t('source.cmFind'),
+			Replace: t('source.cmReplace'),
+			next: t('source.cmNext'),
+			previous: t('source.cmPrevious'),
+			all: t('source.cmAll'),
+			'match case': t('source.cmMatchCase'),
+			regexp: t('source.cmRegexp'),
+			'by word': t('source.cmByWord'),
+			replace: t('source.cmReplaceAction'),
+			'replace all': t('source.cmReplaceAll'),
+			close: t('source.cmClose'),
+			'Go to line': t('source.cmGoToLine'),
+			go: t('source.cmGo'),
+			'replaced match on line $': t('source.cmReplacedOne'),
+			'replaced $ matches': t('source.cmReplacedMany'),
+			'current match': t('source.cmCurrentMatch'),
+			'on line': t('source.cmOnLine'),
+			'Control character': t('source.cmControlCharacter'),
+			'Selection deleted': t('source.cmSelectionDeleted')
+		};
+	}
+
+	function localeExtensions(cm: CMModule) {
+		return [
+			cm.EditorState.phrases.of(codeMirrorPhrases()),
+			cm.EditorView.contentAttributes.of({ 'aria-label': t('editor.ariaLabel') })
+		];
+	}
+
+	function safePosition(position: EditorPosition | undefined, documentLength: number) {
+		if (!position) return undefined;
+		return {
+			anchor: Math.min(position.anchor, documentLength),
+			head: Math.min(position.head, documentLength)
+		};
+	}
+
+	function saveSourceState(): void {
+		if (!view || !activeCM) return;
+		const selection = view.state.selection.main;
+		editorStateCache.setSourceState(
+			fileId,
+			{
+				content: view.state.doc.toString(),
+				state: view.state.toJSON({ history: activeCM.historyField })
+			},
+			{
+				anchor: selection.anchor,
+				head: selection.head,
+				scrollTop: view.scrollDOM.scrollTop
+			}
+		);
+	}
+
 	let cmModulePromise: Promise<CMModule> | null = null;
 	function loadCM(): Promise<CMModule> {
 		if (!cmModulePromise) {
@@ -83,6 +146,7 @@
 				]);
 				return {
 					EditorState: state.EditorState,
+					Transaction: state.Transaction,
 					Compartment: state.Compartment,
 					EditorView: viewMod.EditorView,
 					keymap: viewMod.keymap,
@@ -92,6 +156,7 @@
 					indentWithTab: cmds.indentWithTab,
 					defaultKeymap: cmds.defaultKeymap,
 					history: cmds.history,
+					historyField: cmds.historyField,
 					historyKeymap: cmds.historyKeymap,
 					syntaxHighlighting: language.syntaxHighlighting,
 					defaultHighlightStyle: language.HighlightStyle.define(
@@ -117,6 +182,7 @@
 					),
 					search: searchMod.search,
 					openSearchPanel: searchMod.openSearchPanel,
+					closeSearchPanel: searchMod.closeSearchPanel,
 					searchKeymap: searchMod.searchKeymap,
 					setSearchQuery: searchMod.setSearchQuery,
 					SearchQuery: searchMod.SearchQuery
@@ -225,45 +291,75 @@
 		// transaction cycle (console warning + reentrancy risk).
 		const typewriterCompartment = new cm.Compartment();
 		typewriterCompartmentRef = typewriterCompartment;
-
-		const startState = cm.EditorState.create({
-			doc: content,
-			extensions: [
-				cm.lineNumbers(),
-				cm.highlightActiveLine(),
-				cm.history(),
-				cm.markdown(),
-				cm.syntaxHighlighting(cm.defaultHighlightStyle, { fallback: true }),
-				// `search()` adds the state fields + the panel widget. The
-				// keymap is merged into the `keymap.of()` below (mod-f ->
-				// openSearchPanel, F3 -> findNext, etc.).
-				cm.search({ top: false }),
-				cm.keymap.of([
-					cm.indentWithTab,
-					...cm.searchKeymap,
-					...cm.defaultKeymap,
-					...cm.historyKeymap
-				]),
-				cm.EditorView.lineWrapping,
-				cm.EditorView.contentAttributes.of({ 'aria-label': t('editor.ariaLabel') }),
-				cm.EditorView.editable.of(!readonly),
-				cm.EditorState.readOnly.of(readonly),
-				cm.EditorView.updateListener.of((update) => {
-					if (update.docChanged) {
-						const v = update.state.doc.toString();
-						if (v !== lastEmitted) {
-							lastEmitted = v;
-							onChange(v);
-						}
+		const localeCompartment = new cm.Compartment();
+		localeCompartmentRef = localeCompartment;
+		const extensions = [
+			cm.lineNumbers(),
+			cm.highlightActiveLine(),
+			cm.history(),
+			cm.markdown(),
+			cm.syntaxHighlighting(cm.defaultHighlightStyle, { fallback: true }),
+			// `search()` adds the state fields + the panel widget. The
+			// keymap is merged into the `keymap.of()` below (mod-f ->
+			// openSearchPanel, F3 -> findNext, etc.).
+			cm.search({ top: false }),
+			cm.keymap.of([
+				cm.indentWithTab,
+				...cm.searchKeymap,
+				...cm.defaultKeymap,
+				...cm.historyKeymap
+			]),
+			cm.EditorView.lineWrapping,
+			localeCompartment.of(localeExtensions(cm)),
+			cm.EditorView.editable.of(!readonly),
+			cm.EditorState.readOnly.of(readonly),
+			cm.EditorView.updateListener.of((update) => {
+				if (update.docChanged) {
+					const v = update.state.doc.toString();
+					if (v !== lastEmitted) {
+						lastEmitted = v;
+						onChange(v);
 					}
-				}),
-				typewriterCompartment.of(pendingTypewriter ? [makeTypewriterExtension(cm)] : []),
-				theme
-			]
+				}
+			}),
+			typewriterCompartment.of(pendingTypewriter ? [makeTypewriterExtension(cm)] : []),
+			theme
+		];
+		const cached = editorStateCache.getSourceState(fileId);
+		const savedPosition = editorStateCache.getPosition(fileId, 'source');
+		let startState: import('@codemirror/state').EditorState | undefined;
+		if (cached?.content === content) {
+			try {
+				startState = cm.EditorState.fromJSON(
+					cached.state,
+					{ extensions },
+					{ history: cm.historyField }
+				);
+			} catch {
+				// Ignore an incompatible cache after a dependency update.
+			}
+		}
+		const initialSelection = safePosition(savedPosition, content.length);
+		startState ??= cm.EditorState.create({
+			doc: content,
+			extensions,
+			...(initialSelection ? { selection: initialSelection } : {})
 		});
 
 		view = new cm.EditorView({ state: startState, parent: host });
+		activeCM = cm;
 		lastEmitted = content;
+		if (savedPosition?.scrollTop) {
+			const mountedView = view;
+			mountedView.requestMeasure({
+				read: (measuredView) =>
+					Math.max(0, measuredView.scrollDOM.scrollHeight - measuredView.scrollDOM.clientHeight),
+				write: (maxScrollTop, measuredView) => {
+					if (view !== mountedView || measuredView !== mountedView) return;
+					measuredView.scrollDOM.scrollTop = Math.min(savedPosition.scrollTop, maxScrollTop);
+				}
+			});
+		}
 
 		// Honor a request to open the search panel issued before the lazy-load
 		// completed (typical case: WYSIWYG -> source switch via ⌘F).
@@ -306,12 +402,24 @@
 	 */
 	$effect(() => {
 		const c = content;
-		if (view && c !== lastEmitted) {
+		if (view && activeCM && c !== lastEmitted) {
 			lastEmitted = c;
 			view.dispatch({
-				changes: { from: 0, to: view.state.doc.length, insert: c }
+				changes: { from: 0, to: view.state.doc.length, insert: c },
+				annotations: activeCM.Transaction.addToHistory.of(false)
 			});
 		}
+	});
+
+	$effect(() => {
+		void i18n.locale;
+		const currentView = view;
+		const cm = activeCM;
+		const compartment = localeCompartmentRef;
+		if (!currentView || !cm || !compartment) return;
+		const reopenSearch = cm.closeSearchPanel(currentView);
+		currentView.dispatch({ effects: compartment.reconfigure(localeExtensions(cm)) });
+		if (reopenSearch) cm.openSearchPanel(currentView);
 	});
 
 	onMount(() => {
@@ -319,8 +427,12 @@
 	});
 
 	onDestroy(() => {
+		saveSourceState();
 		view?.destroy();
 		view = null;
+		activeCM = null;
+		typewriterCompartmentRef = null;
+		localeCompartmentRef = null;
 	});
 
 	// Retry after a lazy-load failure ("Retry" button).
@@ -416,6 +528,8 @@
 			.catch((err) => reportError('typewriter mode (source editor)', err));
 	}
 </script>
+
+<svelte:window onpagehide={saveSourceState} />
 
 <div bind:this={host} class="mdsh-source-cm" data-testid="mdsh-source">
 	{#if loadError}

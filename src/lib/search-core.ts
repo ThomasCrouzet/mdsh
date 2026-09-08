@@ -33,6 +33,11 @@ function escapeRegex(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Letters, marks, numbers, and underscores form words. Punctuation separates them. */
+export function wholeWordPattern(query: string): string {
+	return `(?<![\\p{L}\\p{M}\\p{N}_])${escapeRegex(query)}(?![\\p{L}\\p{M}\\p{N}_])`;
+}
+
 /**
  * Rejects user regexes that are known to be catastrophic on long haystacks
  * (nested quantifiers). Valid syntax alone is not enough - `(a+)+$` compiles.
@@ -85,7 +90,7 @@ export function matchInCorpus(
 			return m ? { idx: m.index, len: m[0].length || 1 } : null;
 		};
 	} else if (opts.wholeWord) {
-		const re = new RegExp(`\\b${escapeRegex(q)}\\b`, opts.caseSensitive ? '' : 'i');
+		const re = new RegExp(wholeWordPattern(q), opts.caseSensitive ? 'u' : 'iu');
 		matcher = (line) => {
 			const m = re.exec(line);
 			return m ? { idx: m.index, len: m[0].length } : null;

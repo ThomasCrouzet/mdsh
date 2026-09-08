@@ -70,12 +70,21 @@ export interface TemplateRow {
 	updatedAt: number;
 }
 
+export interface MetadataRow {
+	key: string;
+	value: string;
+}
+
+export const DISK_LINK_EPOCH_KEY = 'disk-link-epoch';
+export const LEGACY_DISK_LINK_EPOCH = 'legacy';
+
 class MdshDB extends Dexie {
 	drafts!: Table<DraftRow, string>;
 	trashed!: Table<TrashedRow, string>;
 	workspaces!: Table<WorkspaceRow, string>;
 	versions!: Table<VersionRow, string>;
 	templates!: Table<TemplateRow, string>;
+	metadata!: Table<MetadataRow, string>;
 
 	constructor() {
 		super('mdsh');
@@ -107,6 +116,17 @@ class MdshDB extends Dexie {
 			versions: 'id, draftId, createdAt, [draftId+createdAt]',
 			templates: 'id, updatedAt'
 		});
+		// v5: stores the disk-link epoch in the main database. A replacement
+		// restore rotates this value in the same transaction as the draft rows.
+		// Records in the separate mdsh-fs database are usable only for this epoch.
+		this.version(5).stores({
+			drafts: 'id, updatedAt, order',
+			trashed: 'id, trashedAt',
+			workspaces: 'id, updatedAt',
+			versions: 'id, draftId, createdAt, [draftId+createdAt]',
+			templates: 'id, updatedAt',
+			metadata: 'key'
+		});
 	}
 }
 
@@ -122,4 +142,14 @@ export function newId(): string {
 	}
 	// Fallback for an old test environment / SSR - unlikely but keeps the contract.
 	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Returns the current epoch for records in the separate disk-link database. */
+export async function getDiskLinkEpoch(): Promise<string> {
+	return db.transaction('rw', db.metadata, async () => {
+		const current = await db.metadata.get(DISK_LINK_EPOCH_KEY);
+		if (current) return current.value;
+		await db.metadata.put({ key: DISK_LINK_EPOCH_KEY, value: LEGACY_DISK_LINK_EPOCH });
+		return LEGACY_DISK_LINK_EPOCH;
+	});
 }

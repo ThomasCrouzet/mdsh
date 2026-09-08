@@ -8,6 +8,28 @@
 
 export const en = {
 	// backup
+	'settings.restoreUnchangedSuffix': ' {n} unchanged item(s) kept.',
+	'source.cmFind': 'Find',
+	'source.cmReplace': 'Replace',
+	'source.cmNext': 'next',
+	'source.cmPrevious': 'previous',
+	'source.cmAll': 'all',
+	'source.cmMatchCase': 'match case',
+	'source.cmRegexp': 'regexp',
+	'source.cmByWord': 'by word',
+	'source.cmReplaceAction': 'replace',
+	'source.cmReplaceAll': 'replace all',
+	'source.cmClose': 'close',
+	'source.cmGoToLine': 'Go to line',
+	'source.cmGo': 'go',
+	'source.cmReplacedOne': 'replaced match on line $',
+	'source.cmReplacedMany': 'replaced $ matches',
+	'source.cmCurrentMatch': 'current match',
+	'source.cmOnLine': 'on line',
+	'source.cmControlCharacter': 'Control character',
+	'source.cmSelectionDeleted': 'Selection deleted',
+	'panels.loadFailed': 'The data could not be loaded. Try again.',
+	'search.replaceFailed': 'The replacement failed. Your drafts were not replaced.',
 	'backup.tooLarge':
 		'The backup exceeds the limits: 64 MiB total, 3,000 documents and 16 MiB per document.',
 	'backup.encryptedInvalidJson': 'Unreadable encrypted file: this is not valid JSON.',

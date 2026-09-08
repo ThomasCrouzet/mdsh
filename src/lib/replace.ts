@@ -8,7 +8,7 @@
 //   - regex mode: the `replacement` allows backrefs (`$1`, `$&`);
 //   - literal / whole-word mode: `$` is escaped → literal replacement.
 
-import { userRegexSafetyError } from './search-core';
+import { userRegexSafetyError, wholeWordPattern } from './search-core';
 
 export interface ReplaceOptions {
 	caseSensitive: boolean;
@@ -46,7 +46,8 @@ export function buildReplaceRegex(
 	query: string,
 	opts: ReplaceOptions
 ): { re: RegExp | null; error: string | null } {
-	const flags = 'g' + (opts.caseSensitive ? '' : 'i');
+	const flags =
+		'g' + (opts.caseSensitive ? '' : 'i') + (!opts.useRegex && opts.wholeWord ? 'u' : '');
 	try {
 		if (opts.useRegex) {
 			const safety = userRegexSafetyError(query);
@@ -54,7 +55,7 @@ export function buildReplaceRegex(
 			return { re: new RegExp(query, flags), error: null };
 		}
 		const esc = escapeRegex(query);
-		const pattern = opts.wholeWord ? `\\b${esc}\\b` : esc;
+		const pattern = opts.wholeWord ? wholeWordPattern(query) : esc;
 		return { re: new RegExp(pattern, flags), error: null };
 	} catch (e) {
 		return { re: null, error: e instanceof Error ? e.message : String(e) };

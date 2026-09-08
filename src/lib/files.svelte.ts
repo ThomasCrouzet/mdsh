@@ -4,7 +4,7 @@ import { browser } from '$app/environment';
 import { db, newId } from './db';
 import type { DraftRow } from './db';
 import type { FileItem, TrashedFile } from './types';
-import { isFSASupported, getHandle, getPathLink, pickDirectoryFiles } from './fsa';
+import { isFSASupported, listDiskLinks, pickDirectoryFiles } from './fsa';
 import { isDesktop } from './desktop';
 import type { NativeDiskGrant } from './disk-tauri';
 import {
@@ -275,15 +275,10 @@ class FilesStore {
 			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Transient local Set, never $state
 			const linkedIds = new Set<string>();
 			if (isFSASupported() || isDesktop()) {
-				// Promise.all: N handles/paths in parallel (avoids ~500 ms of sequential IDB blocking).
-				const checks = await Promise.all(
-					rows.map(async (r) => {
-						const hasFsa = isFSASupported() ? Boolean(await getHandle(r.id)) : false;
-						const hasPath = Boolean(await getPathLink(r.id));
-						return { id: r.id, has: hasFsa || hasPath };
-					})
-				);
-				for (const c of checks) if (c.has) linkedIds.add(c.id);
+				const links = await listDiskLinks();
+				for (const link of links) {
+					if (link.kind === 'path' || isFSASupported()) linkedIds.add(link.id);
+				}
 			}
 			const items = rows.map((r) => ({
 				id: r.id,
@@ -596,24 +591,21 @@ class FilesStore {
 		this.metaIndex.invalidateBacklinksIndex();
 		// Background: restore linkedToDisk flags for re-opened workspace tabs.
 		if (isFSASupported() || isDesktop()) {
-			void Promise.all(
-				addedIds.map(async (id) => {
-					const hasFsa = isFSASupported() ? Boolean(await getHandle(id)) : false;
-					const hasPath = Boolean(await getPathLink(id));
-					return { id, has: hasFsa || hasPath };
-				})
-			).then((checks) => {
-				let any = false;
-				for (const c of checks) {
-					if (!c.has) continue;
-					const f = this.files.find((x) => x.id === c.id);
-					if (f && !f.linkedToDisk) {
-						f.linkedToDisk = true;
-						any = true;
+			void listDiskLinks()
+				.then((links) => {
+					const added = new Set(addedIds);
+					let any = false;
+					for (const link of links) {
+						if (!added.has(link.id) || (link.kind === 'fsa' && !isFSASupported())) continue;
+						const f = this.files.find((x) => x.id === link.id);
+						if (f && !f.linkedToDisk) {
+							f.linkedToDisk = true;
+							any = true;
+						}
 					}
-				}
-				if (any) void this.refreshBrokenLinks();
-			});
+					if (any) void this.refreshBrokenLinks();
+				})
+				.catch((error: unknown) => reportPersistenceError(error, 'load'));
 		}
 	}
 
