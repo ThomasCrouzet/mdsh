@@ -199,7 +199,8 @@ function collectWindowsDiagnostics() {
 async function connect() {
 	await until(
 		async () => (await request('/status', undefined, 'GET')).ready === true,
-		'WebDriver window ready'
+		'WebDriver window ready',
+		process.platform === 'win32' ? 120_000 : 30_000
 	);
 	const created = await request('/session', {
 		capabilities: { alwaysMatch: { 'wdio:tauriServiceOptions': { windowLabel: 'main' } } }
