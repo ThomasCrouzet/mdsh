@@ -19,6 +19,30 @@ async function sourceText(page: Page): Promise<string> {
 		);
 }
 
+async function savedPositionContent(page: Page): Promise<string> {
+	return page.evaluate(
+		() =>
+			new Promise<string>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const rows = database.transaction('drafts').objectStore('drafts').getAll();
+					rows.onerror = () => {
+						database.close();
+						reject(rows.error);
+					};
+					rows.onsuccess = () => {
+						database.close();
+						resolve(
+							rows.result.find((row: { name: string }) => row.name === 'Position.md')?.content ?? ''
+						);
+					};
+				};
+			})
+	);
+}
+
 async function openDraft(page: Page, name: string): Promise<void> {
 	await page.locator('button[data-file-id]').filter({ hasText: name }).click();
 }
@@ -80,12 +104,9 @@ test.describe('Editor state isolation and restoration', () => {
 		await scroller.hover();
 		await page.mouse.wheel(0, 600);
 		await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
-		await page
-			.locator('.cm-line')
-			.filter({ hasText: /^line 25$/ })
-			.click();
-		await page.keyboard.press('Home');
-		for (let index = 0; index < 5; index++) await page.keyboard.press('ArrowRight');
+		await scroller.click({ position: { x: 120, y: 120 } });
+		await page.keyboard.insertText('POSITIONTOKEN');
+		await expect.poll(() => savedPositionContent(page)).toContain('POSITIONTOKEN');
 		await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
 
 		await page.reload();
@@ -93,7 +114,7 @@ test.describe('Editor state isolation and restoration', () => {
 		await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
 		await page.locator('.cm-content').first().focus();
 		await page.keyboard.insertText('X');
-		await expect.poll(() => sourceText(page)).toContain('line X25');
+		await expect.poll(() => savedPositionContent(page)).toContain('POSITIONTOKENX');
 
 		await page.keyboard.press('ControlOrMeta+f');
 		await expect(page.locator('.cm-search input[name="search"]')).toHaveAttribute(
@@ -122,8 +143,8 @@ test.describe('Editor state isolation and restoration', () => {
 
 		await page.keyboard.press('Escape');
 		await page.keyboard.press('ControlOrMeta+z');
-		await expect.poll(() => sourceText(page)).not.toContain('line X25');
-		await expect.poll(() => sourceText(page)).toContain('line 25');
+		await expect.poll(() => savedPositionContent(page)).not.toContain('POSITIONTOKENX');
+		await expect.poll(() => savedPositionContent(page)).toContain('POSITIONTOKEN');
 	});
 
 	test('keeps the WYSIWYG instance and restores positions in visual and reading modes', async ({
