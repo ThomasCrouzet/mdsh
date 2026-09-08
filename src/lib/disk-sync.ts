@@ -440,6 +440,16 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 		} else if (message.includes('capability expired')) {
 			const picked = await tauriPickSaveTarget(name);
 			if (!picked) return false;
+			if (persistedPath !== null && picked.path !== persistedPath) {
+				try {
+					await deleteHandle(id);
+					persistedPath = null;
+					file.linkedToDisk = false;
+				} catch (deleteError) {
+					reportPersistenceError(deleteError, 'save');
+					return false;
+				}
+			}
 			pathRec = picked;
 			persistLink = true;
 			const selected = await tauriReadMeta(pathRec.path);

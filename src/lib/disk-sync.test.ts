@@ -932,18 +932,24 @@ describe('saveToDisk desktop capability backend', () => {
 	it('keeps the old name when a retargeted path cannot be persisted', async () => {
 		const file = makeFile({ name: 'note.md', diskRevision: 'sha256:old' });
 		const { deps, onSyncName } = desktopDeps(file);
-		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		let storedPath: { kind: 'path'; path: string } | null = {
+			kind: 'path',
+			path: '/tmp/note.md'
+		};
+		vi.mocked(fsa.getPathLink).mockImplementation(async () => storedPath);
+		vi.mocked(fsa.deleteHandle).mockImplementation(async () => {
+			storedPath = null;
+		});
 		vi.mocked(diskTauri.tauriWritePath)
 			.mockRejectedValueOnce(new Error('Disk capability expired. Choose the file again.'))
-			.mockResolvedValueOnce({
+			.mockResolvedValue({
 				lastModified: 50,
 				size: 7,
 				revision: 'sha256:reauthorized'
 			});
-		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue({
-			kind: 'path',
-			path: '/tmp/new-target.md'
-		});
+		vi.mocked(diskTauri.tauriPickSaveTarget)
+			.mockResolvedValueOnce({ kind: 'path', path: '/tmp/new-target.md' })
+			.mockResolvedValueOnce({ kind: 'path', path: '/tmp/retry-target.md' });
 		vi.mocked(diskTauri.tauriReadMeta).mockResolvedValue({
 			lastModified: 40,
 			size: 3,
@@ -952,7 +958,40 @@ describe('saveToDisk desktop capability backend', () => {
 		vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('IndexedDB'));
 
 		expect(await saveToDisk('a', deps)).toBe(true);
-		expect(file.linkedToDisk).toBe(true);
+		expect(file.linkedToDisk).toBe(false);
+		expect(file.name).toBe('note.md');
+		expect(onSyncName).not.toHaveBeenCalled();
+		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
+
+		vi.mocked(fsa.savePathLink).mockResolvedValueOnce(undefined);
+		expect(await saveToDisk('a', deps)).toBe(true);
+		expect(diskTauri.tauriPickSaveTarget).toHaveBeenCalledTimes(2);
+		expect(vi.mocked(diskTauri.tauriWritePath).mock.calls.map(([path]) => path)).toEqual([
+			'/tmp/note.md',
+			'/tmp/new-target.md',
+			'/tmp/retry-target.md'
+		]);
+		expect(file.name).toBe('retry-target.md');
+	});
+
+	it('aborts a retarget before writing when the old link cannot be deleted', async () => {
+		const file = makeFile({ name: 'note.md', diskRevision: 'sha256:old' });
+		const { deps, onSyncName } = desktopDeps(file);
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		vi.mocked(diskTauri.tauriWritePath).mockRejectedValueOnce(
+			new Error('Disk capability expired. Choose the file again.')
+		);
+		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue({
+			kind: 'path',
+			path: '/tmp/new-target.md'
+		});
+		vi.mocked(fsa.deleteHandle).mockRejectedValueOnce(new Error('IndexedDB'));
+
+		expect(await saveToDisk('a', deps)).toBe(false);
+		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
+		expect(diskTauri.tauriWritePath).toHaveBeenCalledOnce();
+		expect(fsa.savePathLink).not.toHaveBeenCalled();
 		expect(file.name).toBe('note.md');
 		expect(onSyncName).not.toHaveBeenCalled();
 		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
