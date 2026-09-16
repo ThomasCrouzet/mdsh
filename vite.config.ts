@@ -1,3 +1,5 @@
+import { readFileSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
@@ -7,6 +9,21 @@ import { bundleGraphPlugin } from './scripts/bundle-graph.mjs';
 // Served base path (`paths.base` in production).
 // The manifest transform maps `index.html` to this base path.
 const PWA_BASE = process.env.BASE_PATH ?? '';
+
+// Mermaid 12 bundles the ELK layout in a separate chunk. The app pins
+// `layout: 'dagre'` (see `src/lib/render/sanitize-html.ts`), so ELK stays unused
+// by default. The chunk is about 1.4 MB, which breaks the precache budget.
+// Match the ELK source marker because the chunk file name has a hash only.
+function isMermaidElkChunk(url: string): boolean {
+	if (!url.includes('/chunks/') || !url.endsWith('.js')) return false;
+	const file = resolve('.svelte-kit/output', url);
+	try {
+		if (statSync(file).size < 1_000_000) return false;
+		return readFileSync(file, 'utf8').includes('org.eclipse.elk');
+	} catch {
+		return false;
+	}
+}
 
 export default defineConfig(({ mode }) => {
 	// Vite does not load `.env.local` into `process.env` for this configuration.
@@ -180,6 +197,9 @@ export default defineConfig(({ mode }) => {
 					manifestTransforms: [
 						(entries) => {
 							const manifest = entries
+								// Keep the unused Mermaid ELK chunk out of the precache.
+								// A diagram with an explicit `layout: elk` loads it on demand.
+								.filter((e) => !isMermaidElkChunk(e.url))
 								// Map to the served URL (see the plugin createManifestTransform).
 								.map((e) => {
 									let url = e.url;
