@@ -5,6 +5,13 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.5.4](https://github.com/ThomasCrouzet/mdsh/compare/v1.5.3...v1.5.4) (2026-09-16)
+
+
+### Bug Fixes
+
+* **render:** keep the Mermaid 11 layout and look ([35b741b](https://github.com/ThomasCrouzet/mdsh/commit/35b741b6d5aad02e9319a6be59034e7ee0c921f9))
+
 ## [1.5.3](https://github.com/ThomasCrouzet/mdsh/compare/v1.5.2...v1.5.3) (2026-09-16)
 
 
