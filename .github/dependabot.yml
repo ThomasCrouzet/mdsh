@@ -45,6 +45,12 @@ updates:
       - dependency-name: 'jsdom'
         update-types:
           - 'version-update:semver-major'
+      # Playwright 1.63.0 ships Chromium 153. The browser stops with a crash
+      # when the app restores a disk handle after a reload. Keep 1.62.1 until
+      # the browser fix is available.
+      - dependency-name: '@playwright/test'
+        versions:
+          - '1.63.0'
 
   - package-ecosystem: github-actions
     directory: /
