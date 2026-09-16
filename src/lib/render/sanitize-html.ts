@@ -332,6 +332,10 @@ export function renderMermaidSvg(
 			startOnLoad: false,
 			securityLevel: 'strict',
 			theme,
+			// Mermaid 12 defaults to the ELK layout and the `neo` look.
+			// Pin the Mermaid 11 values to keep the current diagram output.
+			layout: 'dagre',
+			look: 'classic',
 			htmlLabels: false,
 			flowchart: { htmlLabels: false },
 			secure: [
