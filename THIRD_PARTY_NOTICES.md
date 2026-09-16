@@ -32,7 +32,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Lucide for Svelte 1.44.0
+## Lucide for Svelte 1.45.0
 
 Source: https://github.com/lucide-icons/lucide
 
