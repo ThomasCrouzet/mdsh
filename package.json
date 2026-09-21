@@ -87,7 +87,7 @@
 		"lefthook": "2.1.12",
 		"prettier": "^3.9.6",
 		"prettier-plugin-svelte": "^4.1.1",
-		"size-limit": "13.1.1",
+		"size-limit": "14.0.0",
 		"svelte": "^5.57.0",
 		"svelte-check": "^4.7.6",
 		"svelte-eslint-parser": "^1.8.1",
