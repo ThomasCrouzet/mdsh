@@ -445,6 +445,8 @@ body.typewriter-mode .mdsh-editor {
 }
 @media (pointer: coarse) {
 	#app-toolbar button,
+	#app-statusbar button,
+	[data-document-navigation] button,
 	#files-panel button,
 	[role='dialog'] button,
 	[role='dialog'] summary,
@@ -455,6 +457,11 @@ body.typewriter-mode .mdsh-editor {
 	}
 	.mdsh-file-row button {
 		opacity: 1;
+	}
+	input,
+	select,
+	textarea {
+		font-size: max(1rem, 16px);
 	}
 }
 @media (max-height: 500px) {

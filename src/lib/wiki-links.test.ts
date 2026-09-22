@@ -4,8 +4,38 @@ import {
 	escapeRegex,
 	preprocessWikiLinks,
 	decodeWikiTarget,
-	extractWikiLinkTargets
+	extractWikiLinkTargets,
+	rewriteWikiLinkTargets
 } from './wiki-links';
+
+describe('target rewriting', () => {
+	it('keeps nested list links and protects indented code inside list items', () => {
+		const md = '- Parent\n    - [[old]]\n\n          [[code]]\n\n    [[old|Label]]\n';
+		expect(extractWikiLinkTargets(md)).toEqual(['old']);
+		expect(rewriteWikiLinkTargets(md, (target) => (target === 'old' ? 'new' : target))).toBe(
+			'- Parent\n    - [[new]]\n\n          [[code]]\n\n    [[new|Label]]\n'
+		);
+	});
+	it('supports inline triple backticks at the start of a paragraph', () => {
+		expect(extractWikiLinkTargets('```[[code]]``` and [[real]]')).toEqual(['real']);
+	});
+	it('keeps code, escaped links, YAML, aliases, and whitespace intact', () => {
+		const code =
+			'---\ntitle: "[[old]]"\n---\n`[[old]]` ``code ` [[old]]``\n\n    [[old]]\n\\[[old]]\n~~~~\n[[old]]\n~~~~\n';
+		expect(
+			rewriteWikiLinkTargets(code + '[[ old |Alias]] [[other]]', (target) =>
+				target === 'old' ? 'new' : target
+			)
+		).toBe(code + '[[ new |Alias]] [[other]]');
+		expect(extractWikiLinkTargets(code + '[[old|label]]')).toEqual(['old']);
+		expect(preprocessWikiLinks(code)).toBe(code);
+	});
+	it('leaves unclosed fences intact and accepts literal unmatched backticks', () => {
+		expect(rewriteWikiLinkTargets('` text [[old]]\n```\n[[old]]', () => 'new')).toBe(
+			'` text [[new]]\n```\n[[old]]'
+		);
+	});
+});
 
 describe('slugify', () => {
 	it('removes diacritics', () => {

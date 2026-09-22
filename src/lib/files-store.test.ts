@@ -782,6 +782,84 @@ describe('orchestrator guards', () => {
 });
 
 describe('backlinks / wiki-links', () => {
+	it('refreshes backlinks when another tab changes a closed document', async () => {
+		const a = filesStore.createNew('a.md');
+		const b = filesStore.createNew('b.md');
+		const source = filesStore.createNew('source.md', '[[a]]');
+		filesStore.close(source.id);
+		await filesStore.flushPendingAwait();
+		expect(filesStore.backlinks(a.id).map((file) => file.id)).toEqual([source.id]);
+		const updatedAt = Date.now() + 100;
+		await db.drafts.update(source.id, { content: '[[b]]', updatedAt });
+		receiveCrossTab({ type: 'draft-written', id: source.id, updatedAt });
+		await vi.waitFor(() =>
+			expect(filesStore.backlinks(b.id).map((file) => file.id)).toEqual([source.id])
+		);
+		expect(filesStore.backlinks(a.id)).toEqual([]);
+	});
+	it('serializes consecutive renames against the latest link targets', async () => {
+		const file = filesStore.createNew('original.md', '[[original]]');
+		const first = filesStore.rename(file.id, 'second');
+		const next = filesStore.rename(file.id, 'third');
+		expect(await first).toBe(true);
+		expect(await next).toBe(true);
+		expect(filesStore.active?.name).toBe('third.md');
+		expect(filesStore.active?.content).toBe('[[third]]');
+	});
+	it('does not rename or rewrite links when its history checkpoint fails', async () => {
+		const file = filesStore.createNew('original.md', '[[original]]');
+		vi.spyOn(versionHistory, 'createCheckpoints').mockRejectedValueOnce(new Error('Full'));
+		expect(await filesStore.rename(file.id, 'second')).toBe(false);
+		expect(filesStore.active?.name).toBe('original.md');
+		expect(filesStore.active?.content).toBe('[[original]]');
+		expect(await filesStore.rename(file.id, 'bad|target')).toBe(false);
+	});
+	it('finds and reopens a closed target without creating a document', async () => {
+		const target = filesStore.createNew('Target.md', '# Original');
+		const source = filesStore.createNew('Source.md', '[[Target]]');
+		filesStore.close(target.id);
+		expect(filesStore.backlinks(target.id).map((file) => file.id)).toEqual([source.id]);
+		expect(filesStore.openWikiLink('Target')).toBe(target.id);
+		expect(filesStore.library).toHaveLength(2);
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(target.id))?.content).toBe('# Original');
+	});
+	it('updates incoming links in closed documents and preserves their history', async () => {
+		const target = filesStore.createNew('Target.md', '# Original');
+		const source = filesStore.createNew('Source.md', '[[Target|label]] `[[Target]]`');
+		filesStore.close(source.id);
+		expect(await filesStore.rename(target.id, 'Renamed')).toBe(true);
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(source.id))?.content).toBe('[[Renamed|label]] `[[Target]]`');
+		expect((await db.drafts.get(source.id))?.open).toBe(false);
+		expect(
+			(await db.versions.where('draftId').equals(source.id).toArray()).some(
+				(v) => v.content === '[[Target|label]] `[[Target]]`'
+			)
+		).toBe(true);
+		expect(filesStore.resolveWikiLink('Renamed')).toBe(target.id);
+	});
+	it('rejects a rename that would make link targets ambiguous', async () => {
+		const first = filesStore.createNew('first.md');
+		filesStore.createNew('other.md');
+		expect(await filesStore.rename(first.id, 'OTHER')).toBe(false);
+		expect(first.name).toBe('first.md');
+	});
+	it('does not guess between imported documents with the same name', async () => {
+		await db.drafts.bulkPut([draftRow('a', 'same.md'), draftRow('b', 'same.md')]);
+		await filesStore.reload(false);
+		expect(filesStore.openWikiLink('same')).toBeNull();
+		expect(filesStore.library).toHaveLength(2);
+	});
+	it('replaces closed content in library scope without reopening it', async () => {
+		const file = filesStore.createNew('closed.md', 'find this');
+		filesStore.close(file.id);
+		const options = { caseSensitive: false, wholeWord: false, useRegex: false };
+		expect((await filesStore.replaceInAll('find', 'keep', options, 'open')).files).toBe(0);
+		expect((await filesStore.replaceInAll('find', 'keep', options)).files).toBe(1);
+		await filesStore.flushPendingAwait();
+		expect(await db.drafts.get(file.id)).toMatchObject({ content: 'keep this', open: false });
+	});
 	it('resolves wiki links and calculates backlinks', () => {
 		const target = filesStore.createNew('Cible.md', '# Cible');
 		const source = filesStore.createNew('Source.md', 'voir [[Cible]] ici');

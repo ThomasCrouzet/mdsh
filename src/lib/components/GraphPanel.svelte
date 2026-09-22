@@ -39,7 +39,7 @@
 	$effect(() => {
 		if (!open) return;
 		untrack(() => {
-			const files = filesStore.files.map((f) => ({
+			const files = filesStore.library.map((f) => ({
 				id: f.id,
 				label: filesStore.displayTitle(f.id)
 			}));
@@ -72,7 +72,7 @@
 	}
 
 	function openNode(id: string) {
-		filesStore.setActive(id);
+		filesStore.openDocument(id);
 		onClose();
 	}
 </script>

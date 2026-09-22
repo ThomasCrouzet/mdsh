@@ -6,7 +6,8 @@
 		Eye,
 		Pencil,
 		Code2,
-		Command,
+		Keyboard,
+		Ellipsis,
 		HardDrive,
 		HardDriveDownload,
 		Printer
@@ -15,6 +16,7 @@
 	import { isDiskLinkingAvailable } from '$lib/disk-sync';
 	import { keyboardStore } from '$lib/ui/keyboard.svelte';
 	import { t } from '$lib/i18n';
+	import { offlineState } from '$lib/ui/offline.svelte';
 
 	interface Props {
 		mode: EditMode;
@@ -25,6 +27,7 @@
 		onExportPDF: () => void;
 		onOpenPalette: () => void;
 		onSaveToDisk: () => void;
+		onOpenActions?: () => void;
 	}
 
 	let {
@@ -35,7 +38,8 @@
 		onExport,
 		onExportPDF,
 		onOpenPalette,
-		onSaveToDisk
+		onSaveToDisk,
+		onOpenActions
 	}: Props = $props();
 
 	let nameInput = $state<HTMLInputElement | null>(null);
@@ -255,7 +259,15 @@
 		</button>
 	</div>
 
-	<span class="mdsh-local-indicator" aria-hidden="true">LOCAL // OFFLINE</span>
+	<span class="mdsh-local-indicator" role="status"
+		>{t(
+			offlineState.status === 'ready'
+				? 'pwa.ready'
+				: offlineState.status === 'preparing'
+					? 'pwa.preparing'
+					: 'pwa.unavailable'
+		)}</span
+	>
 
 	{#if diskLinkingAvailable}
 		<button
@@ -298,14 +310,29 @@
 		<Printer size={16} />
 	</button>
 
+	{#if onOpenActions}
+		<button
+			class="mdsh-icon-button flex min-h-10 items-center justify-center gap-1.5 rounded px-2 text-fg-muted"
+			onclick={(event) => {
+				event.currentTarget.focus({ preventScroll: true });
+				onOpenActions?.();
+			}}
+			data-actions-trigger
+			aria-label={t('actions.title')}
+			><Ellipsis size={18} /><span class="text-xs font-medium">{t('actions.title')}</span></button
+		>
+	{/if}
 	<button
 		class="mdsh-icon-button flex min-h-10 items-center justify-center gap-1.5 rounded px-2 text-fg-muted"
-		onclick={onOpenPalette}
+		onclick={(event) => {
+			event.currentTarget.focus({ preventScroll: true });
+			onOpenPalette();
+		}}
 		title={`${t('toolbar.commandPalette')} (${keyboardStore.label('palette') ?? ''})`}
 		aria-label={t('toolbar.commandPalette')}
 		aria-keyshortcuts={keyboardStore.aria('palette')}
 	>
-		<Command size={16} />
-		<span class="text-xs font-medium">{t('toolbar.commands')}</span>
+		<Keyboard size={18} />
+		<span class="hidden xl:inline text-xs font-medium">{t('actions.commands')}</span>
 	</button>
 </header>

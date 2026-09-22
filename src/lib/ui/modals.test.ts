@@ -34,7 +34,7 @@ function makeOpts(mode: 'wysiwyg' | 'source' | 'read' = 'wysiwyg') {
 	const opts = {
 		getMode: vi.fn(() => mode),
 		setMode: vi.fn(),
-		getFilesStoreActive: vi.fn(() => null),
+		getFilesStoreActive: vi.fn((): { id: string } | null => null),
 		getFilesStoreSetActive: vi.fn(() => setActive),
 		getSourceEditorRef: vi.fn(() => ({ goToLine })),
 		announceContext: vi.fn(),
@@ -94,11 +94,20 @@ describe('createModals', () => {
 
 	it('calls goToLine directly in source mode', () => {
 		const { opts, setActive, goToLine } = makeOpts('source');
+		opts.getFilesStoreActive.mockReturnValue({ id: 'f2' });
 		const m = createModals(opts);
 		m.handleOpenHit('f2', 3, 'q');
 		expect(setActive).toHaveBeenCalledWith('f2');
 		expect(goToLine).toHaveBeenCalledWith(3, 'q');
 		expect(opts.setMode).not.toHaveBeenCalled();
+	});
+
+	it('waits for the new source editor when a search opens another document', () => {
+		const { opts, goToLine } = makeOpts('source');
+		opts.getFilesStoreActive.mockReturnValue({ id: 'old' });
+		createModals(opts).handleOpenHit('next', 12, 'needle');
+		expect(goToLine).not.toHaveBeenCalled();
+		expect(opts.setPendingGoToHit).toHaveBeenCalledWith({ line: 12, query: 'needle' });
 	});
 
 	it('returns one component and one promise from a memoized loader', async () => {

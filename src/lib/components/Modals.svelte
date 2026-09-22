@@ -14,6 +14,7 @@
 	import type { createUiPrefs } from '$lib/ui/prefs.svelte';
 
 	interface Props {
+		onOpenOutline: () => void;
 		modals: ReturnType<typeof createModals>;
 		editorWidth: ReturnType<typeof createEditorWidth>;
 		prefs: ReturnType<typeof createUiPrefs>;
@@ -31,6 +32,7 @@
 	}
 
 	let {
+		onOpenOutline,
 		modals,
 		editorWidth,
 		prefs,
@@ -56,6 +58,9 @@
 {#if modals.paletteOpen}
 	{#await modals.loadCommandPalette() then CommandPalette}
 		<CommandPalette
+			{onOpenOutline}
+			initialView={modals.paletteView}
+			onOpenLibrary={modals.openLibrary}
 			open={modals.paletteOpen}
 			onClose={() => (modals.paletteOpen = false)}
 			{onNew}
@@ -86,6 +91,12 @@
 		/>
 	{:catch}
 		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.libraryOpen}
+	{#await modals.loadLibrary() then Library}
+		<Library onClose={() => (modals.libraryOpen = false)} />
 	{/await}
 {/if}
 

@@ -10,7 +10,7 @@
 	import { replaceInFilesAsync } from '$lib/replace-worker';
 	import type { Hit } from '$lib/types';
 	import type { SearchRequest, SearchResponse } from '$lib/workers/search.worker';
-	import { corpusFingerprint } from '$lib/search-core';
+	import { corpusFingerprint, SEARCH_MAX_HITS } from '$lib/search-core';
 	import { focusTrap } from '$lib/a11y/focusTrap';
 	import { Search, X, CaseSensitive, Regex, WholeWord, Replace } from '@lucide/svelte';
 
@@ -26,6 +26,8 @@
 	let { open, onClose, onOpenHit }: Props = $props();
 
 	let query = $state('');
+	let scope = $state<'library' | 'open'>('library');
+	const corpus = $derived(scope === 'library' ? filesStore.library : filesStore.files);
 	// Debounced query (120 ms): avoids the split×lines of every file
 	// on each keystroke. Measurable gain from ~20 moderately-sized files.
 	let debouncedQuery = $state('');
@@ -128,6 +130,7 @@
 	// the user closes before the debounce finishes, for example).
 	$effect(() => {
 		const q = debouncedQuery.trim();
+		void scope;
 		const _opts = [caseSensitive, wholeWord, useRegex];
 		void _opts;
 		if (!open) return;
@@ -150,7 +153,7 @@
 		// Fingerprint only needs id+updatedAt (O(N)); clone full content only when
 		// the corpus actually changed so each keystroke does not copy megabytes.
 		const meta = untrack(() =>
-			filesStore.files.map((f) => ({
+			corpus.map((f) => ({
 				id: f.id,
 				updatedAt: f.updatedAt
 			}))
@@ -167,7 +170,7 @@
 			...(corpusChanged
 				? {
 						files: untrack(() =>
-							filesStore.files.map((f) => ({
+							corpus.map((f) => ({
 								id: f.id,
 								name: f.name,
 								content: f.content
@@ -222,7 +225,7 @@
 		if (onOpenHit) {
 			onOpenHit(h.fileId, h.line, debouncedQuery);
 		} else {
-			filesStore.setActive(h.fileId);
+			filesStore.openDocument(h.fileId);
 		}
 		onClose();
 	}
@@ -238,7 +241,7 @@
 		const opts = { caseSensitive, wholeWord, useRegex };
 		const replacementValue = replacement;
 		try {
-			const slices = filesStore.files.map((f) => ({ id: f.id, name: f.name, content: f.content }));
+			const slices = corpus.map((f) => ({ id: f.id, name: f.name, content: f.content }));
 			const preview = await replaceInFilesAsync(slices, q, replacementValue, opts);
 			if (preview.regexError) {
 				queryError = preview.regexError;
@@ -258,7 +261,7 @@
 				danger: true
 			});
 			if (!ok) return;
-			const res = await filesStore.replaceInAll(q, replacementValue, opts);
+			const res = await filesStore.replaceInAll(q, replacementValue, opts, scope);
 			if (res.regexError) {
 				queryError = res.regexError;
 				return;
@@ -412,6 +415,28 @@
 					<X size={14} />
 				</button>
 			</div>
+
+			<div
+				role="group"
+				aria-label={t('library.scope')}
+				class="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs text-fg-muted"
+			>
+				{#each ['library', 'open'] as value (value)}
+					<button
+						class="rounded border border-border px-2 py-1"
+						class:text-accent={scope === value}
+						aria-pressed={scope === value}
+						disabled={replacing}
+						onclick={() => (scope = value as typeof scope)}
+						>{t(value === 'library' ? 'library.all' : 'library.open')}</button
+					>
+				{/each}
+			</div>
+			{#if hits.length >= SEARCH_MAX_HITS}
+				<p class="px-3 py-2 text-xs text-fg-muted" role="status">
+					{t('search.limited', { n: SEARCH_MAX_HITS })}
+				</p>
+			{/if}
 
 			{#if showReplace}
 				<!-- §2.6 - Cross-file replacement row. -->

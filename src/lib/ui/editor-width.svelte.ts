@@ -7,6 +7,7 @@
 // Logic extracted from `+page.svelte` (L180-242 + L415-435).
 
 import { browser } from '$app/environment';
+import { readPreference, writePreference } from '$lib/preferences';
 import { EDITOR } from '$lib/config';
 
 const DEFAULT_EDITOR_WIDTH = EDITOR.defaultWidth;
@@ -40,7 +41,7 @@ export function createEditorWidth(opts: {
 
 	function persistEditorWidth(w: number) {
 		if (!browser) return;
-		localStorage.setItem('mdsh:editor-width', String(w));
+		writePreference('mdsh:editor-width', String(w));
 	}
 
 	function startResize(e: PointerEvent) {
@@ -113,7 +114,7 @@ export function createEditorWidth(opts: {
 	// Load the persisted width from localStorage (to call in onMount).
 	function loadPersistedWidth() {
 		if (!browser) return;
-		const savedWidth = localStorage.getItem('mdsh:editor-width');
+		const savedWidth = readPreference('mdsh:editor-width');
 		if (savedWidth) {
 			const n = Number(savedWidth);
 			if (Number.isFinite(n) && n >= MIN_EDITOR_WIDTH) {

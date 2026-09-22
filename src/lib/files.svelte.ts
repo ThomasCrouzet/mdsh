@@ -1,4 +1,5 @@
 import { ImportSession, type ImportOptions, type ImportReport } from './import-limits';
+import { readPreference, writePreference } from './preferences';
 import { IMPORT_LIMITS } from './config';
 import { browser } from '$app/environment';
 import { db, newId } from './db';
@@ -23,7 +24,7 @@ import {
 	unlinkFromDisk as diskUnlinkFromDisk,
 	refreshBrokenLinks as diskRefreshBrokenLinks
 } from './disk-sync';
-import { isMarkdownFile, normalizeRename, uniqueName } from './file-utils';
+import { isMarkdownFile, normalizeRename, uniqueName, stripMdExtension } from './file-utils';
 import {
 	exportMarkdown as exportMarkdownOp,
 	exportAllZip as exportAllZipOp,
@@ -32,6 +33,7 @@ import {
 	exportSelectionZip as exportSelectionZipOp
 } from './export-ops';
 import { MetaIndex } from './meta-index';
+import { rewriteWikiLinkTargets } from './wiki-links';
 import { SaveQueue } from './save-queue';
 import { reportPersistenceError } from './storage';
 import { reportError } from './report';
@@ -132,7 +134,8 @@ class FilesStore {
 	private pendingTrashMoves = new Map<string, Promise<boolean>>();
 	private pendingRestores = new Map<string, Promise<void>>();
 	private diskOperations = new Map<string, Promise<unknown>>();
-	private metaIndex = new MetaIndex(() => this.files);
+	private renameTail: Promise<void> | null = null;
+	private metaIndex = new MetaIndex(() => this.library);
 	// §M3 - Ids with a local keystroke not yet persisted ("dirty") in the
 	// cross-tab sense: a draft is dirty as long as a write is pending OR its
 	// in-memory content differs from the last known base. Used to decide, when
@@ -157,6 +160,7 @@ class FilesStore {
 		},
 		onConflictPreserved: (id, variant) => {
 			this.closedFiles.push({ ...variant, dirty: false });
+			this.metaIndex.invalidateMeta(variant.id);
 			this.notifyCrossTabConflict(
 				t('files.modifiedInOtherTab', {
 					name: this.files.find((file) => file.id === id)?.name ?? id
@@ -167,6 +171,15 @@ class FilesStore {
 
 	get active(): FileItem | null {
 		return this.files.find((f) => f.id === this.activeId) ?? null;
+	}
+
+	get library(): FileItem[] {
+		return [...this.files, ...this.closedFiles];
+	}
+
+	openDocument(id: string): void {
+		if (this.closedFiles.some((file) => file.id === id)) this.reopen(id);
+		else this.setActive(id);
 	}
 
 	hasSaveError(id: string): boolean {
@@ -259,6 +272,7 @@ class FilesStore {
 			file.updatedAt = row.updatedAt;
 			file.dirty = false;
 			this.saveQueue.trackPersisted(row);
+			this.metaIndex.invalidateMeta(id);
 			if (row.open === false) {
 				this.detachFromView(id, file);
 				if (!this.closedFiles.some((entry) => entry.id === id)) this.closedFiles.push(file);
@@ -294,7 +308,7 @@ class FilesStore {
 			for (const row of rows) this.saveQueue.trackPersisted(row);
 			this.files = items.filter((_file, index) => rows[index]?.open !== false);
 			this.closedFiles = items.filter((_file, index) => rows[index]?.open === false);
-			const savedActiveId = localStorage.getItem(ACTIVE_ID_KEY);
+			const savedActiveId = readPreference(ACTIVE_ID_KEY);
 			if (savedActiveId && this.files.some((f) => f.id === savedActiveId)) {
 				this.activeId = savedActiveId;
 			} else if (this.files.length > 0) {
@@ -333,6 +347,7 @@ class FilesStore {
 		this.trash = [];
 		this.activeId = null;
 		this.selectedIds = new Set();
+		this.metaIndex = new MetaIndex(() => this.library);
 		this.loaded = false;
 		this.loadError = null;
 		await this.load();
@@ -349,14 +364,13 @@ class FilesStore {
 
 	private persistActiveId(): void {
 		if (!browser) return;
-		if (this.activeId) localStorage.setItem(ACTIVE_ID_KEY, this.activeId);
-		else localStorage.removeItem(ACTIVE_ID_KEY);
+		writePreference(ACTIVE_ID_KEY, this.activeId);
 	}
 
 	/** Schedules the Dexie persistence of `id` after 400 ms (debounce via SaveQueue). */
 	private scheduleSave(id: string): void {
 		this.saveQueue.schedule(id, () => {
-			const file = this.files.find((f) => f.id === id);
+			const file = this.library.find((f) => f.id === id);
 			if (!file) return null;
 			// §2.4 - History snapshot at flush time (throttled + deduplicated in
 			// recordVersion). Fire-and-forget: does not block the save; a history
@@ -364,7 +378,8 @@ class FilesStore {
 			void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
 				reportError('version history', err)
 			);
-			return toDraftRow(file, this.files.indexOf(file));
+			const index = this.files.indexOf(file);
+			return toDraftRow(file, index >= 0 ? index : this.library.indexOf(file), index >= 0);
 		});
 	}
 
@@ -524,6 +539,7 @@ class FilesStore {
 			open?.file ?? (closedIndex >= 0 ? this.closedFiles.splice(closedIndex, 1)[0]! : null);
 		if (!file) return;
 		const order = open?.index ?? this.files.length + Math.max(0, closedIndex);
+		this.metaIndex.invalidateMeta(id);
 		this.saveQueue.discard(id);
 		const trashedAt = Date.now();
 		const entry: TrashedFile = { file, order, trashedAt };
@@ -541,7 +557,10 @@ class FilesStore {
 					order: row.order,
 					trashedAt: row.trashedAt
 				}),
-			(row) => this.closedFiles.push({ ...row, dirty: false })
+			(row) => {
+				this.closedFiles.push({ ...row, dirty: false });
+				this.metaIndex.invalidateMeta(row.id);
+			}
 		).then((ok) => {
 			if (ok) this.crossTab.post({ type: 'removed', id });
 			else {
@@ -712,6 +731,7 @@ class FilesStore {
 			const ok = await restoreFromTrash(id, toDraftRow(restored, insertAt), (row) => {
 				if (!this.closedFiles.some((file) => file.id === row.id))
 					this.closedFiles.push({ ...row, dirty: false });
+				this.metaIndex.invalidateMeta(row.id);
 			});
 			if (!ok) this.rollbackRestore(restored.id, entry, insertAt);
 		})();
@@ -753,6 +773,7 @@ class FilesStore {
 			this.metaIndex.invalidateBacklinksIndex();
 		} else if (!wasOpen && !this.closedFiles.some((entry) => entry.id === id)) {
 			this.closedFiles.push(file);
+			this.metaIndex.invalidateMeta(id);
 		}
 		this.saveQueue.persist(toDraftRow(file, idx, wasOpen));
 	}
@@ -768,7 +789,7 @@ class FilesStore {
 	}
 
 	updateContent(id: string, content: string): void {
-		const file = this.files.find((f) => f.id === id);
+		const file = this.library.find((f) => f.id === id);
 		if (!file || file.content === content) return;
 		file.content = content;
 		file.updatedAt = Date.now();
@@ -781,19 +802,97 @@ class FilesStore {
 		const file = this.files.find((f) => f.id === id);
 		if (!file) return Promise.resolve(false);
 		const normalized = normalizeRename(name);
+		if (/[\r\n[\]|]/.test(normalized)) {
+			notify.error(t('files.invalidLinkName'));
+			return Promise.resolve(false);
+		}
+		if (
+			this.library.some(
+				(entry) =>
+					entry.id !== id &&
+					stripMdExtension(entry.name).toLowerCase() === stripMdExtension(normalized).toLowerCase()
+			)
+		) {
+			notify.error(t('files.nameExists', { name: normalized }));
+			return Promise.resolve(false);
+		}
 		if (normalized === file.name && !this.diskOperations.has(id)) return Promise.resolve(true);
-		if (!file.linkedToDisk && !this.diskOperations.has(id)) {
+		const plan = () => {
+			const oldTarget = stripMdExtension(file.name).toLowerCase();
+			const nextTarget = stripMdExtension(normalized);
+			const rewrite = (content: string) =>
+				rewriteWikiLinkTargets(content, (target) =>
+					target.toLowerCase() === oldTarget ? nextTarget : target
+				);
+			const changes =
+				this.metaIndex.wikiLinkCandidates(oldTarget).length === 1
+					? this.library.flatMap((entry) =>
+							rewrite(entry.content) === entry.content
+								? []
+								: [{ file: entry, before: entry.content }]
+						)
+					: [];
+			return { changes, rewrite };
+		};
+		if (
+			!file.linkedToDisk &&
+			!this.diskOperations.has(id) &&
+			!this.renameTail &&
+			plan().changes.length === 0
+		) {
 			this.syncDiskName(id, normalized);
 			return Promise.resolve(true);
 		}
-		return this.queueDiskOperation(id, async () => {
+		const previousRename = this.renameTail;
+		const operation = this.queueDiskOperation(id, async () => {
+			await previousRename;
+			if (
+				this.library.some(
+					(entry) =>
+						entry.id !== id &&
+						stripMdExtension(entry.name).toLowerCase() ===
+							stripMdExtension(normalized).toLowerCase()
+				)
+			) {
+				notify.error(t('files.nameExists', { name: normalized }));
+				return false;
+			}
+			const { changes, rewrite } = plan();
+			try {
+				await createCheckpoints(
+					changes.map(({ file }) => ({ id: file.id, name: file.name, content: file.content }))
+				);
+			} catch (error) {
+				reportPersistenceError(error, 'save');
+				return false;
+			}
+			if (
+				changes.some(({ file, before }) => !this.library.includes(file) || file.content !== before)
+			) {
+				notify.error(t('files.otherTabChanges'));
+				return false;
+			}
 			const current = this.diskDeps.getFile(id);
 			if (!current) return false;
 			if (current.linkedToDisk && !(await renameOnDisk(id, normalized, this.diskDeps)))
 				return false;
 			this.syncDiskName(id, normalized);
+			for (const change of changes) {
+				// Use the latest text if an edit occurred during native I/O.
+				this.updateContent(change.file.id, rewrite(change.file.content));
+			}
+			if (changes.length) notify.success(t('files.linksUpdated', { n: changes.length }));
 			return true;
 		});
+		const settled = operation.then(
+			() => {},
+			() => {}
+		);
+		this.renameTail = settled;
+		void settled.then(() => {
+			if (this.renameTail === settled) this.renameTail = null;
+		});
+		return operation;
 	}
 
 	private queueDiskOperation<T>(id: string, run: () => Promise<T>): Promise<T> {
@@ -824,7 +923,7 @@ class FilesStore {
 
 	private get exportDeps() {
 		return {
-			getFiles: () => this.files,
+			getFiles: () => this.library,
 			scheduleSave: (id: string) => this.scheduleSave(id)
 		};
 	}
@@ -833,24 +932,33 @@ class FilesStore {
 		if (this.active) this.export(this.active.id);
 	}
 	export(id: string): void {
+		this.dispatchEditorFlush();
 		exportMarkdownOp(id, this.exportDeps);
 	}
 	async exportAll(): Promise<void> {
+		this.dispatchEditorFlush();
 		return exportAllZipOp(this.exportDeps);
 	}
+	async exportOpen(): Promise<void> {
+		this.dispatchEditorFlush();
+		return exportAllZipOp({ ...this.exportDeps, getFiles: () => this.files });
+	}
 	async exportHTML(id: string): Promise<void> {
+		this.dispatchEditorFlush();
 		return exportHTMLOp(id, this.exportDeps);
 	}
 	async exportActiveHTML(): Promise<void> {
 		if (this.active) await this.exportHTML(this.active.id);
 	}
 	async exportPDF(id: string): Promise<void> {
+		this.dispatchEditorFlush();
 		return exportPDFOp(id, this.exportDeps);
 	}
 	async exportActivePDF(): Promise<void> {
 		if (this.active) await this.exportPDF(this.active.id);
 	}
 	async exportSelectedZip(): Promise<void> {
+		this.dispatchEditorFlush();
 		return exportSelectionZipOp(this.selectedIds, this.exportDeps);
 	}
 
@@ -889,7 +997,7 @@ class FilesStore {
 
 	private get diskDeps() {
 		return {
-			getFile: (id: string) => this.files.find((f) => f.id === id),
+			getFile: (id: string) => this.library.find((f) => f.id === id),
 			getFiles: () => [...this.files, ...this.closedFiles],
 			onActivate: (id: string) => {
 				if (this.closedFiles.some((file) => file.id === id)) this.reopen(id);
@@ -989,16 +1097,21 @@ class FilesStore {
 	}
 
 	/**
-	 * §2.6 - Replaces all matching text in open files. `updateContent` marks each
+	 * Replaces matching text in the selected scope. `updateContent` marks each
 	 * file as dirty, schedules a save, and records an undoable history snapshot.
 	 * Returns file and occurrence counts, or a regular expression error.
 	 */
 	async replaceInAll(
 		query: string,
 		replacement: string,
-		opts: ReplaceOptions
+		opts: ReplaceOptions,
+		scope: 'library' | 'open' = 'library'
 	): Promise<{ files: number; occurrences: number; regexError: string | null }> {
-		const slices = this.files.map((f) => ({ id: f.id, name: f.name, content: f.content }));
+		const slices = (scope === 'library' ? this.library : this.files).map((f) => ({
+			id: f.id,
+			name: f.name,
+			content: f.content
+		}));
 		const { results, total, regexError } = await replaceInFilesAsync(
 			slices,
 			query,
@@ -1009,7 +1122,7 @@ class FilesStore {
 		const unchanged = () =>
 			results.every((result) => {
 				const before = slices.find((file) => file.id === result.id);
-				const current = this.files.find((file) => file.id === result.id);
+				const current = this.library.find((file) => file.id === result.id);
 				return (
 					before && current && before.content === current.content && before.name === current.name
 				);
@@ -1064,6 +1177,9 @@ class FilesStore {
 	displayTitle(id: string): string {
 		return this.metaIndex.displayTitle(id);
 	}
+	documentTitle(id: string): string {
+		return this.metaIndex.documentTitle(id);
+	}
 	/** Files that contain a wiki-link pointing to `targetId`. */
 	backlinks(targetId: string): FileItem[] {
 		return this.metaIndex.backlinks(targetId);
@@ -1079,8 +1195,12 @@ class FilesStore {
 	openWikiLink(target: string): string | null {
 		const resolved = this.resolveWikiLink(target);
 		if (resolved) {
-			this.setActive(resolved);
+			this.openDocument(resolved);
 			return resolved;
+		}
+		if (this.metaIndex.wikiLinkCandidates(target).length > 1) {
+			notify.info(t('files.ambiguousLink', { name: target }));
+			return null;
 		}
 		const trimmed = target.trim();
 		if (!trimmed) return null;

@@ -35,7 +35,7 @@ export function uniqueName(existing: string[], base: string): string {
 
 export function normalizeRename(raw: string): string {
 	const clean = raw.trim() || untitledFilename();
-	return clean.endsWith('.md') || clean.endsWith('.markdown') ? clean : `${clean}.md`;
+	return /\.(md|markdown|mdx|txt)$/i.test(clean) ? clean : `${clean}.md`;
 }
 
 export function stripMdExtension(name: string): string {

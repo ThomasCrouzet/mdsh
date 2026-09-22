@@ -13,6 +13,9 @@
 	}
 
 	let { fileId, content, readonly = false, onChange }: Props = $props();
+	export function getFileId(): string {
+		return fileId;
+	}
 
 	let host: HTMLDivElement;
 	let view: EditorView | null = null;

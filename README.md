@@ -17,6 +17,8 @@ The BLACKSITE interface uses graphite surfaces, warm ivory text, and subtle ambe
 - Three editing modes: Milkdown WYSIWYG, CodeMirror source, and rendered reading view.
 - GFM, code highlighting, KaTeX, Mermaid, YAML front matter, wiki links, backlinks, and a link graph.
 - Local tabs, workspaces, version history, templates, trash, tags, search, and cross-file replace.
+- A searchable library of open and closed documents, link repair on rename, and backup inspection.
+- Touch-friendly actions, document outlines in every mode, and in-place visual search.
 - Markdown, content-only PDF, self-contained offline HTML, and ZIP exports.
 - Installable offline PWA with file and share intents where the browser supports them.
 - Optional encrypted JSON backup using WebCrypto AES-GCM and PBKDF2.

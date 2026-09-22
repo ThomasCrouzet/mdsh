@@ -71,7 +71,7 @@ tags: [journal]
 
 /** Today's date in short ISO format (YYYY-MM-DD), sortable and neutral. */
 export function isoDate(now: Date = new Date()): string {
-	return now.toISOString().slice(0, 10);
+	return `${String(now.getFullYear()).padStart(4, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
 /**

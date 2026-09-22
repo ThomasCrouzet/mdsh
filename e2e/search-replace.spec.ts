@@ -50,7 +50,7 @@ test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 		await expect(panel).toHaveCount(0, { timeout: 5000 });
 	});
 
-	test('changes from WYSIWYG to source mode and opens search with ⌘F', async ({ page }) => {
+	test('finds text in WYSIWYG without changing mode or content', async ({ page }) => {
 		// Select WYSIWYG from the toolbar radio group.
 		await page.getByRole('radio', { name: 'Mode WYSIWYG' }).click();
 		// Wait for the lazy Milkdown module to mount ProseMirror.
@@ -61,11 +61,16 @@ test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 		const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 		await page.keyboard.press(`${mod}+f`);
 
-		// The shortcut must show CodeMirror in source mode and open its search panel.
-		await expect(page.locator('.cm-content').first()).toBeVisible({ timeout: 10_000 });
-		await expect(page.locator('.cm-panels')).toBeVisible({ timeout: 5000 });
-		await expect(page.locator('.cm-panels input[name="search"]')).toBeFocused({
-			timeout: 5000
-		});
+		const find = page.getByRole('searchbox', { name: 'Rechercher dans ce document' });
+		await expect(find).toBeFocused();
+		await find.fill('texte');
+		await expect(page.getByRole('radio', { name: 'Mode WYSIWYG' })).toHaveAttribute(
+			'aria-checked',
+			'true'
+		);
+		await expect(page.locator('.ProseMirror')).toBeVisible();
+		await find.press('Escape');
+		await expect(find).toHaveCount(0);
+		await expect(page.locator('.ProseMirror')).toBeFocused();
 	});
 });

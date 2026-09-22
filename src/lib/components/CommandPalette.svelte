@@ -71,6 +71,9 @@
 	}
 
 	interface Props {
+		onOpenOutline?: () => void;
+		initialView?: 'commands' | 'actions';
+		onOpenLibrary?: () => void;
 		open: boolean;
 		onClose: () => void;
 		onNew: () => void;
@@ -101,6 +104,9 @@
 	}
 
 	let {
+		onOpenOutline,
+		initialView = 'commands',
+		onOpenLibrary,
 		open,
 		onClose,
 		onNew,
@@ -131,6 +137,8 @@
 	}: Props = $props();
 
 	let query = $state('');
+	let view = $derived(initialView);
+	let closeButton: HTMLButtonElement | null = $state(null);
 	let selected = $state(0);
 	let inputEl: HTMLInputElement | null = $state(null);
 
@@ -163,7 +171,7 @@
 			'delete-file',
 			'save-disk'
 		].includes(command.id);
-		if (command.id === 'export-all' && filesStore.files.length === 0) return false;
+		if (command.id === 'export-all' && filesStore.library.length === 0) return false;
 		if (command.id.startsWith('export-') && spinnerStore.visible) return false;
 		if (command.id.startsWith('copy-') && !isClipboardSupported()) return false;
 		const core = coreCommands.find((entry) => entry.id === command.id);
@@ -204,9 +212,19 @@
 	}
 
 	const baseCommands: Command[] = $derived([
+		{
+			id: 'outline',
+			label: t('navigation.outline'),
+			icon: List,
+			enabled: () => filesStore.active !== null,
+			run: () => onOpenOutline?.()
+		},
+		{ id: 'library', label: t('library.title'), icon: Files, run: () => onOpenLibrary?.() },
+		{ id: 'backup', label: t('actions.backups'), icon: Download, run: onOpenSettings },
 		...filesStore.closedFiles.map((file) => ({
 			id: `reopen-${file.id}`,
 			label: t('palette.reopenFile', { name: file.name }),
+			keywords: filesStore.documentTitle(file.id),
 			icon: FileText,
 			run: () => {
 				filesStore.reopen(file.id);
@@ -307,6 +325,13 @@
 		},
 		{ id: 'export-html', label: t('palette.exportHtml'), icon: FileOutput, run: onExportHtml },
 		{ id: 'export-all', label: t('palette.exportAll'), icon: Files, run: onExportAll },
+		{
+			id: 'export-open',
+			label: t('palette.exportOpen'),
+			icon: Files,
+			enabled: () => filesStore.files.length > 0,
+			run: () => void filesStore.exportOpen()
+		},
 		{
 			id: 'copy-md',
 			label: t('palette.copyMarkdown'),
@@ -462,6 +487,7 @@
 					promptName: (defaultValue) =>
 						promptStore.prompt({
 							title: t('palette.templateNamePrompt'),
+							confirmLabel: t('templates.save'),
 							defaultValue,
 							placeholder: t('palette.templateNamePlaceholder')
 						}),
@@ -532,6 +558,7 @@
 		filesStore.files.map((f) => ({
 			id: `file-${f.id}`,
 			label: stripExt(f.name),
+			keywords: filesStore.documentTitle(f.id),
 			hint: t('palette.openFileHint'),
 			icon: FilePlus,
 			run: () => filesStore.setActive(f.id)
@@ -582,6 +609,28 @@
 		if (!q) return all;
 		return all.filter((c) => normalizeCommandSearch(`${c.label} ${c.keywords ?? ''}`).includes(q));
 	});
+	const actionGroups = $derived(
+		[
+			{
+				label: t('actions.documents'),
+				ids: ['new', 'import', 'library', 'search', 'search-in-file', 'outline', 'history']
+			},
+			{
+				label: t('actions.export'),
+				ids: ['save-disk', 'export-md', 'export-pdf', 'export-html', 'export-all', 'backup']
+			},
+			{
+				label: t('actions.workspace'),
+				ids: ['workspaces-open', 'graph', 'focus', 'toc', 'settings']
+			}
+		].map((group) => ({
+			...group,
+			commands: group.ids.flatMap((id) => {
+				const command = filtered.find((entry) => entry.id === id);
+				return command ? [command] : [];
+			})
+		}))
+	);
 
 	let loadError = $state(false);
 	let loading = $state(false);
@@ -605,7 +654,7 @@
 			// Load workspaces + templates on first open so that
 			// the direct commands appear in the list.
 			void loadSavedCommands();
-			tick().then(() => inputEl?.focus());
+			tick().then(() => (view === 'actions' ? closeButton?.focus() : inputEl?.focus()));
 		}
 	});
 
@@ -656,116 +705,150 @@
 		}}
 		role="dialog"
 		aria-modal="true"
-		aria-label={t('palette.dialogLabel')}
+		aria-label={t(view === 'actions' ? 'actions.title' : 'palette.dialogLabel')}
 		tabindex="-1"
 		use:focusTrap
 	>
 		<div
-			class="mdsh-dialog-panel flex w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border
+			class="mdsh-dialog-panel flex max-h-[80dvh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border
 			       bg-bg-1 shadow-2xl animate-fade-in"
 		>
 			{#if loadError}
 				<LoadError onRetry={() => void loadSavedCommands()} busy={loading} />
 			{/if}
-			<!-- §B1.5 - ARIA combobox + listbox pattern: the input drives the listbox
+			{#if view === 'actions'}
+				<header class="flex items-center justify-between border-b border-border px-4 py-2">
+					<h2 class="text-sm font-medium">{t('actions.title')}</h2>
+					<button
+						bind:this={closeButton}
+						class="p-2"
+						onclick={onClose}
+						aria-label={t('palette.close')}><X size={16} /></button
+					>
+				</header>
+				<div class="min-h-0 overflow-y-auto p-3">
+					{#each actionGroups as group (group.label)}
+						<h3 class="mb-2 mt-2 text-xs font-medium text-fg-muted">{group.label}</h3>
+						<div class="mb-4 grid grid-cols-2 gap-2">
+							{#each group.commands as command (command.id)}
+								<button
+									class="flex min-h-11 items-center gap-2 rounded border border-border px-3 py-2 text-left text-sm hover:bg-bg-2"
+									disabled={!isAvailable(command)}
+									onclick={() => runCommand(command)}
+									><command.icon size={16} class="shrink-0" /><span>{command.label}</span></button
+								>
+							{/each}
+						</div>
+					{/each}
+					<button
+						class="w-full rounded border border-border p-3 text-sm text-accent"
+						onclick={() => {
+							view = 'commands';
+							void tick().then(() => inputEl?.focus());
+						}}>{t('actions.allCommands')}</button
+					>
+				</div>
+			{:else}
+				<!-- §B1.5 - ARIA combobox + listbox pattern: the input drives the listbox
 			     via aria-activedescendant. Before: no role nor announcement of
 			     the highlighted item, the SR saw just a text field without context. -->
-			<div class="palette-input-row flex items-center gap-2 border-b border-border px-3 py-3">
-				<span class="font-mono text-xs text-accent" aria-hidden="true">&gt;_</span>
-				<Search size={15} class="text-fg-dim" />
-				<input
-					bind:this={inputEl}
-					bind:value={query}
-					onkeydown={handleKey}
-					type="text"
-					placeholder={t('palette.inputPlaceholder')}
-					class="min-w-0 flex-1 bg-transparent font-mono text-sm text-fg outline-none placeholder:text-fg-dim"
-					spellcheck="false"
-					autocapitalize="off"
-					autocomplete="off"
-					role="combobox"
-					aria-controls="cmd-palette-listbox"
-					aria-expanded={filtered.length > 0}
-					aria-autocomplete="list"
-					aria-activedescendant={filtered[selected]?.id != null
-						? `cmd-palette-opt-${filtered[selected]!.id}`
-						: undefined}
-					aria-label={t('palette.inputLabel')}
-				/>
-				<button
-					class="rounded p-1 text-fg-dim transition hover:bg-bg-2 hover:text-fg"
-					onclick={onClose}
-					aria-label={t('palette.close')}
-				>
-					<X size={14} />
-				</button>
-			</div>
-			<div
-				class="palette-meta flex items-center justify-between border-b border-border px-3 py-1.5"
-			>
-				<span>{t('palette.commandIndex')}</span>
-				<span>{t('palette.availableCount', { n: filtered.filter(isAvailable).length })}</span>
-			</div>
-
-			<ul
-				id="cmd-palette-listbox"
-				role="listbox"
-				aria-label={t('palette.listboxLabel')}
-				class="max-h-80 overflow-y-auto py-1.5"
-			>
-				{#if filtered.length === 0}
-					<li
-						class="px-4 py-6 text-center text-xs text-fg-dim"
-						role="option"
-						aria-disabled="true"
-						aria-selected="false"
+				<div class="palette-input-row flex items-center gap-2 border-b border-border px-3 py-3">
+					<span class="font-mono text-xs text-accent" aria-hidden="true">&gt;_</span>
+					<Search size={15} class="text-fg-dim" />
+					<input
+						bind:this={inputEl}
+						bind:value={query}
+						onkeydown={handleKey}
+						type="text"
+						placeholder={t('palette.inputPlaceholder')}
+						class="min-w-0 flex-1 bg-transparent font-mono text-sm text-fg outline-none placeholder:text-fg-dim"
+						spellcheck="false"
+						autocapitalize="off"
+						autocomplete="off"
+						role="combobox"
+						aria-controls="cmd-palette-listbox"
+						aria-expanded={filtered.length > 0}
+						aria-autocomplete="list"
+						aria-activedescendant={filtered[selected]?.id != null
+							? `cmd-palette-opt-${filtered[selected]!.id}`
+							: undefined}
+						aria-label={t('palette.inputLabel')}
+					/>
+					<button
+						class="rounded p-1 text-fg-dim transition hover:bg-bg-2 hover:text-fg"
+						onclick={onClose}
+						aria-label={t('palette.close')}
 					>
-						{t('palette.noCommand')}
-					</li>
-				{:else}
-					{#each filtered as cmd, i (cmd.id)}
+						<X size={14} />
+					</button>
+				</div>
+				<div
+					class="palette-meta flex items-center justify-between border-b border-border px-3 py-1.5"
+				>
+					<span>{t('palette.commandIndex')}</span>
+					<span>{t('palette.availableCount', { n: filtered.filter(isAvailable).length })}</span>
+				</div>
+
+				<ul
+					id="cmd-palette-listbox"
+					role="listbox"
+					aria-label={t('palette.listboxLabel')}
+					class="max-h-80 overflow-y-auto py-1.5"
+				>
+					{#if filtered.length === 0}
 						<li
+							class="px-4 py-6 text-center text-xs text-fg-dim"
 							role="option"
-							id={`cmd-palette-opt-${cmd.id}`}
-							aria-selected={i === selected}
-							aria-disabled={!isAvailable(cmd) ? 'true' : undefined}
-							title={!isAvailable(cmd)
-								? filesStore.active
-									? t('palette.unavailable')
-									: t('palette.requiresDocument')
-								: cmd.hint}
-							aria-label={cmd.kbd
-								? t('palette.commandWithShortcut', { label: cmd.label, kbd: cmd.kbd })
-								: cmd.label}
-							class="palette-command flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-left text-sm transition"
-							class:bg-bg-2={i === selected}
-							class:text-fg={i === selected}
-							class:text-fg-muted={i !== selected}
-							class:opacity-50={!isAvailable(cmd)}
-							onclick={() => {
-								runCommand(cmd);
-							}}
-							onkeydown={(event) => {
-								if (event.key === 'Enter' || event.key === ' ') {
-									event.preventDefault();
-									runCommand(cmd);
-								}
-							}}
-							onmousedown={(event) => event.preventDefault()}
-							onmouseenter={() => (selected = i)}
+							aria-disabled="true"
+							aria-selected="false"
 						>
-							<span class="palette-command-index" aria-hidden="true"
-								>{(i + 1).toString().padStart(2, '0')}</span
-							>
-							<cmd.icon size={14} class="flex-shrink-0 text-fg-dim" aria-hidden="true" />
-							<span class="flex-1 truncate">{cmd.label}</span>
-							{#if cmd.kbd}
-								<kbd class="flex-shrink-0 text-xs text-fg-dim" aria-hidden="true">{cmd.kbd}</kbd>
-							{/if}
+							{t('palette.noCommand')}
 						</li>
-					{/each}
-				{/if}
-			</ul>
+					{:else}
+						{#each filtered as cmd, i (cmd.id)}
+							<li
+								role="option"
+								id={`cmd-palette-opt-${cmd.id}`}
+								aria-selected={i === selected}
+								aria-disabled={!isAvailable(cmd) ? 'true' : undefined}
+								title={!isAvailable(cmd)
+									? filesStore.active
+										? t('palette.unavailable')
+										: t('palette.requiresDocument')
+									: cmd.hint}
+								aria-label={cmd.kbd
+									? t('palette.commandWithShortcut', { label: cmd.label, kbd: cmd.kbd })
+									: cmd.label}
+								class="palette-command flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-left text-sm transition"
+								class:bg-bg-2={i === selected}
+								class:text-fg={i === selected}
+								class:text-fg-muted={i !== selected}
+								class:opacity-50={!isAvailable(cmd)}
+								onclick={() => {
+									runCommand(cmd);
+								}}
+								onkeydown={(event) => {
+									if (event.key === 'Enter' || event.key === ' ') {
+										event.preventDefault();
+										runCommand(cmd);
+									}
+								}}
+								onmousedown={(event) => event.preventDefault()}
+								onmouseenter={() => (selected = i)}
+							>
+								<span class="palette-command-index" aria-hidden="true"
+									>{(i + 1).toString().padStart(2, '0')}</span
+								>
+								<cmd.icon size={14} class="flex-shrink-0 text-fg-dim" aria-hidden="true" />
+								<span class="flex-1 truncate">{cmd.label}</span>
+								{#if cmd.kbd}
+									<kbd class="flex-shrink-0 text-xs text-fg-dim" aria-hidden="true">{cmd.kbd}</kbd>
+								{/if}
+							</li>
+						{/each}
+					{/if}
+				</ul>
+			{/if}
 		</div>
 	</div>
 {/if}

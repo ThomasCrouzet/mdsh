@@ -255,6 +255,8 @@ export default defineConfig(({ mode }) => {
 					// Mermaid stays outside the static entry/node graph. Documents without diagrams do not load it.
 					// This meets the roadmap isolation requirement.
 					manualChunks(id: string): string | undefined {
+						// Share icon components across panels to limit precache requests.
+						if (id.includes('node_modules/@lucide/svelte/')) return 'icons';
 						if (id.includes('node_modules/marked/')) return 'render-core';
 						if (id.includes('node_modules/highlight.js/')) return 'render-highlight';
 						if (id.includes('node_modules/katex/')) return 'render-math';

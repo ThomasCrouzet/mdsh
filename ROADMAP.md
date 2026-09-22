@@ -38,8 +38,8 @@ Docker desktop) and remove the grep-invert flag.
 ## Out of scope (product positioning)
 
 - **Cloud / WebDAV sync** - would add a backend synchronization surface. Regular ZIP exports cover migration.
-- **Import from URL** - incompatible with the `connect-src 'self'` CSP.
+- **Import from URL** - outside the local-file workflow. HTTPS connections are available only for document images that the user explicitly requests.
 - **`[[wiki]]` autocompletion in WYSIWYG** - a ProseMirror plugin would cost too much work for an unclear benefit. Rendered wiki links and click navigation are sufficient.
 - **At-rest encryption of all notes** - encrypted backups already exist. Encryption of every draft at startup remains deferred. It needs a separate unlock flow. A forgotten passphrase causes permanent data loss.
 - **Writing stats, sample documents on first launch, cross-window drag** - these add unnecessary features or serve too few users.
-- **Search / tag index scale beyond ~300 files** - documented ceiling; incremental worker corpus sync is in place for search, full inverted `filesByTag` only if real usage exceeds the target.
+- **Search / tag index scale beyond about 300 files** - documented limit. Search reuses its worker corpus until the fingerprint changes, then sends a full replacement. Consider document-level updates and a full inverted tag index only if real usage exceeds the target.
