@@ -46,14 +46,19 @@ export default defineConfig({
 		{
 			name: 'firefox',
 			use: { ...devices['Desktop Firefox'] },
-			testMatch: '**/golden-path.spec.ts'
+			testMatch: ['**/golden-path.spec.ts', '**/file-navigation.spec.ts']
 		},
 		{
 			// WebKit covers persistence, localization, and command interactions.
 			// FSA-dependent tests remain intentionally limited to Chromium.
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
-			testMatch: ['**/golden-path.spec.ts', '**/locale-en.spec.ts', '**/palette.spec.ts']
+			testMatch: [
+				'**/golden-path.spec.ts',
+				'**/locale-en.spec.ts',
+				'**/palette.spec.ts',
+				'**/file-navigation.spec.ts'
+			]
 		}
 	],
 	webServer: {

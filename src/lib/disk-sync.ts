@@ -41,6 +41,8 @@ import {
 import { computeBrokenLinks } from './broken-links';
 import {
 	tauriCheckPath,
+	tauriForgetPath,
+	tauriRenamePath,
 	tauriOpenNativeGrants,
 	tauriPickAndOpen,
 	tauriPickDirectoryAndOpen,
@@ -233,7 +235,12 @@ async function ingestDesktopOpens(
 				}
 			}
 			if (existing) {
-				await savePathLink(existing.id, file.link, epoch);
+				const previous = await getPathLinkWithEpoch(existing.id);
+				const revision =
+					existing.diskRevision ??
+					previous?.revision ??
+					(existing.content === file.content ? file.revision : undefined);
+				await savePathLink(existing.id, file.link, epoch, revision);
 				deps.onActivate?.(existing.id);
 				if (existing.diskRevision === undefined && existing.content === file.content) {
 					existing.diskLastModified = file.lastModified;
@@ -256,7 +263,7 @@ async function ingestDesktopOpens(
 			item.diskLastModified = file.lastModified;
 			item.diskSize = file.size;
 			item.diskRevision = file.revision;
-			await savePathLink(item.id, file.link, epoch);
+			await savePathLink(item.id, file.link, epoch, file.revision);
 			created.push(item);
 			if (file.token) processedTokens.push(file.token);
 			session.accept();
@@ -372,6 +379,7 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 	if (current?.content === content) current.dirty = false;
 	if (
 		file.linkedToDisk &&
+		!hadLink &&
 		current === file &&
 		current.name === name &&
 		typeof handle.name === 'string' &&
@@ -411,19 +419,19 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 		return false;
 	}
 	let pathRec = existingLink?.record ?? null;
-	let persistLink = false;
+	let expectedRevision = file.diskRevision ?? existingLink?.revision ?? null;
 	let persistedPath = pathRec?.path ?? null;
 	if (!pathRec) {
 		const picked = await tauriPickSaveTarget(name);
 		if (!picked) return false;
 		pathRec = picked;
-		persistLink = true;
 		const selected = await tauriReadMeta(pathRec.path);
 		file.diskRevision = selected?.revision;
+		expectedRevision = selected?.revision ?? null;
 	}
 	let written;
 	try {
-		written = await tauriWritePath(pathRec.path, content, file.diskRevision ?? null, false);
+		written = await tauriWritePath(pathRec.path, content, expectedRevision, false);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		if (message.includes('disk conflict')) {
@@ -433,7 +441,7 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 				return false;
 			}
 			try {
-				written = await tauriWritePath(pathRec.path, content, file.diskRevision ?? null, true);
+				written = await tauriWritePath(pathRec.path, content, expectedRevision, true);
 			} catch (retryError) {
 				return reportDesktopWriteFailure(file, retryError);
 			}
@@ -451,7 +459,6 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 				}
 			}
 			pathRec = picked;
-			persistLink = true;
 			const selected = await tauriReadMeta(pathRec.path);
 			try {
 				written = await tauriWritePath(pathRec.path, content, selected?.revision ?? null, false);
@@ -462,13 +469,11 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 			return reportDesktopWriteFailure(file, err);
 		}
 	}
-	if (persistLink) {
-		try {
-			await savePathLink(id, pathRec, epoch);
-			persistedPath = pathRec.path;
-		} catch (err) {
-			reportPersistenceError(err, 'save');
-		}
+	try {
+		await savePathLink(id, pathRec, epoch, written.revision);
+		persistedPath = pathRec.path;
+	} catch (err) {
+		reportPersistenceError(err, 'save');
 	}
 	file.linkedToDisk = persistedPath !== null;
 	file.brokenLink = false;
@@ -517,6 +522,10 @@ async function confirmOverwrite(name: string): Promise<boolean> {
  * for orphans (handle stored without a file in the store).
  */
 export async function unlinkFromDisk(id: string, deps: DiskSyncDeps): Promise<void> {
+	if (isDesktop()) {
+		const link = await getPathLink(id);
+		if (link) await tauriForgetPath(link.path);
+	}
 	await deleteHandle(id);
 	const file = deps.getFile(id);
 	if (!file) return;
@@ -524,6 +533,50 @@ export async function unlinkFromDisk(id: string, deps: DiskSyncDeps): Promise<vo
 	// Intentional unlink: clear the broken-link badge (sidebar keys on brokenLink alone).
 	file.brokenLink = false;
 	deps.scheduleSave(id);
+}
+
+/** Rename a linked file before the store commits its display name. */
+export async function renameOnDisk(id: string, name: string, deps: DiskSyncDeps): Promise<boolean> {
+	const file = deps.getFile(id);
+	if (!browser || !file) return false;
+	try {
+		if (!isDesktop()) {
+			// Standard browser handles cannot rename files outside the private file system.
+			await unlinkFromDisk(id, deps);
+			notify.info(t('disk.renameUnlinked'));
+			return true;
+		}
+		const link = await getPathLinkWithEpoch(id);
+		if (!link) throw new Error('Disk link is missing');
+		const renamed = await tauriRenamePath(
+			link.record.path,
+			name,
+			file.diskRevision ?? link.revision ?? null
+		);
+		try {
+			await savePathLink(
+				id,
+				{ kind: 'path', path: renamed.path },
+				link.epoch,
+				renamed.stat?.revision
+			);
+		} catch (error) {
+			await tauriRenamePath(
+				renamed.path,
+				pathBasename(link.record.path),
+				renamed.stat?.revision ?? null
+			);
+			throw error;
+		}
+		file.diskRevision = renamed.stat?.revision;
+		file.brokenLink = false;
+		return true;
+	} catch (error) {
+		reportError('rename disk file', error, {
+			notifyUser: t('disk.renameFailed', { name: file.name })
+		});
+		return false;
+	}
 }
 
 /**

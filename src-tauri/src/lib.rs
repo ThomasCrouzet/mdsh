@@ -74,6 +74,9 @@ pub fn run() {
             disk::disk_open_dialog,
             disk::disk_open_directory,
             disk::disk_save_dialog,
+            disk::disk_restore_grants,
+            disk::disk_forget_grant,
+            disk::disk_rename,
             disk::take_pending_open_paths,
             disk::ack_pending_open_paths,
             shell::desktop_open_external,
@@ -81,21 +84,22 @@ pub fn run() {
             shell::desktop_ack_close_request,
             shell::desktop_complete_close,
             shell::desktop_smoke_request_close,
-        ]);
-
-    #[cfg(feature = "native-smoke")]
-    let builder = builder
-        .setup(move |_| {
-            // Tauri creates the configured windows before this user callback.
+        ])
+        .setup(move |app| {
+            app.state::<CapabilityStore>()
+                .set_registry(app.path().app_data_dir()?.join("disk-access.json"))?;
+            #[cfg(feature = "native-smoke")]
             smoke_startup_phase(started, "user-setup");
             Ok(())
-        })
-        .on_page_load(move |webview, payload| {
-            smoke_startup_phase(
-                started,
-                &format!("page-load:{:?} window={}", payload.event(), webview.label()),
-            );
         });
+
+    #[cfg(feature = "native-smoke")]
+    let builder = builder.on_page_load(move |webview, payload| {
+        smoke_startup_phase(
+            started,
+            &format!("page-load:{:?} window={}", payload.event(), webview.label()),
+        );
+    });
 
     #[cfg(feature = "native-smoke")]
     smoke_startup_phase(started, "before-build");

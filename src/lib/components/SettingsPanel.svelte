@@ -387,6 +387,7 @@
 						{t(isDesktop() ? 'settings.shortcutsDesktop' : 'settings.shortcutsWeb')}
 					</p>
 					<p class="my-2 text-xs text-fg-muted">{t('settings.shortcutInstructions')}</p>
+					<p class="my-2 text-xs text-fg-muted">{t('settings.fileNavigation')}</p>
 					<p class="my-2 text-xs text-accent" role="status">{shortcutFeedback}</p>
 					<button
 						class="mb-2 rounded border border-border px-2 py-1 text-xs"

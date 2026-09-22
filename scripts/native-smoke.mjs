@@ -3,9 +3,17 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdtempSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	statSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const binary = resolve(
@@ -18,7 +26,7 @@ const output = resolve(process.env.NATIVE_TEST_OUTPUT ?? 'native-test-results');
 mkdirSync(output, { recursive: true });
 const temp = mkdtempSync(join(tmpdir(), 'mdsh-native-'));
 const title = `Native ${Date.now()}`;
-const fixture = join(temp, `${title} été.md`);
+let fixture = join(temp, `${title} été.md`);
 const image = `data:image/png;base64,${readFileSync(resolve('static/pwa-192x192.png')).toString('base64')}`;
 writeFileSync(
 	fixture,
@@ -136,8 +144,9 @@ async function click(selector) {
 	);
 }
 
-function launch() {
-	app = spawn(binary, [fixture], {
+/** @param {boolean} [openFile] */
+function launch(openFile = true) {
+	app = spawn(binary, openFile ? [fixture] : [], {
 		stdio: ['ignore', log, log],
 		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) }
 	});
@@ -256,14 +265,12 @@ async function saveLinkedFile(label) {
 			execute(`return document.querySelector('.mdsh-shell')?.getAttribute('aria-busy') === 'false'
 			&& !document.querySelector('.mdsh-shell')?.hasAttribute('inert')
 			&& (document.querySelector('button[data-mode="wysiwyg"]')?.getAttribute('aria-checked') !== 'true'
-				|| !!document.querySelector('.milkdown .ProseMirror'))
-			&& Array.from(document.querySelectorAll('section button')).some(button =>
-				['Close import report', 'Fermer le bilan d’import'].includes(button.textContent.trim()));`),
+				|| !!document.querySelector('.milkdown .ProseMirror'));`),
 		`${label}: import complete and editor ready`
 	);
 	const before = statSync(fixture, { bigint: true }).mtimeNs;
 	const draft = (await drafts()).find(
-		(/** @type {{name: string}} */ item) => item.name === `${title} été.md`
+		(/** @type {{name: string}} */ item) => item.name === basename(fixture)
 	);
 	assert.ok(draft, `${label}: linked draft exists`);
 	await execute(`
@@ -323,6 +330,21 @@ try {
 	);
 	await click('button[data-mode="wysiwyg"]');
 	await saveLinkedFile('native opened file saves without a path dialog');
+	await execute(
+		`
+		const transfer = new DataTransfer();
+		transfer.items.add(new File([arguments[0]], arguments[1], { type: 'text/markdown' }));
+		window.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+	`,
+		[readFileSync(fixture, 'utf8'), basename(fixture)]
+	);
+	await delay(700);
+	assert.equal(
+		(await drafts()).filter((/** @type {{content: string}} */ item) => item.content.includes(title))
+			.length,
+		1
+	);
+	passed('dropping the same linked document does not create a duplicate');
 	await execute("localStorage.setItem('mdsh:locale', 'fr');");
 	await reload();
 	await click('button[data-mode="source"]');
@@ -361,6 +383,29 @@ try {
 	);
 	passed('single instance and file delivery without duplicates');
 	await saveLinkedFile('native reopened file saves without a path dialog');
+	const oldPath = fixture;
+	const renamedName = `${title} renamed été.md`;
+	const renamedPath = join(temp, renamedName);
+	await execute(
+		`
+		const input = document.querySelector('header input');
+		input.focus(); input.value = arguments[0];
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+	`,
+		[renamedName]
+	);
+	assert.ok(existsSync(oldPath));
+	assert.equal(existsSync(renamedPath), false);
+	await execute("document.querySelector('header input').blur();");
+	await until(async () => existsSync(renamedPath) && !existsSync(oldPath), 'native disk rename');
+	fixture = renamedPath;
+	await until(
+		async () =>
+			(await drafts()).some((/** @type {{name: string}} */ item) => item.name === renamedName),
+		'durable renamed draft'
+	);
+	await saveLinkedFile('renamed file saves to its new disk path');
+	passed('native rename commits on blur and preserves the disk link');
 	const beforeRestart = once(
 		/** @type {import('node:child_process').ChildProcess} */ (app),
 		'exit'
@@ -376,9 +421,11 @@ try {
 	]);
 	app = undefined;
 	session = '';
-	launch();
+	launch(false);
 	await connect();
-	await saveLinkedFile('native reopened file saves after process restart without a path dialog');
+	await saveLinkedFile(
+		'restored file saves after process restart without reimport or a path dialog'
+	);
 	await click('button[data-mode="wysiwyg"]');
 	await until(
 		() => execute('return !!document.querySelector(".milkdown .ProseMirror")'),

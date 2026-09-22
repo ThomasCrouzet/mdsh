@@ -25,6 +25,9 @@ function createNativeIo(token: string, nativeFile: NativeFileState): TauriDiskIo
 		if (candidate !== token) throw new Error('invalid or expired disk capability');
 	};
 	return {
+		restoreGrants: vi.fn(async () => [grant()]),
+		forgetGrant: vi.fn(async () => {}),
+		renameFile: vi.fn(async () => grant()),
 		openGrants: vi.fn(async () => [grant()]),
 		openDirectoryGrants: vi.fn(async () => []),
 		saveGrant: vi.fn(async () => null),
@@ -193,7 +196,7 @@ describe('desktop import and save integration', () => {
 		);
 	});
 
-	it('requires confirmation when the reloaded draft differs from the disk file', async () => {
+	it('requires confirmation for an external disk change after restart', async () => {
 		const state = nativeFile();
 		const files: FileItem[] = [];
 		const firstSession = createNativeIo('session-one', state);
@@ -202,6 +205,8 @@ describe('desktop import and save integration', () => {
 		firstImport!.content = '# Local draft';
 		const restartedFiles = await persistAndReload(firstImport!);
 
+		state.content = '# External edit';
+		state.stat.revision = 'sha256:external';
 		const secondSession = createNativeIo('session-two', state);
 		setTauriDiskIoForTests(secondSession);
 		const restartedDeps = createDeps(TEST_IDS[2], restartedFiles);
@@ -213,12 +218,40 @@ describe('desktop import and save integration', () => {
 		expect(restartedFiles[0]?.diskRevision).toBeUndefined();
 		expect(await saveToDisk(TEST_IDS[2], restartedDeps)).toBe(false);
 		expect(confirmOverwrite).toHaveBeenCalledOnce();
-		expect(state.content).toBe('# Existing file');
+		expect(state.content).toBe('# External edit');
 		expect(secondSession.saveGrant).not.toHaveBeenCalled();
 		expect(secondSession.writeText).toHaveBeenCalledWith(
 			'session-two',
 			'# Local draft',
-			null,
+			'sha256:initial',
+			false
+		);
+	});
+
+	it('saves a restored dirty draft after restart without reimport or a picker', async () => {
+		const state = nativeFile();
+		const files: FileItem[] = [];
+		setTauriDiskIoForTests(createNativeIo('first-session', state));
+		const [opened] = await openFromDisk(createDeps(TEST_IDS[0], files));
+		opened!.content = '# Unsaved local edit';
+		const restored = await persistAndReload(opened!);
+		const nextSession = createNativeIo('fresh-session', state);
+		setTauriDiskIoForTests(nextSession);
+		const confirm = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
+		expect(await saveToDisk(TEST_IDS[0], createDeps(TEST_IDS[0], restored))).toBe(true);
+		expect(state.content).toBe('# Unsaved local edit');
+		expect(nextSession.restoreGrants).toHaveBeenCalledOnce();
+		expect(nextSession.openGrants).not.toHaveBeenCalled();
+		expect(nextSession.saveGrant).not.toHaveBeenCalled();
+		expect(confirm).not.toHaveBeenCalled();
+		const thirdSession = createNativeIo('third-session', state);
+		setTauriDiskIoForTests(thirdSession);
+		const thirdDraft = await persistAndReload(restored[0]!);
+		expect(await saveToDisk(TEST_IDS[0], createDeps(TEST_IDS[0], thirdDraft))).toBe(true);
+		expect(thirdSession.writeText).toHaveBeenCalledWith(
+			'third-session',
+			'# Unsaved local edit',
+			'sha256:written-101',
 			false
 		);
 	});

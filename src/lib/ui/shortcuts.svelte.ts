@@ -20,6 +20,7 @@ export interface ShortcutCallbacks {
 	// Navigation / modes
 	getMode: () => EditMode;
 	setMode: (m: EditMode) => void;
+	onNavigateFile: (direction: 1 | -1) => void;
 	// UI
 	onToggleSidebar: () => void;
 	onOpenPalette: () => void;
@@ -55,6 +56,11 @@ export function buildKeydownHandler(cb: ShortcutCallbacks) {
 			typeof document !== 'undefined' &&
 			document.querySelector('[role="dialog"][aria-modal="true"]')
 		) {
+			return;
+		}
+		if (e.ctrlKey && !e.metaKey && e.key === 'Tab' && cb.getActiveId()) {
+			e.preventDefault();
+			cb.onNavigateFile(e.shiftKey ? -1 : 1);
 			return;
 		}
 

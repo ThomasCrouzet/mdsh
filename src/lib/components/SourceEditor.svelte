@@ -294,6 +294,12 @@
 		const localeCompartment = new cm.Compartment();
 		localeCompartmentRef = localeCompartment;
 		const extensions = [
+			cm.EditorView.domEventHandlers({
+				focus: (_event, focusedView) => {
+					// Synchronize the native selection before immediate text input.
+					focusedView.focus();
+				}
+			}),
 			cm.lineNumbers(),
 			cm.highlightActiveLine(),
 			cm.history(),
@@ -346,7 +352,14 @@
 			...(initialSelection ? { selection: initialSelection } : {})
 		});
 
-		view = new cm.EditorView({ state: startState, parent: host });
+		view = new cm.EditorView({
+			state: startState,
+			parent: host,
+			// Render the restored selection before the first focus or input event.
+			...(savedPosition
+				? { scrollTo: cm.EditorView.scrollIntoView(startState.selection.main.head) }
+				: {})
+		});
 		activeCM = cm;
 		lastEmitted = content;
 		if (savedPosition?.scrollTop) {
