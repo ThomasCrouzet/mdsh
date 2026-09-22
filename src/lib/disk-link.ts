@@ -26,6 +26,7 @@ export interface PathLinkRecord {
 /** Internal path record in mdsh-fs. Missing epoch identifies a legacy record. */
 export interface StoredPathLinkRecord extends PathLinkRecord {
 	epoch?: string;
+	revision?: string;
 }
 
 /** Internal FSA record in mdsh-fs. A null revision requires an overwrite decision. */

@@ -19,6 +19,7 @@ import {
 	openPathsFromDesktop as diskOpenPathsFromDesktop,
 	openDirectoryFromDisk as diskOpenDirectoryFromDisk,
 	saveToDisk as diskSaveToDisk,
+	renameOnDisk,
 	unlinkFromDisk as diskUnlinkFromDisk,
 	refreshBrokenLinks as diskRefreshBrokenLinks
 } from './disk-sync';
@@ -130,6 +131,7 @@ class FilesStore {
 	 */
 	private pendingTrashMoves = new Map<string, Promise<boolean>>();
 	private pendingRestores = new Map<string, Promise<void>>();
+	private diskOperations = new Map<string, Promise<unknown>>();
 	private metaIndex = new MetaIndex(() => this.files);
 	// §M3 - Ids with a local keystroke not yet persisted ("dirty") in the
 	// cross-tab sense: a draft is dirty as long as a write is pending OR its
@@ -378,6 +380,7 @@ class FilesStore {
 	 */
 	async flushPendingAwait(): Promise<void> {
 		this.dispatchEditorFlush();
+		await Promise.all(this.diskOperations.values());
 		await this.saveQueue.flushAwait((id) => this.rowForFlush(id));
 		await Promise.all([...this.pendingTrashMoves.values(), ...this.pendingRestores.values()]);
 		await this.saveQueue.flushAwait((id) => this.rowForFlush(id));
@@ -440,6 +443,17 @@ class FilesStore {
 				}
 				const content = await session.read(file);
 				if (content === null) continue;
+				const matches = [...this.files, ...this.closedFiles].filter(
+					(known) => known.linkedToDisk && known.name === file.name && known.content === content
+				);
+				if (matches.length === 1) {
+					const existing = matches[0]!;
+					if (this.closedFiles.includes(existing)) this.reopen(existing.id);
+					else this.setActive(existing.id);
+					created.push(existing);
+					session.accept();
+					continue;
+				}
 				const name = /\.(md|markdown)$/i.test(file.name) ? file.name : `${file.name}.md`;
 				created.push(this.createNew(name, content));
 				session.accept();
@@ -456,8 +470,17 @@ class FilesStore {
 	}
 
 	setActive(id: string): void {
+		this.dispatchEditorFlush();
 		this.activeId = id;
 		this.persistActiveId();
+	}
+
+	navigateFile(direction: 1 | -1): void {
+		if (this.files.length < 2) return;
+		const index = this.files.findIndex((file) => file.id === this.activeId);
+		if (index < 0) return;
+		const next = this.files[(index + direction + this.files.length) % this.files.length]!;
+		this.setActive(next.id);
 	}
 
 	private detachFromView(
@@ -754,22 +777,47 @@ class FilesStore {
 		this.scheduleSave(id);
 	}
 
-	rename(id: string, name: string): void {
+	rename(id: string, name: string): Promise<boolean> {
 		const file = this.files.find((f) => f.id === id);
-		if (!file) return;
-		file.name = normalizeRename(name);
-		file.updatedAt = Date.now();
-		this.metaIndex.invalidateMeta(id);
-		this.scheduleSave(id);
+		if (!file) return Promise.resolve(false);
+		const normalized = normalizeRename(name);
+		if (normalized === file.name && !this.diskOperations.has(id)) return Promise.resolve(true);
+		if (!file.linkedToDisk && !this.diskOperations.has(id)) {
+			this.syncDiskName(id, normalized);
+			return Promise.resolve(true);
+		}
+		return this.queueDiskOperation(id, async () => {
+			const current = this.diskDeps.getFile(id);
+			if (!current) return false;
+			if (current.linkedToDisk && !(await renameOnDisk(id, normalized, this.diskDeps)))
+				return false;
+			this.syncDiskName(id, normalized);
+			return true;
+		});
+	}
+
+	private queueDiskOperation<T>(id: string, run: () => Promise<T>): Promise<T> {
+		const operation = (this.diskOperations.get(id) ?? Promise.resolve()).catch(() => {}).then(run);
+		this.diskOperations.set(id, operation);
+		void operation
+			.finally(() => {
+				if (this.diskOperations.get(id) === operation) this.diskOperations.delete(id);
+			})
+			.catch(() => {});
+		return operation;
 	}
 
 	private syncDiskName(id: string, name: string): void {
-		const file = this.files.find((entry) => entry.id === id);
+		const file =
+			this.files.find((entry) => entry.id === id) ??
+			this.closedFiles.find((entry) => entry.id === id);
 		if (!file || !name || file.name === name) return;
 		file.name = name;
 		file.updatedAt = Date.now();
 		this.metaIndex.invalidateMeta(id);
-		this.scheduleSave(id);
+		if (this.closedFiles.includes(file))
+			this.saveQueue.persist(toDraftRow(file, this.files.length, false));
+		else this.scheduleSave(id);
 	}
 
 	// ─── Exports (delegation → export-ops.ts) ────────────────────────────────
@@ -993,10 +1041,10 @@ class FilesStore {
 	}
 	async saveToDisk(id: string): Promise<boolean> {
 		this.dispatchEditorFlush();
-		return diskSaveToDisk(id, this.diskDeps);
+		return this.queueDiskOperation(id, () => diskSaveToDisk(id, this.diskDeps));
 	}
 	async unlinkFromDisk(id: string): Promise<void> {
-		return diskUnlinkFromDisk(id, this.diskDeps);
+		return this.queueDiskOperation(id, () => diskUnlinkFromDisk(id, this.diskDeps));
 	}
 	async refreshBrokenLinks(): Promise<void> {
 		return diskRefreshBrokenLinks(this.files, (id) => this.files.find((f) => f.id === id));

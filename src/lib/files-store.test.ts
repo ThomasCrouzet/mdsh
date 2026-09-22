@@ -19,6 +19,7 @@ vi.mock('./disk-sync', () => ({
 	openPathsFromDesktop: vi.fn(async () => ({ files: [], processedTokens: [] })),
 	openDirectoryFromDisk: vi.fn(async () => []),
 	saveToDisk: vi.fn(async () => true),
+	renameOnDisk: vi.fn(async () => true),
 	unlinkFromDisk: vi.fn(async () => {}),
 	refreshBrokenLinks: vi.fn(async () => {}),
 	isDiskLinkingAvailable: vi.fn(() => true)
@@ -373,6 +374,105 @@ describe('close and restore from trash', () => {
 		} finally {
 			spy.mockRestore();
 		}
+	});
+});
+
+describe('workspace navigation and disk operations', () => {
+	it('cycles in workspace order in both directions and flushes the outgoing editor', () => {
+		filesStore.navigateFile(1);
+		expect(filesStore.activeId).toBeNull();
+		const first = filesStore.createNew('first.md');
+		filesStore.navigateFile(-1);
+		expect(filesStore.activeId).toBe(first.id);
+		const second = filesStore.createNew('second.md');
+		const third = filesStore.createNew('third.md');
+		const flushed: Array<string | null> = [];
+		const flush = () => {
+			flushed.push(filesStore.activeId);
+		};
+		window.addEventListener('mdsh:flush-editor', flush);
+		try {
+			filesStore.navigateFile(1);
+			expect(filesStore.activeId).toBe(first.id);
+			filesStore.navigateFile(-1);
+			expect(filesStore.activeId).toBe(third.id);
+			filesStore.navigateFile(-1);
+			expect(filesStore.activeId).toBe(second.id);
+			expect(flushed).toEqual([third.id, first.id, third.id]);
+			filesStore.activeId = 'missing';
+			filesStore.navigateFile(1);
+			expect(filesStore.activeId).toBe('missing');
+		} finally {
+			window.removeEventListener('mdsh:flush-editor', flush);
+		}
+	});
+
+	it('waits for a linked rename before saving to its new target', async () => {
+		const file = filesStore.createNew('old.md', 'local edits');
+		file.linkedToDisk = true;
+		let finish!: (success: boolean) => void;
+		vi.mocked(diskSync.renameOnDisk).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				})
+		);
+		const renaming = filesStore.rename(file.id, 'new');
+		const saving = filesStore.saveToDisk(file.id);
+		await vi.waitFor(() => expect(diskSync.renameOnDisk).toHaveBeenCalled());
+		expect(diskSync.saveToDisk).not.toHaveBeenCalled();
+		expect(filesStore.active?.name).toBe('old.md');
+		finish(true);
+		expect(await renaming).toBe(true);
+		expect(await saving).toBe(true);
+		expect(filesStore.active?.name).toBe('new.md');
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(file.id))?.name).toBe('new.md');
+	});
+
+	it('keeps the durable draft name after a failed disk rename', async () => {
+		const file = filesStore.createNew('keep.md');
+		file.linkedToDisk = true;
+		vi.mocked(diskSync.renameOnDisk).mockResolvedValueOnce(false);
+		expect(await filesStore.rename(file.id, 'blocked')).toBe(false);
+		expect(await filesStore.rename(file.id, 'keep.md')).toBe(true);
+		await filesStore.flushPendingAwait();
+		expect((await db.drafts.get(file.id))?.name).toBe('keep.md');
+	});
+
+	it('keeps a completed native rename when its tab closes during the operation', async () => {
+		const file = filesStore.createNew('old.md');
+		file.linkedToDisk = true;
+		let finish!: (success: boolean) => void;
+		vi.mocked(diskSync.renameOnDisk).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				})
+		);
+		const renaming = filesStore.rename(file.id, 'new');
+		await vi.waitFor(() => expect(finish).toBeDefined());
+		filesStore.close(file.id);
+		finish(true);
+		expect(await renaming).toBe(true);
+		await filesStore.flushPendingAwait();
+		expect(filesStore.closedFiles.find((entry) => entry.id === file.id)?.name).toBe('new.md');
+		expect(await db.drafts.get(file.id)).toMatchObject({ name: 'new.md', open: false });
+	});
+
+	it('reuses an exact linked import and keeps distinct or edited documents', async () => {
+		const linked = filesStore.createNew('same.md', '# Original');
+		linked.linkedToDisk = true;
+		const imported = await filesStore.importFiles([mdFile('same.md', '# Original')]);
+		expect(imported.created.map((file) => file.id)).toEqual([linked.id]);
+		expect(filesStore.files).toHaveLength(1);
+		const different = await filesStore.importFiles([mdFile('same.md', '# Different')]);
+		expect(different.created[0]?.id).not.toBe(linked.id);
+		expect(filesStore.files).toHaveLength(2);
+		filesStore.close(linked.id);
+		await filesStore.importFiles([mdFile('same.md', '# Original')]);
+		expect(filesStore.activeId).toBe(linked.id);
+		expect(filesStore.closedFiles.some((file) => file.id === linked.id)).toBe(false);
 	});
 });
 

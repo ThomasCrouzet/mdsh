@@ -300,8 +300,8 @@
 				if (!active) return;
 				void promptStore
 					.prompt({ title: t('palette.renameFilePrompt'), defaultValue: stripExt(active.name) })
-					.then((name) => {
-						if (name !== null) filesStore.rename(active.id, name);
+					.then(async (name) => {
+						if (name !== null) await filesStore.rename(active.id, name);
 					});
 			}
 		},

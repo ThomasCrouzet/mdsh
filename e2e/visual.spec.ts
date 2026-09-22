@@ -82,7 +82,7 @@ test.describe('Snapshots visuels - 3 modes', () => {
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
 		await expect(dialog).toBeVisible();
 		// Capture only the dialog for a stable snapshot.
-		await expect(dialog).toHaveScreenshot('palette.png', {
+		await expect(dialog.locator('.mdsh-dialog-panel')).toHaveScreenshot('palette.png', {
 			maxDiffPixelRatio: 0.02
 		});
 	});

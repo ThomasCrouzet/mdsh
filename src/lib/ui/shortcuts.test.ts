@@ -16,6 +16,7 @@ function makeCallbacks(overrides: Partial<ShortcutCallbacks> = {}) {
 		onSaveToDisk: vi.fn(),
 		getMode: vi.fn(() => 'wysiwyg' as const),
 		setMode: vi.fn(),
+		onNavigateFile: vi.fn(),
 		onToggleSidebar: vi.fn(),
 		onOpenPalette: vi.fn(),
 		onOpenSearch: vi.fn(),
@@ -93,6 +94,29 @@ describe('buildKeydownHandler', () => {
 		expect(cb.setMode).toHaveBeenCalledWith('read');
 		handler(fire('/').event);
 		expect(cb.setMode).toHaveBeenCalledWith('source'); // depuis wysiwyg
+	});
+
+	it.each([false, true])('navigates with Control+Tab, shift=%s', (shiftKey) => {
+		const event = new KeyboardEvent('keydown', {
+			key: 'Tab',
+			ctrlKey: true,
+			shiftKey,
+			cancelable: true
+		});
+		handler(event);
+		expect(cb.onNavigateFile).toHaveBeenCalledWith(shiftKey ? -1 : 1);
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it('keeps Tab and Command+Tab and empty workspaces unchanged', () => {
+		for (const modifiers of [{}, { metaKey: true }]) {
+			const event = new KeyboardEvent('keydown', { key: 'Tab', ...modifiers, cancelable: true });
+			handler(event);
+			expect(event.defaultPrevented).toBe(false);
+		}
+		vi.mocked(cb.getActiveId).mockReturnValue(null);
+		handler(new KeyboardEvent('keydown', { key: 'Tab', ctrlKey: true }));
+		expect(cb.onNavigateFile).not.toHaveBeenCalled();
 	});
 
 	it('selects source mode with ⌘/ like the button and palette', () => {

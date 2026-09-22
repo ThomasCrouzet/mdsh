@@ -78,7 +78,9 @@ Visibility, page-hide, and before-unload events trigger an immediate flush to re
 
 ## Native file access uses session capabilities
 
-The Desktop Beta does not accept JavaScript paths for file commands. A Rust-owned picker or operating-system open event canonicalizes the path and returns an opaque session token. The capability store retains the path and permissions; IndexedDB records cannot recreate a grant after restart.
+The Desktop Beta does not accept JavaScript paths for file commands. A Rust-owned picker or operating-system open event canonicalizes the path and returns an opaque session token. Rust stores approved Markdown paths in `disk-access.json` in the application data directory. It issues new tokens after restart. IndexedDB records cannot add paths to this registry. Removing a disk link revokes its native permission.
+
+The disk-link record keeps the last written content revision across restarts. A restored draft can save through a renewed native token without another picker. External edits still require an overwrite decision. A rename accepts only a filename in the approved directory. It refuses an existing target and keeps file content and permissions. The store serializes rename, save, and unlink operations for each document.
 
 Native writes stage data in the target directory and synchronize it. They then compare a SHA-256 revision immediately before replacement. The operation preserves permissions and uses the platform replacement function. It detects external edits with unchanged size and timestamp. A staging failure keeps the original file.
 

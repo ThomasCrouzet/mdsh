@@ -34,6 +34,13 @@ export interface NativeDiskRead {
 }
 
 export interface TauriDiskIo {
+	restoreGrants(): Promise<NativeDiskGrant[]>;
+	forgetGrant(token: string): Promise<void>;
+	renameFile(
+		token: string,
+		name: string,
+		expectedRevision: string | null
+	): Promise<NativeDiskGrant>;
 	openGrants(multiple: boolean): Promise<NativeDiskGrant[]>;
 	openDirectoryGrants(): Promise<NativeDiskGrant[]>;
 	saveGrant(suggestedName: string): Promise<NativeDiskGrant | null>;
@@ -73,6 +80,7 @@ export interface OpenedDiskFiles {
 
 let io: TauriDiskIo | null = null;
 let ioPromise: Promise<TauriDiskIo> | null = null;
+let restorePromise: Promise<void> | null = null;
 const grantsByPath = new Map<string, NativeDiskGrant>();
 
 function registerGrants(grants: NativeDiskGrant[]): void {
@@ -82,7 +90,20 @@ function registerGrants(grants: NativeDiskGrant[]): void {
 	}
 }
 
-function grantForPath(path: string): NativeDiskGrant {
+async function grantForPath(path: string): Promise<NativeDiskGrant> {
+	if (!grantsByPath.has(path)) {
+		if (!restorePromise) {
+			restorePromise = getIo()
+				.then(async (currentIo) => {
+					registerGrants(await currentIo.restoreGrants());
+				})
+				.catch((error: unknown) => {
+					restorePromise = null;
+					throw error;
+				});
+		}
+		await restorePromise;
+	}
 	const grant = grantsByPath.get(path);
 	if (!grant) throw new Error('Disk capability expired. Choose the file again.');
 	return grant;
@@ -91,6 +112,7 @@ function grantForPath(path: string): NativeDiskGrant {
 export function setTauriDiskIoForTests(value: TauriDiskIo | null): void {
 	io = value;
 	ioPromise = value ? Promise.resolve(value) : null;
+	restorePromise = null;
 	grantsByPath.clear();
 }
 
@@ -112,6 +134,22 @@ export async function createTauriDiskIo(): Promise<TauriDiskIo> {
 	});
 
 	return {
+		async restoreGrants() {
+			const grants = await invoke<Parameters<typeof toGrant>[0][]>('disk_restore_grants');
+			return grants.map(toGrant);
+		},
+		async forgetGrant(token) {
+			await invoke('disk_forget_grant', { token });
+		},
+		async renameFile(token, name, expectedRevision) {
+			return toGrant(
+				await invoke<Parameters<typeof toGrant>[0]>('disk_rename', {
+					token,
+					name,
+					expectedRevision
+				})
+			);
+		},
 		async openGrants(multiple) {
 			const grants = await invoke<
 				Array<{
@@ -223,7 +261,7 @@ export async function tauriWritePath(
 	force = false
 ): Promise<DiskFileMeta> {
 	const currentIo = await getIo();
-	const grant = grantForPath(path);
+	const grant = await grantForPath(path);
 	const stat = await currentIo.writeText(grant.token, content, expectedRevision, force);
 	grant.stat = stat;
 	return stat;
@@ -261,7 +299,33 @@ export async function tauriSaveExportBlob(blob: Blob, suggestedName: string): Pr
 
 export async function tauriReadMeta(path: string): Promise<DiskFileMeta | null> {
 	const currentIo = await getIo();
-	return currentIo.stat(grantForPath(path).token);
+	return currentIo.stat((await grantForPath(path)).token);
+}
+
+export async function tauriRenamePath(
+	path: string,
+	name: string,
+	expectedRevision: string | null
+): Promise<NativeDiskGrant> {
+	const currentIo = await getIo();
+	const grant = await grantForPath(path);
+	const renamed = await currentIo.renameFile(grant.token, name, expectedRevision);
+	grantsByPath.delete(path);
+	registerGrants([renamed]);
+	return renamed;
+}
+
+export async function tauriForgetPath(path: string): Promise<void> {
+	const currentIo = await getIo();
+	let grant: NativeDiskGrant;
+	try {
+		grant = await grantForPath(path);
+	} catch (error) {
+		if (error instanceof Error && error.message.includes('capability expired')) return;
+		throw error;
+	}
+	await currentIo.forgetGrant(grant.token);
+	grantsByPath.delete(path);
 }
 
 export async function tauriCheckPath(path: string): Promise<'ok' | 'broken' | 'permission-needed'> {

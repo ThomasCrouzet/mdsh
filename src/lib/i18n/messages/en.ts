@@ -7,6 +7,11 @@
 // namespace. Plurals use the parenthetical "(s)" form in both locales.
 
 export const en = {
+	'settings.fileNavigation':
+		'Use Ctrl+Tab for the next file and Ctrl+Shift+Tab for the previous file. Some browsers reserve these shortcuts for browser tabs.',
+	'disk.renameFailed': 'Could not rename "{name}" on disk. The file name was not changed.',
+	'disk.renameUnlinked':
+		'This browser cannot rename the disk file. Save the renamed draft to a new file. The original file stays on disk.',
 	// backup
 	'settings.restoreUnchangedSuffix': ' {n} unchanged item(s) kept.',
 	'source.cmFind': 'Find',

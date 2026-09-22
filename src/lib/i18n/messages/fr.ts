@@ -4,6 +4,12 @@
 import type { MessageKey } from './en';
 
 export const fr: Record<MessageKey, string> = {
+	'settings.fileNavigation':
+		'Ctrl+Tab ouvre le fichier suivant et Ctrl+Maj+Tab le précédent. Certains navigateurs réservent ces raccourcis à leurs onglets.',
+	'disk.renameFailed':
+		'Impossible de renommer « {name} » sur le disque. Le nom du fichier reste inchangé.',
+	'disk.renameUnlinked':
+		'Ce navigateur ne peut pas renommer le fichier sur le disque. Enregistrez le brouillon renommé dans un nouveau fichier. Le fichier original reste sur le disque.',
 	// backup
 	'settings.restoreUnchangedSuffix': ' {n} élément(s) inchangé(s) conservé(s).',
 	'source.cmFind': 'Rechercher',

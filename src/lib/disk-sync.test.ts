@@ -34,6 +34,8 @@ vi.mock('./db', async (importOriginal) => {
 });
 
 vi.mock('./disk-tauri', () => ({
+	tauriRenamePath: vi.fn(),
+	tauriForgetPath: vi.fn(async () => {}),
 	tauriPickDirectoryAndOpen: vi.fn(async () => ({ files: [], failed: 0 })),
 	tauriPickAndOpen: vi.fn(async () => ({ files: [], failed: 0 })),
 	tauriPickSaveTarget: vi.fn(async () => null),
@@ -56,6 +58,7 @@ import {
 	openDirectoryFromDisk,
 	openPathsFromDesktop,
 	saveToDisk,
+	renameOnDisk,
 	unlinkFromDisk,
 	refreshBrokenLinks,
 	isDiskLinkingAvailable,
@@ -632,7 +635,8 @@ describe('openFromDisk desktop capability backend', () => {
 				kind: 'path',
 				path: '/tmp/note.md'
 			},
-			'epoch'
+			'epoch',
+			'sha256:open'
 		);
 		expect(fsa.pickAndOpen).not.toHaveBeenCalled();
 	});
@@ -665,6 +669,95 @@ describe('openFromDisk desktop capability backend', () => {
 		expect(created.processedTokens).toEqual(['argv-token']);
 		expect(diskTauri.tauriOpenNativeGrants).toHaveBeenCalledWith([nativeGrant], {});
 		expect(fsa.savePathLink).toHaveBeenCalled();
+	});
+});
+
+describe('rename linked files', () => {
+	beforeEach(() => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(fsa.savePathLink).mockReset();
+		vi.mocked(diskTauri.tauriRenamePath).mockReset();
+		vi.mocked(fsa.getPathLinkWithEpoch).mockResolvedValue({
+			record: { kind: 'path', path: '/tmp/note.md' },
+			epoch: 'epoch',
+			revision: 'sha256:before'
+		});
+	});
+
+	it('stores the native name and revision without changing unsaved content', async () => {
+		const file = makeFile({ linkedToDisk: true, content: 'local edits' });
+		vi.mocked(diskTauri.tauriRenamePath).mockResolvedValue({
+			token: 'token',
+			path: '/tmp/renamed.md',
+			stat: { lastModified: 1, size: 3, revision: 'sha256:before' }
+		});
+		expect(await renameOnDisk('a', 'renamed.md', testDeps([file]))).toBe(true);
+		expect(diskTauri.tauriRenamePath).toHaveBeenCalledWith(
+			'/tmp/note.md',
+			'renamed.md',
+			'sha256:before'
+		);
+		expect(fsa.savePathLink).toHaveBeenCalledWith(
+			'a',
+			{ kind: 'path', path: '/tmp/renamed.md' },
+			'epoch',
+			'sha256:before'
+		);
+		expect(file.content).toBe('local edits');
+		expect(file.dirty).toBe(true);
+	});
+
+	it('rolls back the disk rename when the new link cannot be saved', async () => {
+		const file = makeFile({ linkedToDisk: true, diskRevision: 'sha256:before' });
+		vi.mocked(diskTauri.tauriRenamePath).mockResolvedValue({
+			token: 'token',
+			path: '/tmp/renamed.md',
+			stat: { lastModified: 1, size: 3, revision: 'sha256:before' }
+		});
+		vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('IndexedDB unavailable'));
+		expect(await renameOnDisk('a', 'renamed.md', testDeps([file]))).toBe(false);
+		expect(diskTauri.tauriRenamePath).toHaveBeenLastCalledWith(
+			'/tmp/renamed.md',
+			'note.md',
+			'sha256:before'
+		);
+		expect(file.name).toBe('note.md');
+		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+	});
+
+	it.each(['target exists', 'disk conflict', 'permission denied'])(
+		'keeps the old link on %s',
+		async (message) => {
+			vi.mocked(diskTauri.tauriRenamePath).mockRejectedValue(new Error(message));
+			const file = makeFile({ linkedToDisk: true });
+			expect(await renameOnDisk('a', 'renamed.md', testDeps([file]))).toBe(false);
+			expect(fsa.savePathLink).not.toHaveBeenCalled();
+			expect(file.name).toBe('note.md');
+		}
+	);
+
+	it('rejects missing files and missing disk links', async () => {
+		expect(await renameOnDisk('a', 'renamed.md', testDeps([]))).toBe(false);
+		vi.mocked(fsa.getPathLinkWithEpoch).mockResolvedValue(null);
+		expect(await renameOnDisk('a', 'renamed.md', testDeps([makeFile()]))).toBe(false);
+		expect(diskTauri.tauriRenamePath).not.toHaveBeenCalled();
+	});
+
+	it('detaches browser handles so the next save uses the new draft name', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(false);
+		const file = makeFile({ linkedToDisk: true });
+		expect(await renameOnDisk('a', 'renamed.md', testDeps([file]))).toBe(true);
+		expect(file.linkedToDisk).toBe(false);
+		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
+		expect(diskTauri.tauriRenamePath).not.toHaveBeenCalled();
+		expect(notify.toasts.some((toast) => toast.level === 'info')).toBe(true);
+	});
+
+	it('revokes remembered native access when a link is removed', async () => {
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		await unlinkFromDisk('a', testDeps([makeFile({ linkedToDisk: true })]));
+		expect(diskTauri.tauriForgetPath).toHaveBeenCalledWith('/tmp/note.md');
+		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
 	});
 });
 
@@ -744,7 +837,7 @@ describe('saveToDisk desktop capability backend', () => {
 		});
 
 		expect(await saveToDisk('a', deps)).toBe(true);
-		expect(fsa.savePathLink).toHaveBeenCalledWith('a', pathLink, 'epoch');
+		expect(fsa.savePathLink).toHaveBeenCalledWith('a', pathLink, 'epoch', 'sha256:written');
 		expect(file.linkedToDisk).toBe(true);
 		expect(diskTauri.tauriWritePath).toHaveBeenCalledWith(
 			'/tmp/Chosen.MDX',
@@ -919,7 +1012,8 @@ describe('saveToDisk desktop capability backend', () => {
 				kind: 'path',
 				path: '/tmp/reauthorized.md'
 			},
-			'epoch'
+			'epoch',
+			'sha256:reauthorized'
 		);
 		expect(file.diskRevision).toBe('sha256:reauthorized');
 		expect(file.name).toBe('reauthorized.md');

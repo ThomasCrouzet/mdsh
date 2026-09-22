@@ -25,6 +25,7 @@ export interface FsaLinkRecord {
 export interface PathLinkWithEpoch {
 	record: PathLinkRecord;
 	epoch: string;
+	revision?: string;
 }
 
 /** Unified disk link entry for DiskLinksPanel / broken-link checks. */
@@ -169,14 +170,15 @@ export async function saveHandle(
 export async function savePathLink(
 	id: string,
 	record: PathLinkRecord,
-	capturedEpoch?: string
+	capturedEpoch?: string,
+	revision?: string
 ): Promise<void> {
 	if (!browser) return;
 	const epoch = capturedEpoch ?? (await getDiskLinkEpoch());
 	const db = await openHandleDB();
 	await new Promise<void>((resolve, reject) => {
 		const tx = db.transaction(HANDLE_STORE, 'readwrite');
-		tx.objectStore(HANDLE_STORE).put({ ...record, epoch }, id);
+		tx.objectStore(HANDLE_STORE).put({ ...record, epoch, ...(revision ? { revision } : {}) }, id);
 		tx.oncomplete = () => resolve();
 		tx.onerror = () => reject(tx.error);
 	});
@@ -225,7 +227,12 @@ export async function getPathLinkWithEpoch(id: string): Promise<PathLinkWithEpoc
 	if (!browser) return null;
 	const [value, epoch] = await Promise.all([getStoredLink(id), getDiskLinkEpoch()]);
 	if (!matchesEpoch(value, epoch) || !isPathLinkRecord(value)) return null;
-	return { record: { kind: 'path', path: value.path }, epoch };
+	const revision = (value as StoredPathLinkRecord).revision;
+	return {
+		record: { kind: 'path', path: value.path },
+		epoch,
+		...(typeof revision === 'string' ? { revision } : {})
+	};
 }
 
 export async function revisionForText(content: string): Promise<string> {

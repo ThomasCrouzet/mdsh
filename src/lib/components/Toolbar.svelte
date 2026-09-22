@@ -46,32 +46,28 @@
 	//   - `renameDraft` allows canceling with Esc by reverting to the pre-edit state.
 	//   - `renameSuccess` flashes 800 ms after blur to confirm acknowledgment
 	//     (silent UX otherwise: no feedback that the name was actually saved).
-	let renameSnapshot: string | null = null;
+	let renameSnapshot: { id: string; name: string } | null = null;
+	let renameBusy = $state(false);
 	let renameSuccess = $state(false);
 	let renameSuccessTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function handleRenameFocus() {
 		// Snapshot of the current name to allow canceling via Esc.
-		renameSnapshot = filesStore.active ? stripExt(filesStore.active.name) : null;
+		const active = filesStore.active;
+		renameSnapshot = active ? { id: active.id, name: stripExt(active.name) } : null;
 	}
 
-	function handleRename(e: Event) {
-		const target = e.currentTarget as HTMLInputElement;
-		const active = filesStore.active;
-		if (!active) return;
-		filesStore.rename(active.id, target.value);
-	}
-
-	function handleRenameBlur() {
-		// §B3.5 - Flash success if the name was actually edited (snapshot
-		// different from the current value).
-		const active = filesStore.active;
-		if (!active || renameSnapshot === null) {
-			renameSnapshot = null;
-			return;
-		}
-		const cur = stripExt(active.name);
-		if (cur !== renameSnapshot) {
+	async function handleRenameBlur(event: FocusEvent) {
+		const input = event.currentTarget as HTMLInputElement;
+		const snapshot = renameSnapshot;
+		renameSnapshot = null;
+		if (!snapshot || input.value === snapshot.name) return;
+		renameBusy = true;
+		const renamed = await filesStore.rename(snapshot.id, input.value);
+		renameBusy = false;
+		if (filesStore.active?.id !== snapshot.id) return;
+		input.value = stripExt(filesStore.active.name);
+		if (renamed) {
 			renameSuccess = true;
 			if (renameSuccessTimer) clearTimeout(renameSuccessTimer);
 			renameSuccessTimer = setTimeout(() => {
@@ -79,7 +75,6 @@
 				renameSuccessTimer = null;
 			}, 800);
 		}
-		renameSnapshot = null;
 	}
 
 	function stripExt(name: string) {
@@ -95,9 +90,7 @@
 			e.preventDefault();
 			const input = e.currentTarget as HTMLInputElement;
 			if (renameSnapshot !== null) {
-				input.value = renameSnapshot;
-				const active = filesStore.active;
-				if (active) filesStore.rename(active.id, renameSnapshot);
+				input.value = renameSnapshot.name;
 			}
 			renameSnapshot = null; // avoids the success flash on blur
 			input.blur();
@@ -168,7 +161,7 @@
 				bind:this={nameInput}
 				type="text"
 				value={stripExt(filesStore.active.name)}
-				oninput={handleRename}
+				disabled={renameBusy}
 				onfocus={handleRenameFocus}
 				onblur={handleRenameBlur}
 				onkeydown={handleNameKey}

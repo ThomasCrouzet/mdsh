@@ -59,6 +59,7 @@ On Windows and Linux, the displayed Command shortcuts become Control shortcuts.
 | `Cmd+P`, `Cmd+,`                         | Export PDF, settings                       |
 | `Cmd+E`, `Cmd+R`, `Cmd+/`                | WYSIWYG, reading, source                   |
 | `Cmd+B`, `Cmd+W`, `Cmd+Shift+.`          | Sidebar, close tab, focus mode             |
+| `Ctrl+Tab`, `Ctrl+Shift+Tab`              | Next file, previous file                   |
 | `Cmd+Shift+P`, `Cmd+F`, `Cmd+Shift+F`    | Palette, in-file search, cross-file search |
 
 ## Scope and limits

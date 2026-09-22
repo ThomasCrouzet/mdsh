@@ -456,6 +456,7 @@
 		onExport: handleExport,
 		onExportPDF: handleExportPDF,
 		onSaveToDisk: handleSaveToDisk,
+		onNavigateFile: (direction) => filesStore.navigateFile(direction),
 		getMode: () => mode,
 		setMode: (m) => void requestMode(m),
 		onToggleSidebar: toggleSidebar,

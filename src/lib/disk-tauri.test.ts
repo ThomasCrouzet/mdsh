@@ -10,6 +10,8 @@ import {
 	tauriReadMeta,
 	tauriSaveExportBlob,
 	tauriWritePath,
+	tauriRenamePath,
+	tauriForgetPath,
 	type DiskFileMeta,
 	type NativeDiskGrant,
 	type TauriDiskIo
@@ -33,6 +35,9 @@ const grant = (path: string, token = `token:${path}`): NativeDiskGrant => ({
 
 function mockIo(overrides: Partial<TauriDiskIo> = {}): TauriDiskIo {
 	return {
+		restoreGrants: vi.fn(async () => []),
+		forgetGrant: vi.fn(async () => {}),
+		renameFile: vi.fn(async () => grant('/tmp/renamed.md')),
 		openGrants: vi.fn(async () => []),
 		openDirectoryGrants: vi.fn(async () => []),
 		saveGrant: vi.fn(async () => null),
@@ -54,6 +59,57 @@ beforeEach(() => {
 afterEach(() => setTauriDiskIoForTests(null));
 
 describe('native capability helpers', () => {
+	it('restores only native approved paths and shares one restoration request', async () => {
+		const io = mockIo({ restoreGrants: vi.fn(async () => [grant('/tmp/approved.md', 'renewed')]) });
+		setTauriDiskIoForTests(io);
+		await Promise.all([
+			tauriWritePath('/tmp/approved.md', 'saved', 'sha256:one'),
+			tauriReadMeta('/tmp/approved.md')
+		]);
+		expect(io.restoreGrants).toHaveBeenCalledOnce();
+		expect(io.writeText).toHaveBeenCalledWith('renewed', 'saved', 'sha256:one', false);
+		await expect(tauriWritePath('/tmp/forged.md', 'bad', null)).rejects.toThrow(
+			'capability expired'
+		);
+		expect(io.writeText).toHaveBeenCalledOnce();
+	});
+
+	it('allows a restoration retry after a native storage failure', async () => {
+		const io = mockIo({
+			restoreGrants: vi
+				.fn()
+				.mockRejectedValueOnce(new Error('registry unavailable'))
+				.mockResolvedValue([grant('/tmp/approved.md')])
+		});
+		setTauriDiskIoForTests(io);
+		await expect(tauriReadMeta('/tmp/approved.md')).rejects.toThrow('registry unavailable');
+		await expect(tauriReadMeta('/tmp/approved.md')).resolves.toBeNull();
+		expect(io.restoreGrants).toHaveBeenCalledTimes(2);
+	});
+
+	it('moves the in-memory grant to the renamed path and revokes it on unlink', async () => {
+		const io = mockIo({
+			restoreGrants: vi.fn(async () => [grant('/tmp/old.md', 'approved')]),
+			renameFile: vi.fn(async () => grant('/tmp/new.md', 'approved'))
+		});
+		setTauriDiskIoForTests(io);
+		await tauriRenamePath('/tmp/old.md', 'new.md', 'sha256:one');
+		expect(io.renameFile).toHaveBeenCalledWith('approved', 'new.md', 'sha256:one');
+		await tauriWritePath('/tmp/new.md', 'edited', 'sha256:one');
+		await expect(tauriReadMeta('/tmp/old.md')).rejects.toThrow('capability expired');
+		await tauriForgetPath('/tmp/new.md');
+		expect(io.forgetGrant).toHaveBeenCalledWith('approved');
+		await expect(tauriReadMeta('/tmp/new.md')).rejects.toThrow('capability expired');
+		await tauriForgetPath('/tmp/unknown.md');
+		expect(io.forgetGrant).toHaveBeenCalledOnce();
+	});
+
+	it('reports registry failures during unlink', async () => {
+		setTauriDiskIoForTests(
+			mockIo({ restoreGrants: vi.fn().mockRejectedValue(new Error('registry unavailable')) })
+		);
+		await expect(tauriForgetPath('/tmp/approved.md')).rejects.toThrow('registry unavailable');
+	});
 	it('opens only the files represented by native grants', async () => {
 		const io = mockIo({
 			openGrants: vi.fn(async () => [grant('/tmp/a.md', 'a'), grant('/tmp/b.md', 'b')]),
@@ -190,6 +246,8 @@ describe('desktop export', () => {
 describe('production adapter', () => {
 	it('uses only native dialog commands and token-based disk commands', async () => {
 		tauriMocks.invoke.mockImplementation(async (command: string) => {
+			if (command === 'disk_restore_grants') return [grant('/tmp/restored.md', 'restored-token')];
+			if (command === 'disk_rename') return grant('/tmp/renamed.md', 'open-token');
 			if (command === 'disk_open_dialog') return [grant('/tmp/a.md', 'open-token')];
 			if (command === 'disk_open_directory') return [grant('/tmp/folder/a.md', 'folder-token')];
 			if (command === 'disk_save_dialog') return grant('/tmp/out.md', 'save-token');
@@ -206,6 +264,12 @@ describe('production adapter', () => {
 			return null;
 		});
 		const adapter = await createTauriDiskIo();
+		expect((await adapter.restoreGrants())[0]?.token).toBe('restored-token');
+		expect((await adapter.renameFile('open-token', 'renamed.md', 'sha256:one')).path).toBe(
+			'/tmp/renamed.md'
+		);
+		await adapter.forgetGrant('open-token');
+		expect(tauriMocks.invoke).toHaveBeenCalledWith('disk_forget_grant', { token: 'open-token' });
 		expect((await adapter.openGrants(true))[0]?.token).toBe('open-token');
 		expect((await adapter.openDirectoryGrants())[0]?.token).toBe('folder-token');
 		expect((await adapter.saveGrant('out.md'))?.token).toBe('save-token');
@@ -234,9 +298,9 @@ describe('production adapter', () => {
 	});
 
 	it('caches the production adapter while capabilities remain session-local', async () => {
-		tauriMocks.invoke.mockResolvedValue({ mtimeMs: 1, size: 1, revision: 'sha256:x' });
+		tauriMocks.invoke.mockResolvedValue([]);
 		await expect(tauriReadMeta('/tmp/not-selected.md')).rejects.toThrow('capability expired');
-		expect(tauriMocks.invoke).not.toHaveBeenCalled();
+		expect(tauriMocks.invoke).toHaveBeenCalledExactlyOnceWith('disk_restore_grants');
 	});
 
 	it('shares one lazy load between two concurrent open operations', async () => {

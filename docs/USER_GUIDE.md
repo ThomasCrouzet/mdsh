@@ -32,6 +32,10 @@ Whole-word search includes Unicode letters, marks, numbers, and underscores. Apo
 Before saving a linked file, the app compares its content with the last saved reference. If the check fails, it stops the save.
 An older link without a reference requires an explicit decision before the first write. Use a new target if you cannot verify the file.
 
+In Desktop, change the name in the toolbar and press Enter or leave the field to rename the linked file on disk. Escape cancels the edit. A rename keeps the file in the same folder and refuses a name that another file uses. In a browser, renaming disconnects the old disk link. Save the renamed draft to a new file; the original disk file stays unchanged.
+
+Importing an exact copy of one linked document, with the same name and content, opens its existing tab. A different content version remains a separate draft.
+
 ## Local and remote images
 
 The app embeds images that you add with the picker, clipboard, or drag and drop. Embedded images remain available after a reload and appear in PDF and standalone HTML exports. Older versions created temporary links that cannot be recovered after expiration. Import the image again from its original file.
@@ -67,8 +71,10 @@ The Commands menu shows all active shortcuts. In Settings, you can customize com
 In the sidebar, focus a draft and press Space to change its selection. Press Enter to open the draft.
 Focus another draft and press Shift+Space to select the range. The buttons expose their selection state to screen readers.
 
+Use `Ctrl+Tab` for the next workspace file and `Ctrl+Shift+Tab` for the previous file. Both shortcuts use Control on macOS too. Navigation follows the workspace order and continues from the last file to the first. Some browsers reserve these shortcuts for browser tabs. The Desktop app receives them directly.
+
 ## Desktop Beta app
 
 Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the Desktop prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The release also contains npm and Cargo SBOMs and a provenance attestation.
 
-The macOS version requires macOS 14 or later. Windows uses the Tauri installation mode to install WebView2 if it is absent. Linux packages use WebKitGTK. Each file association and native selection creates an opaque permission for the current session. Open the file again after the next start to restore access.
+The macOS version requires macOS 14 or later. Windows uses the Tauri installation mode to install WebView2 if it is absent. Linux packages use WebKitGTK. Native selections and file associations authorize each Markdown path. The app restores that access after restart, so `Cmd+Shift+S` or `Ctrl+Shift+S` saves the restored draft directly. Removing a disk link revokes access. Files first selected in an older version need one new native selection to enter the access registry.

@@ -1,8 +1,9 @@
 //! Native disk boundary for the desktop shell.
 //!
 //! The webview never grants paths. Native dialogs, process arguments and OS
-//! file-open events create opaque, session-scoped capabilities. Every read,
-//! stat and write command accepts only a capability token.
+//! file-open events create opaque, session-scoped capabilities. Rust remembers
+//! approved Markdown paths and issues new tokens after restart. File commands
+//! accept a token, never an arbitrary path from the webview.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -26,14 +27,51 @@ const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 #[derive(Default)]
 pub struct PendingOpenPaths(pub Mutex<Vec<String>>);
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 struct Capability {
     path: PathBuf,
     can_write: bool,
 }
 
 #[derive(Default)]
-pub struct CapabilityStore(Mutex<HashMap<String, Capability>>);
+struct CapabilityState {
+    grants: HashMap<String, Capability>,
+    registry: Option<PathBuf>,
+}
+
+#[derive(Default)]
+pub struct CapabilityStore(Mutex<CapabilityState>);
+
+impl CapabilityState {
+    fn remembered(&self) -> Result<Vec<Capability>, String> {
+        let Some(path) = &self.registry else {
+            return Ok(Vec::new());
+        };
+        reject_symlink(path)?;
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.to_string()),
+        };
+        if file.metadata().map_err(|error| error.to_string())?.len() > 1024 * 1024 {
+            return Err("disk access registry is too large".to_string());
+        }
+        serde_json::from_reader(file.take(1024 * 1024)).map_err(|error| error.to_string())
+    }
+
+    fn remember(&self, entries: &[Capability]) -> Result<(), String> {
+        let Some(path) = &self.registry else {
+            return Ok(());
+        };
+        fs::create_dir_all(path.parent().ok_or("registry has no parent")?)
+            .map_err(|error| error.to_string())?;
+        let bytes = serde_json::to_vec(entries).map_err(|error| error.to_string())?;
+        if bytes.len() > 1024 * 1024 {
+            return Err("disk access registry is too large".to_string());
+        }
+        atomic_write(path, &bytes, None, true).map(|_| ())
+    }
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,6 +147,14 @@ impl PendingOpenPaths {
 }
 
 impl CapabilityStore {
+    pub fn set_registry(&self, path: PathBuf) -> Result<(), String> {
+        self.0
+            .lock()
+            .map_err(|_| "capability store unavailable")?
+            .registry = Some(path);
+        Ok(())
+    }
+
     pub fn grant_native_path(&self, path: &Path, can_write: bool) -> Result<DiskGrant, String> {
         let normalized = path_key(path)?;
         if can_write {
@@ -126,16 +172,23 @@ impl CapabilityStore {
         }
         let token = Uuid::new_v4().to_string();
         let stat = stat_path(&normalized)?;
-        self.0
-            .lock()
-            .map_err(|_| "capability store unavailable".to_string())?
-            .insert(
-                token.clone(),
-                Capability {
-                    path: normalized.clone(),
-                    can_write,
-                },
-            );
+        let capability = Capability {
+            path: normalized.clone(),
+            can_write,
+        };
+        let mut state = self.0.lock().map_err(|_| "capability store unavailable")?;
+        if can_write && ensure_read_allowed(&normalized).is_ok() {
+            let mut entries = state.remembered()?;
+            if !entries
+                .iter()
+                .any(|entry| entry.path == normalized && entry.can_write)
+            {
+                entries.retain(|entry| entry.path != normalized);
+                entries.push(capability.clone());
+                state.remember(&entries)?;
+            }
+        }
+        state.grants.insert(token.clone(), capability);
         Ok(DiskGrant {
             token,
             path: normalized.to_string_lossy().into_owned(),
@@ -144,19 +197,150 @@ impl CapabilityStore {
     }
 
     fn resolve(&self, token: &str, write: bool) -> Result<PathBuf, String> {
-        let capability = self
-            .0
-            .lock()
-            .map_err(|_| "capability store unavailable".to_string())?
+        let state = self.0.lock().map_err(|_| "capability store unavailable")?;
+        Self::resolve_in(&state, token, write)
+    }
+
+    fn resolve_in(state: &CapabilityState, token: &str, write: bool) -> Result<PathBuf, String> {
+        let capability = state
+            .grants
             .get(token)
-            .cloned()
             .ok_or_else(|| "invalid or expired disk capability".to_string())?;
         if write && !capability.can_write {
             return Err("disk capability is read-only".to_string());
         }
-        reject_symlink(&capability.path)?;
-        Ok(capability.path)
+        if path_key(&capability.path)? != capability.path {
+            return Err("disk path changed since it was approved".to_string());
+        }
+        Ok(capability.path.clone())
     }
+
+    fn restore(&self) -> Result<Vec<DiskGrant>, String> {
+        let mut state = self.0.lock().map_err(|_| "capability store unavailable")?;
+        let entries = state.remembered()?;
+        let mut restored = Vec::new();
+        for entry in entries {
+            if !entry.can_write
+                || ensure_read_allowed(&entry.path).is_err()
+                || path_key(&entry.path).ok().as_ref() != Some(&entry.path)
+            {
+                continue;
+            }
+            let Ok(stat) = stat_path(&entry.path) else {
+                continue;
+            };
+            if stat.as_ref().is_some_and(|stat| stat.size > MAX_FILE_BYTES) {
+                continue;
+            }
+            let token = state
+                .grants
+                .iter()
+                .find(|(_, known)| known.path == entry.path && known.can_write)
+                .map(|(token, _)| token.clone())
+                .unwrap_or_else(|| Uuid::new_v4().to_string());
+            restored.push(DiskGrant {
+                token: token.clone(),
+                path: entry.path.to_string_lossy().into_owned(),
+                stat,
+            });
+            state.grants.insert(token, entry);
+        }
+        Ok(restored)
+    }
+
+    fn forget(&self, token: &str) -> Result<(), String> {
+        let mut state = self.0.lock().map_err(|_| "capability store unavailable")?;
+        let path = state
+            .grants
+            .get(token)
+            .ok_or("invalid or expired disk capability")?
+            .path
+            .clone();
+        let mut entries = state.remembered()?;
+        entries.retain(|entry| entry.path != path);
+        state.remember(&entries)?;
+        state.grants.retain(|_, entry| entry.path != path);
+        Ok(())
+    }
+
+    fn write(
+        &self,
+        token: &str,
+        contents: &[u8],
+        expected: Option<&str>,
+        force: bool,
+    ) -> Result<DiskStat, String> {
+        let state = self.0.lock().map_err(|_| "capability store unavailable")?;
+        let path = Self::resolve_in(&state, token, true)?;
+        atomic_write(&path, contents, expected, force)
+    }
+
+    fn rename(&self, token: &str, name: &str, expected: Option<&str>) -> Result<DiskGrant, String> {
+        if name.is_empty()
+            || name.trim() != name
+            || name.ends_with('.')
+            || name
+                .chars()
+                .any(|ch| ch.is_control() || "/\\:<>\"|?*".contains(ch))
+            || name == "."
+            || name == ".."
+        {
+            return Err("invalid disk filename".to_string());
+        }
+        let mut state = self.0.lock().map_err(|_| "capability store unavailable")?;
+        let source = Self::resolve_in(&state, token, true)?;
+        ensure_read_allowed(&source)?;
+        let target = source
+            .parent()
+            .ok_or("disk target has no parent")?
+            .join(name);
+        ensure_read_allowed(&target)?;
+        ensure_expected_revision(&source, expected, false)?;
+        let stat = stat_path(&source)?.ok_or("disk file is missing")?;
+        if source != target {
+            let original = state.remembered()?;
+            let mut updated = original.clone();
+            updated.retain(|entry| entry.path != source && entry.path != target);
+            updated.push(Capability {
+                path: target.clone(),
+                can_write: true,
+            });
+            // Prepare durable access before changing the disk entry.
+            state.remember(&updated)?;
+            if let Err(error) = rename_without_replace(&source, &target) {
+                state.remember(&original)?;
+                return Err(error);
+            }
+            for entry in state
+                .grants
+                .values_mut()
+                .filter(|entry| entry.path == source)
+            {
+                entry.path = target.clone();
+            }
+        }
+        Ok(DiskGrant {
+            token: token.to_string(),
+            path: target.to_string_lossy().into_owned(),
+            stat: Some(stat),
+        })
+    }
+}
+
+fn rename_without_replace(source: &Path, target: &Path) -> Result<(), String> {
+    reject_symlink(target)?;
+    if target.canonicalize().ok().as_deref() == Some(source) {
+        return fs::rename(source, target).map_err(|error| error.to_string());
+    }
+    // A hard link creates the new entry only if the name is free. Both names
+    // are in the same directory, so content and permissions stay unchanged.
+    fs::hard_link(source, target).map_err(|error| error.to_string())?;
+    if let Err(error) = fs::remove_file(source) {
+        fs::remove_file(target)
+            .map_err(|cleanup| format!("{error}; rename rollback: {cleanup}"))?;
+        return Err(error.to_string());
+    }
+    Ok(())
 }
 
 fn path_key(path: &Path) -> Result<PathBuf, String> {
@@ -363,11 +547,14 @@ fn atomic_write(
     reject_symlink(path)?;
     let temp = temporary_path(path)?;
     let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-            .map_err(|error| error.to_string())?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temp).map_err(|error| error.to_string())?;
         if let Ok(metadata) = fs::metadata(path) {
             fs::set_permissions(&temp, metadata.permissions())
                 .map_err(|error| error.to_string())?;
@@ -615,9 +802,8 @@ pub async fn disk_write(
     expected_revision: Option<String>,
     force: bool,
 ) -> Result<DiskStat, String> {
-    let path = capabilities.resolve(&token, true)?;
-    atomic_write(
-        &path,
+    capabilities.write(
+        &token,
         content.as_bytes(),
         expected_revision.as_deref(),
         force,
@@ -632,8 +818,32 @@ pub async fn disk_write_bytes(
     expected_revision: Option<String>,
     force: bool,
 ) -> Result<DiskStat, String> {
-    let path = capabilities.resolve(&token, true)?;
-    atomic_write(&path, &contents, expected_revision.as_deref(), force)
+    capabilities.write(&token, &contents, expected_revision.as_deref(), force)
+}
+
+#[tauri::command]
+pub async fn disk_restore_grants(
+    capabilities: tauri::State<'_, CapabilityStore>,
+) -> Result<Vec<DiskGrant>, String> {
+    capabilities.restore()
+}
+
+#[tauri::command]
+pub async fn disk_forget_grant(
+    capabilities: tauri::State<'_, CapabilityStore>,
+    token: String,
+) -> Result<(), String> {
+    capabilities.forget(&token)
+}
+
+#[tauri::command]
+pub async fn disk_rename(
+    capabilities: tauri::State<'_, CapabilityStore>,
+    token: String,
+    name: String,
+    expected_revision: Option<String>,
+) -> Result<DiskGrant, String> {
+    capabilities.rename(&token, &name, expected_revision.as_deref())
 }
 
 #[tauri::command]
@@ -821,6 +1031,191 @@ mod tests {
             std::process::id(),
             Uuid::new_v4()
         ))
+    }
+
+    #[test]
+    fn approved_paths_survive_restart_with_new_tokens_and_can_be_forgotten() {
+        let path = temp_path("md");
+        let registry = temp_path("json");
+        fs::write(&path, "before").unwrap();
+        let first = CapabilityStore::default();
+        first.set_registry(registry.clone()).unwrap();
+        let original = first.grant_native_path(&path, true).unwrap();
+        let second = CapabilityStore::default();
+        second.set_registry(registry.clone()).unwrap();
+        assert!(second.resolve(&original.token, true).is_err());
+        let restored = second.restore().unwrap();
+        assert_eq!(restored.len(), 1);
+        assert_ne!(restored[0].token, original.token);
+        assert_eq!(restored[0].path, original.path);
+        assert_eq!(second.restore().unwrap()[0].token, restored[0].token);
+        second
+            .write(
+                &restored[0].token,
+                b"after",
+                original.stat.as_ref().map(|stat| stat.revision.as_str()),
+                false,
+            )
+            .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "after");
+        second.forget(&restored[0].token).unwrap();
+        assert!(second.resolve(&restored[0].token, true).is_err());
+        assert!(second.restore().unwrap().is_empty());
+        for file in [path, registry] {
+            fs::remove_file(file).unwrap();
+        }
+    }
+
+    #[test]
+    fn restore_does_not_grant_export_targets_or_read_only_files() {
+        let registry = temp_path("json");
+        let markdown = temp_path("md");
+        let export = temp_path("html");
+        fs::write(&markdown, "read only").unwrap();
+        let store = CapabilityStore::default();
+        store.set_registry(registry.clone()).unwrap();
+        store.grant_native_path(&markdown, false).unwrap();
+        store.grant_native_path(&export, true).unwrap();
+        assert!(store.restore().unwrap().is_empty());
+        assert!(!registry.exists());
+        fs::remove_file(markdown).unwrap();
+    }
+
+    #[test]
+    fn registry_failure_does_not_issue_a_grant_or_change_the_file() {
+        let registry = temp_path("json");
+        let path = temp_path("md");
+        fs::write(&registry, "not json").unwrap();
+        fs::write(&path, "original").unwrap();
+        let store = CapabilityStore::default();
+        store.set_registry(registry.clone()).unwrap();
+        assert!(store.restore().is_err());
+        assert!(store.grant_native_path(&path, true).is_err());
+        assert!(store.0.lock().unwrap().grants.is_empty());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+        for file in [path, registry] {
+            fs::remove_file(file).unwrap();
+        }
+    }
+
+    #[test]
+    fn rename_preserves_content_permissions_capabilities_and_restart_access() {
+        let source = temp_path("md");
+        let target = temp_path("md");
+        let registry = temp_path("json");
+        fs::write(&source, "original").unwrap();
+        let permissions = fs::metadata(&source).unwrap().permissions();
+        let store = CapabilityStore::default();
+        store.set_registry(registry.clone()).unwrap();
+        let grant = store.grant_native_path(&source, true).unwrap();
+        let second_token = store.grant_native_path(&source, true).unwrap().token;
+        let renamed = store
+            .rename(
+                &grant.token,
+                target.file_name().unwrap().to_str().unwrap(),
+                Some(&grant.stat.unwrap().revision),
+            )
+            .unwrap();
+        assert!(!source.exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "original");
+        assert_eq!(fs::metadata(&target).unwrap().permissions(), permissions);
+        assert_eq!(
+            store.resolve(&second_token, true).unwrap(),
+            target.canonicalize().unwrap()
+        );
+        store
+            .write(
+                &renamed.token,
+                b"saved",
+                renamed.stat.as_ref().map(|stat| stat.revision.as_str()),
+                false,
+            )
+            .unwrap();
+        let restarted = CapabilityStore::default();
+        restarted.set_registry(registry.clone()).unwrap();
+        let restored = restarted.restore().unwrap();
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].path, renamed.path);
+        assert_eq!(
+            read_capability(&restarted, &restored[0].token)
+                .unwrap()
+                .1
+                .content,
+            "saved"
+        );
+        for file in [target, registry] {
+            fs::remove_file(file).unwrap();
+        }
+    }
+
+    #[test]
+    fn rename_rejects_collisions_changes_invalid_names_and_read_only_grants() {
+        let source = temp_path("md");
+        let target = temp_path("md");
+        let registry = temp_path("json");
+        fs::write(&source, "original").unwrap();
+        fs::write(&target, "keep target").unwrap();
+        let store = CapabilityStore::default();
+        store.set_registry(registry.clone()).unwrap();
+        let grant = store.grant_native_path(&source, true).unwrap();
+        let revision = grant.stat.unwrap().revision;
+        let name = target.file_name().unwrap().to_str().unwrap();
+        assert!(store.rename(&grant.token, name, Some(&revision)).is_err());
+        for invalid in [
+            "../escape.md",
+            "/escape.md",
+            "a\\b.md",
+            "file.html",
+            "note.md:stream",
+            "\0.md",
+            "",
+            "..",
+            " note.md",
+            "note.md.",
+        ] {
+            assert!(
+                store
+                    .rename(&grant.token, invalid, Some(&revision))
+                    .is_err(),
+                "{invalid:?}"
+            );
+        }
+        assert_eq!(store.restore().unwrap()[0].path, grant.path);
+        assert_eq!(fs::read_to_string(&source).unwrap(), "original");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "keep target");
+        let read_only = store.grant_native_path(&source, false).unwrap();
+        assert!(store
+            .rename(&read_only.token, "changed.md", Some(&revision))
+            .is_err());
+        fs::write(&source, "external").unwrap();
+        assert!(store
+            .rename(&grant.token, "changed.md", Some(&revision))
+            .err()
+            .unwrap()
+            .contains("disk conflict"));
+        assert_eq!(fs::read_to_string(&source).unwrap(), "external");
+        for file in [source, target, registry] {
+            fs::remove_file(file).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restored_access_rejects_symlink_substitution() {
+        let source = temp_path("md");
+        let target = temp_path("md");
+        let registry = temp_path("json");
+        fs::write(&source, "selected").unwrap();
+        fs::write(&target, "unselected").unwrap();
+        let store = CapabilityStore::default();
+        store.set_registry(registry.clone()).unwrap();
+        store.grant_native_path(&source, true).unwrap();
+        fs::remove_file(&source).unwrap();
+        std::os::unix::fs::symlink(&target, &source).unwrap();
+        assert!(store.restore().unwrap().is_empty());
+        for file in [source, target, registry] {
+            fs::remove_file(file).unwrap();
+        }
     }
 
     #[test]

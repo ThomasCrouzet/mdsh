@@ -31,7 +31,9 @@ The production CSP blocks unauthorized scripts, objects, forms, and external fra
 
 ## Desktop threat model
 
-The Desktop Beta treats the WebView as potentially compromised. JavaScript cannot grant itself an arbitrary path. A native file picker or an operating-system file-open event canonicalizes an allowed path and creates an opaque, random, session-only capability token in Rust. Read, stat, and write commands accept that token rather than a path. Persisted browser records are not treated as native capabilities and require a fresh picker after restart.
+The Desktop Beta treats the WebView as potentially compromised. JavaScript cannot grant itself an arbitrary path. A native file picker or an operating-system file-open event canonicalizes an allowed path and creates an opaque, random, session-only capability token in Rust. Read, stat, write, and rename commands accept that token rather than a path. Rust keeps approved Markdown paths in a local access registry and issues new tokens after restart. Browser records cannot add entries to this registry. Removing a disk link also removes its native access. Exports do not restore access to non-Markdown targets.
+
+A rename accepts a filename in the same approved directory. It rejects traversal, unsupported extensions, and existing targets. Native writes and renames share a lock. The local access registry uses the same atomic write mechanism as documents and owner-only permissions on Unix when first created.
 
 Native file operations reject relative paths, parent traversal, unsupported extensions, and symlink substitutions. Writes use a same-directory temporary file, file synchronization, permission preservation, a final content-revision conflict check, atomic replacement, and directory synchronization where supported. An external edit requires an explicit user decision. Windows uses the native replace API for an existing target.
 
