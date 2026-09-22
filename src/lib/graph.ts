@@ -1,6 +1,6 @@
 // §2.9 - Graph of links between files (pure, testable logic).
 //
-// Nodes = open files; edges = wiki-links `[[Target]]` resolved to an existing
+// Nodes = library documents; edges = wiki-links `[[Target]]` resolved to an existing
 // file. IN-HOUSE force-directed layout (simplified Fruchterman-Reingold) - no
 // graph library (d3/cytoscape would blow up the bundle budget). Deterministic:
 // initial positions on a circle (indexed), no Math.random - same input ⇒ same

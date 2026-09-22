@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { notify } from '$lib/notify.svelte';
 
 const pwa = vi.hoisted(() => ({
@@ -22,6 +22,7 @@ vi.mock('$lib/files.svelte', () => ({
 }));
 
 beforeEach(() => {
+	vi.stubGlobal('navigator', { serviceWorker: {} });
 	notify.clear();
 	pwa.options = null;
 	pwa.update.mockClear();
@@ -32,6 +33,8 @@ beforeEach(() => {
 		return pwa.update;
 	});
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('PWA update glue', () => {
 	it('waits for writes to finish before activation', async () => {

@@ -10,6 +10,7 @@
 // Logic extracted from `+page.svelte` (L352-398, L458-467).
 
 import { browser } from '$app/environment';
+import { readPreference, writePreference } from '$lib/preferences';
 
 // Structural interface matching the exports of SourceEditor.svelte
 // (avoids importing the component, incompatible with InstanceType in Svelte 5).
@@ -67,7 +68,7 @@ export function createUiPrefs(opts: UiPrefsOptions) {
 		void opts.getTocEmpty();
 		void opts.getActiveId();
 		document.body.classList.toggle('focus-mode', focusMode);
-		localStorage.setItem('mdsh:focus', focusMode ? '1' : '0');
+		writePreference('mdsh:focus', focusMode ? '1' : '0');
 		const periph = document.querySelectorAll<HTMLElement>(
 			'#app-toolbar, #app-statusbar, .mdsh-toc-col'
 		);
@@ -85,7 +86,7 @@ export function createUiPrefs(opts: UiPrefsOptions) {
 	$effect(() => {
 		if (!browser || !opts.getHydrated()) return;
 		document.body.classList.toggle('typewriter-mode', typewriterMode);
-		localStorage.setItem('mdsh:typewriter', typewriterMode ? '1' : '0');
+		writePreference('mdsh:typewriter', typewriterMode ? '1' : '0');
 	});
 
 	// Propagates the mode state to the SourceEditor (CodeMirror Compartment).
@@ -99,9 +100,9 @@ export function createUiPrefs(opts: UiPrefsOptions) {
 	// Load from localStorage (to call in onMount, before hydrated = true).
 	function loadPersistedPrefs() {
 		if (!browser) return;
-		focusMode = localStorage.getItem('mdsh:focus') === '1';
-		typewriterMode = localStorage.getItem('mdsh:typewriter') === '1';
-		tocVisible = localStorage.getItem('mdsh:toc') !== '0';
+		focusMode = readPreference('mdsh:focus') === '1';
+		typewriterMode = readPreference('mdsh:typewriter') === '1';
+		tocVisible = readPreference('mdsh:toc') !== '0';
 	}
 
 	function toggleFocusMode() {
@@ -114,6 +115,7 @@ export function createUiPrefs(opts: UiPrefsOptions) {
 
 	function toggleToc() {
 		tocVisible = !tocVisible;
+		writePreference('mdsh:toc', tocVisible ? '1' : '0');
 	}
 
 	return {

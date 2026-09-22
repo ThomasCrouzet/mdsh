@@ -48,6 +48,10 @@ describe('uniqueName', () => {
 });
 
 describe('normalizeRename', () => {
+	it('keeps supported extensions regardless of case', () => {
+		expect(normalizeRename('README.MD')).toBe('README.MD');
+		expect(normalizeRename('notes.txt')).toBe('notes.txt');
+	});
 	it('adds .md when it is missing', () => {
 		expect(normalizeRename('mon-doc')).toBe('mon-doc.md');
 	});

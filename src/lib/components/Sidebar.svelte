@@ -27,9 +27,10 @@
 		onClose: () => void;
 		onNew: () => void;
 		onImport: () => Promise<void> | void;
+		onOpenLibrary?: () => void;
 	}
 
-	let { open, focusMode = false, onClose, onNew, onImport }: Props = $props();
+	let { open, focusMode = false, onClose, onNew, onImport, onOpenLibrary }: Props = $props();
 
 	let draggingId = $state<string | null>(null);
 	let dragOverId = $state<string | null>(null);
@@ -56,7 +57,11 @@
 
 	// §5.1 - List of unique tags computed from the store. Recomputed on every
 	// corpus change via $derived (runes reactivity).
-	const tags = $derived(filesStore.allTags);
+	const tags = $derived(
+		[...new Set(filesStore.files.flatMap((file) => filesStore.getTags(file.id)))].sort((a, b) =>
+			a.localeCompare(b)
+		)
+	);
 
 	// Auto-reset the filter if the active tag no longer exists in the corpus.
 	$effect(() => {
@@ -143,7 +148,7 @@
 	// clicks - no Shift/Cmd to handle, "open the file" behavior.
 	function selectFile(id: string) {
 		filesStore.selectionClear();
-		filesStore.setActive(id);
+		filesStore.openDocument(id);
 		lastClickedId = id;
 		if (window.innerWidth < 768) onClose();
 	}
@@ -348,6 +353,16 @@
 		</button>
 	</div>
 
+	{#if onOpenLibrary}
+		<button
+			class="m-2 rounded border border-border px-3 py-2 text-left text-sm text-fg-muted hover:bg-bg-2"
+			onclick={(event) => {
+				event.currentTarget.focus({ preventScroll: true });
+				if (isMobile) onClose();
+				onOpenLibrary?.();
+			}}>{t('library.title')} ({filesStore.library.length})</button
+		>
+	{/if}
 	<!-- §5.1 - Tag filter (chips). Visible only if at least 1 tag
 	     in the corpus. The "All" button resets the filter. -->
 	{#if tags.length > 0}

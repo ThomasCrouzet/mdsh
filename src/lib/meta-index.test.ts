@@ -48,6 +48,8 @@ describe('MetaIndex - displayTitle', () => {
 		const f = makeFile({ id: '3', name: 'note.md', content: '# Premier Titre\n\nbody' });
 		files.push(f);
 		expect(index.displayTitle('3')).toBe('note');
+		expect(index.documentTitle('3')).toBe('Premier Titre');
+		expect(index.documentTitle('missing')).toBe('');
 	});
 
 	it('returns the H1 when front matter has no title', () => {

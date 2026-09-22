@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
+	import { readPreference, writePreference } from '$lib/preferences';
 	import { browser } from '$app/environment';
 	import { t, i18n } from '$lib/i18n';
 	import SourceEditor from '$lib/components/SourceEditor.svelte';
@@ -35,7 +36,22 @@
 	import { initDesktopShell, type DesktopMenuAction } from '$lib/desktop-shell';
 
 	let mode = $state<EditMode>('wysiwyg');
+	let documentTool = $state<'find' | 'outline' | null>(null);
+	function openDocumentTool(kind: 'find' | 'outline') {
+		documentTool = kind;
+		void tick().then(() =>
+			document
+				.querySelector<HTMLElement>(
+					'[data-document-navigation] input, [data-document-navigation] button'
+				)
+				?.focus()
+		);
+	}
+	function openOutline() {
+		openDocumentTool('outline');
+	}
 	async function requestMode(nextMode: EditMode): Promise<void> {
+		documentTool = null;
 		const activeId = filesStore.activeId;
 		if (nextMode !== 'source' && activeId && filesStore.requiresRenderConfirmation(activeId)) {
 			const accepted = await promptStore.confirm({
@@ -128,11 +144,36 @@
 		getMode: () => mode,
 		setMode: (m) => void requestMode(m),
 		getFilesStoreActive: () => filesStore.active,
-		getFilesStoreSetActive: () => filesStore.setActive.bind(filesStore),
+		getFilesStoreSetActive: () => filesStore.openDocument.bind(filesStore),
 		getSourceEditorRef: () => sourceEditorRef,
 		announceContext,
 		setPendingGoToHit: (v) => (pendingGoToHit = v),
 		setPendingOpenSearch: (v) => (pendingOpenSearch = v)
+	});
+
+	let hadDialog = false;
+	let dialogTrigger: HTMLElement | null = null;
+	$effect.pre(() => {
+		if (!browser) return;
+		const open = modals.anyOpen || promptStore.open;
+		if (open && !hadDialog) dialogTrigger = document.activeElement as HTMLElement | null;
+		if (!open && hadDialog) {
+			void tick().then(() => {
+				const focused = document.activeElement;
+				if (
+					focused &&
+					focused !== document.body &&
+					focused !== document.documentElement &&
+					!focused.closest('[inert]')
+				)
+					return;
+				const trigger = dialogTrigger;
+				if (trigger?.isConnected && !trigger.closest('[inert]') && trigger.getClientRects().length)
+					trigger.focus({ preventScroll: true });
+				else document.querySelector<HTMLElement>('[data-actions-trigger]')?.focus();
+			});
+		}
+		hadDialog = open;
 	});
 
 	// §P3.3 - File intents (launchQueue, shareTarget, title, flush) delegated to
@@ -163,9 +204,9 @@
 			// Locale applied on mount (after hydration: the prerendered render and
 			// the first client render are in English by default, no mismatch).
 			i18n.load();
-			const saved = localStorage.getItem('mdsh:sidebar');
+			const saved = readPreference('mdsh:sidebar');
 			sidebarOpen = window.innerWidth >= 768 && saved !== 'closed';
-			const savedMode = localStorage.getItem('mdsh:mode') as EditMode | null;
+			const savedMode = readPreference('mdsh:mode') as EditMode | null;
 			if (savedMode === 'wysiwyg' || savedMode === 'source' || savedMode === 'read') {
 				mode = savedMode;
 			}
@@ -229,8 +270,8 @@
 
 	$effect(() => {
 		if (!hydrated) return;
-		localStorage.setItem('mdsh:sidebar', sidebarOpen ? 'open' : 'closed');
-		localStorage.setItem('mdsh:mode', mode);
+		writePreference('mdsh:sidebar', sidebarOpen ? 'open' : 'closed');
+		writePreference('mdsh:mode', mode);
 	});
 
 	function toggleSidebar() {
@@ -408,32 +449,19 @@
 		if (mode !== 'source' || !pendingGoToHit) return;
 		const ref = sourceEditorRef;
 		if (!ref) return;
+		if (ref.getFileId() !== filesStore.activeId) return;
 		const { line, query } = pendingGoToHit;
 		pendingGoToHit = null;
 		ref.goToLine?.(line, query);
 	});
 
-	/**
-	 * §5.13 - Search & replace in-file (`⌘F`). We rely on CodeMirror 6's built-in
-	 * panel (`@codemirror/search`) which already covers search, replace,
-	 * case-sensitive, regex and F3/Shift-F3 navigation.
-	 *
-	 * ProseMirror has no equivalent built-in search. A custom overlay would need
-	 * to track split text nodes and recalculate decorations after each edit.
-	 * Therefore, `⌘F` switches WYSIWYG or reading mode to source mode. Use `⌘E`
-	 * to return.
-	 */
+	/** Keep visual find in the current mode. Source uses CodeMirror search and replace. */
 	function openInFileSearch() {
 		if (!filesStore.active) return;
 		if (mode === 'source') {
 			sourceEditorRef?.openSearch();
 		} else {
-			pendingOpenSearch = true;
-			mode = 'source';
-			// §B2.2 - SR announcement: without it, the SR user just sees their screen
-			// jump from WYSIWYG/reading to source with no context. `modeAnnounce`
-			// would say "Markdown source mode" but without the cause (the search).
-			announceContext(t('page.switchToSourceForSearch'));
+			openDocumentTool('find');
 		}
 	}
 
@@ -532,6 +560,7 @@
 		onClose={() => (sidebarOpen = false)}
 		onNew={handleNew}
 		onImport={handleImport}
+		onOpenLibrary={modals.openLibrary}
 	/>
 
 	<div
@@ -546,6 +575,7 @@
 			onExport={handleExport}
 			onExportPDF={handleExportPDF}
 			onOpenPalette={modals.openPalette}
+			onOpenActions={modals.openActions}
 			onSaveToDisk={handleSaveToDisk}
 		/>
 
@@ -558,6 +588,11 @@
 			tabindex="-1"
 		>
 			<EditorPane
+				libraryCount={filesStore.library.length}
+				{documentTool}
+				onCloseTool={() => {
+					documentTool = null;
+				}}
 				activeFile={filesStore.active}
 				{mode}
 				{editorWidth}
@@ -578,7 +613,7 @@
 			/>
 		</main>
 
-		<StatusBar />
+		<StatusBar onOpenSettings={modals.openSettings} />
 	</div>
 </div>
 
@@ -645,6 +680,7 @@
      The open state and memoized loaders live in `modals` (createModals).
      Lazy-load is preserved: no modal bytes are pulled before the 1st opening. -->
 <Modals
+	onOpenOutline={openOutline}
 	{modals}
 	{editorWidth}
 	{prefs}

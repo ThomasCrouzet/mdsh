@@ -6,6 +6,12 @@ Open the [web app](https://thomascrouzet.github.io/mdsh/) and create a document.
 
 Closing a tab keeps the document in the library. The delete command moves it to the trash for 30 days. Open the library and trash from the sidebar.
 
+The **Actions** button gives direct access to documents, search, export, and settings. The keyboard icon opens all commands and their shortcuts. Labels use Command on macOS and Control on Windows and Linux. File navigation uses Control on every platform.
+
+Open **Document library** to filter open and closed documents by filename, title, or tag. The list shows recent changes first. It also lists unresolved or ambiguous wiki links. Open the referring document to correct a target.
+
+**Document outline** in Actions works in all three modes and on small screens. Source mode includes headings outside code and front matter. Reading and WYSIWYG modes use the visible headings. Find in document keeps the current mode. In source mode, the search panel also supports replacement.
+
 Source mode keeps a separate undo history for each recently used draft. A change of draft cannot undo content from another draft.
 The current browser session keeps editor positions for up to 32 recently used drafts. Reloading clears undo history, but keeps these positions.
 
@@ -28,6 +34,10 @@ On supported systems, opening a file with the installed PWA uses the same import
 ## Search and disk links
 
 Whole-word search includes Unicode letters, marks, numbers, and underscores. Apostrophes and hyphens separate words. Search and replacement use the same boundaries.
+
+Cross-file search includes closed documents by default. Select **Open tabs** to limit its scope. Replacement uses the selected scope and saves a history checkpoint. Search shows up to 200 matching lines and reports this limit.
+
+Wiki links reopen closed targets without making a copy. A rename updates incoming name-based links, including links in closed documents. Code examples and displayed aliases stay intact. A backup merge updates identifier-based links to the imported IDs. If several documents have the same target name, select the correct document in the library.
 
 Before saving a linked file, the app compares its content with the last saved reference. If the check fails, it stops the save.
 An older link without a reference requires an explicit decision before the first write. Use a new target if you cannot verify the file.
@@ -52,6 +62,10 @@ Mermaid diagrams reject images and network styles. Put images directly in the Ma
 
 Settings shows whether the browser granted persistent storage. It also shows the estimated quota and the date of the latest successful external backup. Export a backup regularly. Always make one before you clear browser data or change profiles.
 
+The status bar identifies local draft saves. A linked disk file requires the explicit **Save to disk** action. The backup reminder opens Settings. You can dismiss the reminder for a week.
+
+Select **Check a backup** to validate a JSON file or decrypt and validate an encrypted backup without changing your library. A restore first shows the backup date and document counts, then asks whether to merge or replace. In a browser, wait for the download to finish before you rely on an exported file.
+
 A backup contains open and closed documents, workspaces, and custom templates. It excludes trash, version history, browser file handles, and Desktop path permissions. The format accepts up to 3,000 documents, 300 workspaces, 16 MiB per document, and 64 MiB in total. The app checks these limits before it reports a successful download. You cannot recover an encrypted backup without its passphrase.
 
 Replace mode keeps old documents in the trash and preserves variants that share an identifier. Merge mode assigns new identifiers to added drafts and updates workspace references.
@@ -63,6 +77,12 @@ Replace mode also disconnects disk links. Imported content cannot reuse an old f
 PDF export renders content, embedded images, formulas, code blocks, and diagrams before it opens the print dialog. The app reports success only after preparation finishes. Select a PDF printer in the browser or system dialog. You can disable browser headers and footers in that dialog.
 
 The standalone HTML file embeds its styles, images, and required KaTeX fonts. You can read the local file without a network. Markdown, ZIP, and HTML exports do not include direct disk-access permissions.
+
+**Export all files (ZIP)** includes open and closed documents in the library. **Export open tabs as ZIP** limits the archive to the current session. Selection export includes only selected tabs.
+
+## Templates
+
+Use Commands to create a document from a built-in or custom template, or save the current document as a template. Settings contains **Manage templates** for editing and deleting custom templates. The `{{date}}` variable uses the local calendar date. Built-in template labels follow the interface language.
 
 ## Keyboard shortcuts
 

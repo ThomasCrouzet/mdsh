@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FilePlus, Upload, Compass } from '@lucide/svelte';
+	import { FilePlus, Upload, Compass, FolderOpen } from '@lucide/svelte';
 	import { keyboardStore } from '$lib/ui/keyboard.svelte';
 	import { t } from '$lib/i18n';
 
@@ -7,9 +7,11 @@
 		onNew: () => void;
 		onImport: () => void;
 		onDemo: () => void;
+		onLibrary?: () => void;
+		documentCount?: number;
 	}
 
-	let { onNew, onImport, onDemo }: Props = $props();
+	let { onNew, onImport, onDemo, onLibrary, documentCount = 0 }: Props = $props();
 </script>
 
 <div class="welcome-shell flex h-full items-center px-6 py-10 sm:px-10 lg:px-[8vw]">
@@ -36,6 +38,18 @@
 
 			<div class="welcome-actions">
 				<div class="mdsh-kicker mb-3">{t('welcome.initializeLabel')}</div>
+				{#if documentCount > 0 && onLibrary}
+					<button
+						class="welcome-action"
+						onclick={(event) => {
+							event.currentTarget.focus({ preventScroll: true });
+							onLibrary?.();
+						}}
+					>
+						<span class="welcome-action-icon"><FolderOpen size={16} /></span>
+						<span>{t('library.browseCount', { n: documentCount })}</span>
+					</button>
+				{/if}
 				<button data-testid="welcome-new" class="welcome-action" onclick={onNew}>
 					<span class="welcome-action-icon"><FilePlus size={16} /></span>
 					<span class="flex-1">{t('welcome.newFile')}</span>

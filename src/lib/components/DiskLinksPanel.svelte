@@ -60,7 +60,7 @@
 	let closeButton: HTMLButtonElement | null = $state(null);
 
 	function findFileName(id: string, fallbackLabel: string): { name: string; orphan: boolean } {
-		const f = filesStore.files.find((file) => file.id === id);
+		const f = filesStore.library.find((file) => file.id === id);
 		if (f) return { name: f.name, orphan: false };
 		if (fallbackLabel.length > 0) {
 			return { name: fallbackLabel, orphan: true };

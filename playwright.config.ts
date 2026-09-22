@@ -46,7 +46,12 @@ export default defineConfig({
 		{
 			name: 'firefox',
 			use: { ...devices['Desktop Firefox'] },
-			testMatch: ['**/golden-path.spec.ts', '**/file-navigation.spec.ts']
+			testMatch: [
+				'**/golden-path.spec.ts',
+				'**/file-navigation.spec.ts',
+				'**/library-workflows.spec.ts',
+				'**/search-replace.spec.ts'
+			]
 		},
 		{
 			// WebKit covers persistence, localization, and command interactions.
@@ -57,8 +62,15 @@ export default defineConfig({
 				'**/golden-path.spec.ts',
 				'**/locale-en.spec.ts',
 				'**/palette.spec.ts',
-				'**/file-navigation.spec.ts'
+				'**/file-navigation.spec.ts',
+				'**/library-workflows.spec.ts',
+				'**/search-replace.spec.ts'
 			]
+		},
+		{
+			name: 'mobile-webkit',
+			use: { ...devices['iPhone 13'] },
+			testMatch: '**/mobile.spec.ts'
 		}
 	],
 	webServer: {
@@ -68,7 +80,7 @@ export default defineConfig({
 		// Another project on this port would make the tests check the wrong application.
 		reuseExistingServer: false,
 		timeout: 120_000,
-		stdout: 'pipe',
+		stdout: 'ignore',
 		stderr: 'pipe'
 	}
 });

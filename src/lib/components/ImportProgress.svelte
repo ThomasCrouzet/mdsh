@@ -5,7 +5,13 @@
 	let { blocked = false }: { blocked?: boolean } = $props();
 	let dismissed = $state(false);
 	$effect(() => {
-		if (filesStore.lastImportReport) dismissed = false;
+		const completed = filesStore.lastImportReport;
+		if (!completed) return;
+		dismissed = false;
+		if (!completed.failed && !completed.skipped && !completed.cancelled) {
+			const timer = setTimeout(() => (dismissed = true), 6000);
+			return () => clearTimeout(timer);
+		}
 	});
 	const report = $derived(
 		filesStore.importProgress ?? (!dismissed ? filesStore.lastImportReport : null)

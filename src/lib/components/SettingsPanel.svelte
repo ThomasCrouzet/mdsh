@@ -23,7 +23,16 @@
 	import { filesStore } from '$lib/files.svelte';
 	import { workspaceStore } from '$lib/workspaces.svelte';
 	import { templatesStore } from '$lib/templates.svelte';
-	import { downloadBackup, restoreFromText, isEncryptedBackup } from '$lib/services/backup';
+	import {
+		downloadBackup,
+		restoreFromText,
+		isEncryptedBackup,
+		inspectBackupText,
+		serializeBackup
+	} from '$lib/services/backup';
+	import { version } from '../../../package.json';
+	import { offlineState } from '$lib/ui/offline.svelte';
+	import type { TemplateRow } from '$lib/db';
 	import { reportError } from '$lib/report';
 	import { spinnerStore } from '$lib/spinner.svelte';
 	import { themeStore } from '$lib/ui/theme.svelte';
@@ -84,6 +93,55 @@
 		);
 	}
 	let storageHealth: StorageHealth | null = $state(null);
+	let backupBusy = $state(false);
+	let verifyOnly = false;
+	let editingTemplate = $state<string | null>(null);
+	let templateName = $state('');
+	let templateContent = $state('');
+	let templateBusy = $state(false);
+	let templateSummary = $state<HTMLElement | null>(null);
+	let templateNameInput = $state<HTMLInputElement | null>(null);
+	function finishTemplateEdit() {
+		editingTemplate = null;
+		void tick().then(() => templateSummary?.focus());
+	}
+	function editTemplate(template: TemplateRow) {
+		editingTemplate = template.id;
+		templateName = template.name;
+		templateContent = template.content;
+		void tick().then(() => templateNameInput?.focus());
+	}
+	async function saveTemplate() {
+		if (!editingTemplate || templateBusy) return;
+		templateBusy = true;
+		try {
+			if (await templatesStore.update(editingTemplate, templateName, templateContent))
+				finishTemplateEdit();
+		} finally {
+			templateBusy = false;
+		}
+	}
+	async function deleteTemplate(id: string) {
+		if (await promptStore.confirm({ title: t('templates.deleteConfirm'), danger: true })) {
+			await templatesStore.delete(id);
+			await tick();
+			templateSummary?.focus();
+		}
+	}
+	async function runBackupAction(action: () => Promise<void>) {
+		if (backupBusy) return;
+		backupBusy = true;
+		try {
+			await action();
+		} finally {
+			backupBusy = false;
+		}
+	}
+	function chooseBackup(verify: boolean) {
+		if (backupBusy) return;
+		verifyOnly = verify;
+		importInput?.click();
+	}
 
 	async function refreshStorageHealth(): Promise<void> {
 		storageHealth = await getStorageHealth();
@@ -101,6 +159,11 @@
 		if (!open || !browser) return;
 		tick().then(() => closeButton?.focus());
 		void refreshStorageHealth();
+		void templatesStore
+			.load()
+			.catch((error) =>
+				reportError('load templates', error, { notifyUser: t('storage.loadFailed') })
+			);
 	});
 
 	const themeOptions: { value: ThemePref; label: string }[] = $derived([
@@ -217,11 +280,36 @@
 			passphrase = pass;
 		}
 
+		let summary: string;
+		try {
+			const { backup } = await inspectBackupText(text, passphrase);
+			summary = t('settings.backupSummary', {
+				date: formatBackupDate(backup.exportedAt),
+				drafts: backup.drafts.length,
+				workspaces: backup.workspaces.length,
+				templates: backup.templates.length
+			});
+			text = serializeBackup(backup);
+			passphrase = undefined;
+		} catch (error) {
+			reportError('backup inspection', error, {
+				notifyUser: error instanceof Error ? error.message : t('settings.restoreFailed')
+			});
+			return;
+		}
+		if (verifyOnly) {
+			await promptStore.confirm({
+				title: t('settings.backupValid'),
+				message: summary,
+				confirmLabel: t('settings.close')
+			});
+			return;
+		}
 		// The file picker precedes the mode choice: we ask afterward.
 		// Replacement, merge, and cancellation are separate decisions.
 		const restoreChoice = await promptStore.choose({
 			title: t('settings.restoreBackupTitle'),
-			message: t('settings.restoreBackupMessage'),
+			message: `${summary}\n\n${t('settings.restoreBackupMessage')}`,
 			confirmLabel: t('settings.replace'),
 			alternateLabel: t('settings.merge'),
 			cancelLabel: t('prompt.cancel'),
@@ -433,6 +521,52 @@
 					</div>
 				</section>
 
+				<details class="mb-5 rounded border border-border p-3 text-sm">
+					<summary bind:this={templateSummary} class="cursor-pointer"
+						>{t('templates.manage')}</summary
+					>
+					<p class="my-2 text-xs text-fg-muted">{t('templates.help')}</p>
+					{#if editingTemplate}
+						<label class="my-2 block text-xs"
+							>{t('templates.name')}<input
+								bind:value={templateName}
+								bind:this={templateNameInput}
+								disabled={templateBusy}
+								class="mt-1 w-full rounded border border-border bg-bg p-2 text-sm"
+							/></label
+						>
+						<label class="my-2 block text-xs"
+							>{t('templates.content')}<textarea
+								bind:value={templateContent}
+								disabled={templateBusy}
+								rows="8"
+								class="mt-1 w-full rounded border border-border bg-bg p-2 font-mono text-xs"
+							></textarea></label
+						>
+						<div class="flex gap-2">
+							<button
+								class="rounded border border-border px-3 py-2"
+								disabled={templateBusy || !templateName.trim()}
+								onclick={() => void saveTemplate()}>{t('templates.save')}</button
+							><button class="px-3 py-2" disabled={templateBusy} onclick={finishTemplateEdit}
+								>{t('prompt.cancel')}</button
+							>
+						</div>
+					{:else}
+						{#each templatesStore.userTemplates as template (template.id)}
+							<div class="flex flex-wrap items-center gap-2 border-t border-border py-2">
+								<span class="min-w-0 flex-1 break-words">{template.name}</span><button
+									class="rounded border border-border px-2 py-1"
+									onclick={() => editTemplate(template)}>{t('templates.edit')}</button
+								><button
+									class="rounded border border-border px-2 py-1 text-danger"
+									onclick={() => void deleteTemplate(template.id)}>{t('templates.delete')}</button
+								>
+							</div>
+						{:else}<p class="text-xs text-fg-muted">{t('templates.none')}</p>{/each}
+					{/if}
+				</details>
+
 				<!-- Data: backup / restore -->
 				<section>
 					<h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-dim">
@@ -483,26 +617,55 @@
 					<div class="flex flex-wrap gap-2">
 						<button
 							class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-bg-2 hover:text-fg"
-							onclick={() => void handleExportBackup()}
+							aria-disabled={backupBusy}
+							onclick={() => void runBackupAction(handleExportBackup)}
 						>
 							<Download size={13} aria-hidden="true" />
 							<span>{t('settings.exportBackup')}</span>
 						</button>
 						<button
 							class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-bg-2 hover:text-fg"
-							onclick={() => void handleExportEncrypted()}
+							aria-disabled={backupBusy}
+							onclick={() => void runBackupAction(handleExportEncrypted)}
 						>
 							<Lock size={13} aria-hidden="true" />
 							<span>{t('settings.exportEncrypted')}</span>
 						</button>
 						<button
 							class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-bg-2 hover:text-fg"
-							onclick={() => importInput?.click()}
+							aria-disabled={backupBusy}
+							onclick={() => chooseBackup(false)}
 						>
 							<Upload size={13} aria-hidden="true" />
 							<span>{t('settings.importBackup')}</span>
 						</button>
+						<button
+							class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+							aria-disabled={backupBusy}
+							onclick={() => chooseBackup(true)}>{t('settings.verifyBackup')}</button
+						>
 					</div>
+					<p class="mt-2 text-xs text-fg-muted">{t('settings.backupDownloadHint')}</p>
+				</section>
+				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
+					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
+					<p>mdsh {version} · {isDesktop() ? 'Desktop Beta' : 'PWA'}</p>
+					<p class="mt-1" role="status">
+						{t(
+							offlineState.status === 'ready'
+								? 'pwa.ready'
+								: offlineState.status === 'preparing'
+									? 'pwa.preparing'
+									: 'pwa.unavailable'
+						)}
+					</p>
+					<p class="mt-1">{t('welcome.privacy')}</p>
+					<a
+						class="mt-2 inline-block underline"
+						href="https://github.com/ThomasCrouzet/mdsh/blob/main/docs/USER_GUIDE.md"
+						target="_blank"
+						rel="noopener noreferrer">{t('settings.userGuide')}</a
+					>
 				</section>
 			</div>
 		</div>
@@ -513,7 +676,7 @@
 		type="file"
 		accept="application/json,.json"
 		class="hidden"
-		onchange={handleImportFile}
+		onchange={(event) => void runBackupAction(() => handleImportFile(event))}
 	/>
 {/if}
 

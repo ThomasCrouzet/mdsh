@@ -70,6 +70,8 @@ export interface ModalsOptions {
 export function createModals(opts: ModalsOptions) {
 	// §A1.1 - Open states of the modals
 	let paletteOpen = $state(false);
+	let paletteView = $state<'commands' | 'actions'>('commands');
+	let libraryOpen = $state(false);
 	let searchOpen = $state(false);
 	let diskLinksOpen = $state(false);
 	let workspacesOpen = $state(false);
@@ -79,6 +81,7 @@ export function createModals(opts: ModalsOptions) {
 	let presentationOpen = $state(false);
 
 	function closeAll(): void {
+		libraryOpen = false;
 		paletteOpen = false;
 		searchOpen = false;
 		diskLinksOpen = false;
@@ -99,6 +102,13 @@ export function createModals(opts: ModalsOptions) {
 			paletteOpen = false;
 		},
 		'modals.labelPalette'
+	);
+	const loadLibrary = makeLazyLoader(
+		() => import('$lib/components/LibraryPanel.svelte'),
+		() => {
+			libraryOpen = false;
+		},
+		'library.title'
 	);
 	const loadSearchPanel = makeLazyLoader(
 		() => import('$lib/components/SearchPanel.svelte'),
@@ -159,7 +169,17 @@ export function createModals(opts: ModalsOptions) {
 	// Open actions
 	function openPalette() {
 		closeAll();
+		paletteView = 'commands';
 		paletteOpen = true;
+	}
+	function openActions() {
+		closeAll();
+		paletteView = 'actions';
+		paletteOpen = true;
+	}
+	function openLibrary() {
+		closeAll();
+		libraryOpen = true;
 	}
 
 	function openSearch() {
@@ -202,8 +222,9 @@ export function createModals(opts: ModalsOptions) {
 	// the query into the CodeMirror panel. If the SourceEditor is not yet
 	// mounted, its own `goToLine` method buffers the request.
 	function handleOpenHit(fileId: string, line: number, query: string) {
+		const changedFile = opts.getFilesStoreActive()?.id !== fileId;
 		opts.getFilesStoreSetActive()(fileId);
-		if (opts.getMode() !== 'source') {
+		if (opts.getMode() !== 'source' || changedFile) {
 			opts.setPendingGoToHit({ line, query });
 			opts.setMode('source');
 		} else {
@@ -212,8 +233,22 @@ export function createModals(opts: ModalsOptions) {
 	}
 
 	return {
+		get paletteView() {
+			return paletteView;
+		},
+		get libraryOpen() {
+			return libraryOpen;
+		},
+		set libraryOpen(value: boolean) {
+			if (value) openLibrary();
+			else libraryOpen = false;
+		},
+		loadLibrary,
+		openLibrary,
+		openActions,
 		get anyOpen() {
 			return (
+				libraryOpen ||
 				paletteOpen ||
 				searchOpen ||
 				diskLinksOpen ||

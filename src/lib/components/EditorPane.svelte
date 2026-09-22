@@ -25,6 +25,9 @@
 	import { t } from '$lib/i18n';
 
 	interface Props {
+		libraryCount?: number;
+		documentTool?: 'find' | 'outline' | null;
+		onCloseTool?: () => void;
 		activeFile: FileItem | null;
 		mode: EditMode;
 		editorWidth: ReturnType<typeof createEditorWidth>;
@@ -50,6 +53,9 @@
 	}
 
 	let {
+		libraryCount = 0,
+		documentTool = null,
+		onCloseTool = () => {},
 		activeFile,
 		mode,
 		editorWidth,
@@ -80,63 +86,95 @@
 	// (error "bind_invalid_expression") - local variable + $effect to
 	// surface the ref up to +page.svelte via onSourceEditorRef.
 	let sourceEditorEl = $state<SourceEditor | null>(null);
+	let contentRoot = $state<HTMLDivElement | null>(null);
+	function closeTool() {
+		onCloseTool();
+		requestAnimationFrame(() =>
+			contentRoot
+				?.querySelector<HTMLElement>('.cm-content, .ProseMirror, .mdsh-preview')
+				?.focus({ preventScroll: true })
+		);
+	}
 	$effect(() => {
 		onSourceEditorRef(sourceEditorEl);
 	});
 </script>
 
 <div class="mdsh-content-col relative flex min-h-0 min-w-0 flex-1 flex-col">
-	{#if activeFile}
-		{#if mode === 'source'}
-			{#key activeFile.id}
-				<SourceEditor
-					bind:this={sourceEditorEl}
+	{#if activeFile && documentTool}
+		{#await import('./DocumentNavigator.svelte') then module}
+			<module.default
+				kind={documentTool}
+				content={activeFile.content}
+				{mode}
+				container={contentRoot}
+				onLine={(line) => sourceEditorEl?.goToLine(line)}
+				onClose={closeTool}
+			/>
+		{:catch}<p class="p-2 text-sm text-danger">
+				{t('source.loadErrorTitle')}
+				<button class="underline" onclick={onCloseTool}>{t('settings.close')}</button>
+			</p>{/await}
+	{/if}
+	<div bind:this={contentRoot} class="relative min-h-0 flex-1">
+		{#if activeFile}
+			{#if mode === 'source'}
+				{#key activeFile.id}
+					<SourceEditor
+						bind:this={sourceEditorEl}
+						fileId={activeFile.id}
+						content={activeFile.content}
+						onChange={onEditorChange}
+					/>
+				{/key}
+			{:else if mode === 'read'}
+				<ReadView fileId={activeFile.id} content={activeFile.content} {onArticleRef} />
+			{:else}
+				<Editor
 					fileId={activeFile.id}
 					content={activeFile.content}
 					onChange={onEditorChange}
+					onFlush={onEditorFlush}
 				/>
-			{/key}
-		{:else if mode === 'read'}
-			<ReadView fileId={activeFile.id} content={activeFile.content} {onArticleRef} />
+			{/if}
+
+			<!-- Resize handle (desktop only); role presentation because
+		     mouse dragging is a convenience, keyboard presets go through the palette (⌘⇧P). -->
+			<div
+				bind:this={resizeHandleEl}
+				class="resize-handle"
+				class:resizing={editorWidth.resizing}
+				onpointerdown={editorWidth.startResize}
+				onpointermove={editorWidth.onResize}
+				onpointerup={editorWidth.stopResize}
+				onpointercancel={editorWidth.stopResize}
+				ondblclick={editorWidth.resetEditorWidth}
+				role="presentation"
+				aria-hidden="true"
+				title={t('editorPane.resizeHandle', { width: editorWidth.editorMaxWidth })}
+			></div>
 		{:else}
-			<Editor
-				fileId={activeFile.id}
-				content={activeFile.content}
-				onChange={onEditorChange}
-				onFlush={onEditorFlush}
+			<Welcome
+				{onNew}
+				{onImport}
+				{onDemo}
+				onLibrary={modals.openLibrary}
+				documentCount={libraryCount}
 			/>
 		{/if}
 
-		<!-- Resize handle (desktop only); role presentation because
-		     mouse dragging is a convenience, keyboard presets go through the palette (⌘⇧P). -->
-		<div
-			bind:this={resizeHandleEl}
-			class="resize-handle"
-			class:resizing={editorWidth.resizing}
-			onpointerdown={editorWidth.startResize}
-			onpointermove={editorWidth.onResize}
-			onpointerup={editorWidth.stopResize}
-			onpointercancel={editorWidth.stopResize}
-			ondblclick={editorWidth.resetEditorWidth}
-			role="presentation"
-			aria-hidden="true"
-			title={t('editorPane.resizeHandle', { width: editorWidth.editorMaxWidth })}
-		></div>
-	{:else}
-		<Welcome {onNew} {onImport} {onDemo} />
-	{/if}
-
-	{#if dragOver}
-		<div
-			class="pointer-events-none absolute inset-3 z-20 flex items-center justify-center
+		{#if dragOver}
+			<div
+				class="pointer-events-none absolute inset-3 z-20 flex items-center justify-center
 			       rounded-lg border-2 border-dashed border-accent bg-bg/80 backdrop-blur-sm"
-		>
-			<div class="flex flex-col items-center gap-2 text-accent">
-				<Upload size={32} />
-				<p class="text-sm font-medium">{t('editorPane.dropFiles')}</p>
+			>
+				<div class="flex flex-col items-center gap-2 text-accent">
+					<Upload size={32} />
+					<p class="text-sm font-medium">{t('editorPane.dropFiles')}</p>
+				</div>
 			</div>
-		</div>
-	{/if}
+		{/if}
+	</div>
 </div>
 
 <!-- TOC column: mounted only in read mode + enabled + non-empty

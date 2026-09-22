@@ -30,10 +30,22 @@ class TemplatesStore {
 
 	/** Displayable list: builtin first, then user templates (recent first). */
 	get choices(): TemplateChoice[] {
-		const builtin = BUILTIN_TEMPLATES.map((t) => ({
-			id: t.id,
-			name: t.name,
-			description: t.description,
+		const builtin = BUILTIN_TEMPLATES.map((template) => ({
+			id: template.id,
+			name: t(
+				template.id === 'builtin:meeting'
+					? 'templates.meeting'
+					: template.id === 'builtin:journal'
+						? 'templates.journal'
+						: 'templates.todo'
+			),
+			description: t(
+				template.id === 'builtin:meeting'
+					? 'templates.meetingDescription'
+					: template.id === 'builtin:journal'
+						? 'templates.journalDescription'
+						: 'templates.todoDescription'
+			),
 			builtin: true
 		}));
 		const user = this.userTemplates.map((tpl) => ({
@@ -123,6 +135,22 @@ class TemplatesStore {
 		// Re-look-up the index (the list may have changed during the await).
 		const cur = this.userTemplates.findIndex((t) => t.id === id);
 		if (cur !== -1) this.userTemplates.splice(cur, 1);
+	}
+
+	async update(id: string, name: string, content: string): Promise<boolean> {
+		const current = this.userTemplates.find((template) => template.id === id);
+		if (!current || !name.trim()) return false;
+		const next = { ...current, name: name.trim(), content, updatedAt: Date.now() };
+		try {
+			await db.templates.put($state.snapshot(next));
+		} catch (error) {
+			reportPersistenceError(error, 'save');
+			return false;
+		}
+		this.userTemplates = this.userTemplates.map((template) =>
+			template.id === id ? next : template
+		);
+		return true;
 	}
 }
 

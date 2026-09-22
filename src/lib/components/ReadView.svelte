@@ -247,6 +247,7 @@
 			     anchor instead of opening the target file (WCAG 2.1.1). -->
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 			<article
+				tabindex="-1"
 				class="mdsh-preview"
 				bind:this={articleEl}
 				aria-busy={loading}

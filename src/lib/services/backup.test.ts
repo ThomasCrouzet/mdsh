@@ -37,6 +37,66 @@ import {
 	serializeBackup,
 	type BackupFile
 } from './backup';
+
+describe('merge link integrity', () => {
+	it('remaps cycles and aliases and keeps repeated merges idempotent', async () => {
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 1,
+			workspaces: [],
+			templates: [],
+			drafts: [
+				draft({
+					id: 'old-a',
+					name: 'a.md',
+					content: '[[old-b|B]] `[[old-b]]`',
+					createdAt: 1,
+					updatedAt: 2
+				}),
+				draft({ id: 'old-b', name: 'b.md', content: '[[old-a]]', createdAt: 1, updatedAt: 2 })
+			]
+		};
+		await applyBackup(backup, 'merge');
+		const rows = await db.drafts.toArray();
+		const a = rows.find((row) => row.name === 'a.md')!;
+		const b = rows.find((row) => row.name === 'b.md')!;
+		expect(a.content).toBe(`[[${b.id}|B]] \`[[old-b]]\``);
+		expect(b.content).toBe(`[[${a.id}]]`);
+		expect((await applyBackup(backup, 'merge')).unchanged.drafts).toBe(2);
+		expect(await db.drafts.count()).toBe(2);
+	});
+	it('keeps references on the imported branch when an existing target differs', async () => {
+		await db.drafts.bulkPut([
+			draft({ id: 'existing-a', name: 'a.md', content: 'local', createdAt: 1, updatedAt: 2 }),
+			draft({
+				id: 'existing-b',
+				name: 'b.md',
+				content: '[[existing-a]]',
+				createdAt: 1,
+				updatedAt: 2
+			})
+		]);
+		await applyBackup(
+			{
+				format: BACKUP_FORMAT,
+				schemaVersion: 1,
+				exportedAt: 1,
+				workspaces: [],
+				templates: [],
+				drafts: [
+					draft({ id: 'a', name: 'a.md', content: 'imported', createdAt: 1, updatedAt: 2 }),
+					draft({ id: 'b', name: 'b.md', content: '[[a]]', createdAt: 1, updatedAt: 2 })
+				]
+			},
+			'merge'
+		);
+		const rows = await db.drafts.toArray();
+		const imported = rows.find((row) => row.content === 'imported')!;
+		expect(rows.some((row) => row.content === `[[${imported.id}]]`)).toBe(true);
+		expect(await db.drafts.get('existing-b')).toMatchObject({ content: '[[existing-a]]' });
+	});
+});
 import { encryptString } from '../crypto';
 
 // jsdom Blob and File objects can omit `.text()`. Use it when available, or use FileReader.
@@ -876,6 +936,7 @@ describe('strict validation for each saved field', () => {
 		['drafts', 'content', false],
 		['drafts', 'createdAt', 'hier'],
 		['drafts', 'updatedAt', null],
+		['drafts', 'updatedAt', 1e100],
 		['drafts', 'order', '1'],
 		['drafts', 'open', 'false'],
 		['workspaces', 'id', ''],

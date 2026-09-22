@@ -4,6 +4,9 @@ import { BUILTIN_TEMPLATES, applyTemplateVars, isoDate, templateFileName } from 
 const FIXED = new Date('2026-06-16T10:30:00.000Z');
 
 describe('isoDate', () => {
+	it('uses the local calendar date near midnight', () => {
+		expect(isoDate(new Date(2026, 8, 22, 0, 15))).toBe('2026-09-22');
+	});
 	it('formate en YYYY-MM-DD', () => {
 		expect(isoDate(FIXED)).toBe('2026-06-16');
 	});

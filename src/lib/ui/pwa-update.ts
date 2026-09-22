@@ -14,6 +14,7 @@ import { browser } from '$app/environment';
 import { isDesktop } from '$lib/desktop';
 import { t } from '$lib/i18n';
 import { notify } from '$lib/notify.svelte';
+import { offlineState } from './offline.svelte';
 
 async function ensureDraftsDurable(): Promise<void> {
 	const { filesStore } = await import('$lib/files.svelte');
@@ -38,7 +39,14 @@ export function registerPwaUpdates(): void {
 	if (!browser) return;
 	// Desktop shell (Tauri): no service worker - assets are bundled locally
 	// and a SW can conflict with the custom asset/IPC protocols.
-	if (isDesktop()) return;
+	if (isDesktop()) {
+		offlineState.status = 'ready';
+		return;
+	}
+	if (!('serviceWorker' in navigator)) {
+		offlineState.status = 'unavailable';
+		return;
+	}
 	void (async () => {
 		try {
 			const { registerSW } = await import('virtual:pwa-register');
@@ -54,9 +62,14 @@ export function registerPwaUpdates(): void {
 					});
 				},
 				onOfflineReady() {
+					offlineState.status = 'ready';
 					notify.success(t('pwa.offlineReady'));
 				},
+				onRegisterError() {
+					offlineState.status = 'error';
+				},
 				onRegisteredSW(_swUrl, registration) {
+					if (registration?.active?.state === 'activated') offlineState.status = 'ready';
 					// Without a periodic check, an editing session left open for several
 					// days never discovers a new version: the reload toast only
 					// fires on a change detected by the browser (often at the next load).
@@ -68,6 +81,7 @@ export function registerPwaUpdates(): void {
 				}
 			});
 		} catch {
+			offlineState.status = 'unavailable';
 			// Virtual module absent (dev without SW, build without PWA) - silent.
 		}
 	})();

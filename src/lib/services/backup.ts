@@ -28,6 +28,7 @@ import {
 } from '../db';
 import { encryptString, decryptString, isEncryptedEnvelope } from '../crypto';
 import { t } from '$lib/i18n';
+import { rewriteWikiLinkTargets } from '../wiki-links';
 
 export const BACKUP_FORMAT = 'mdsh-backup';
 export const BACKUP_SCHEMA_VERSION = 1;
@@ -44,6 +45,56 @@ export interface BackupFile {
 	drafts: DraftRow[];
 	workspaces: WorkspaceRow[];
 	templates: TemplateRow[];
+}
+
+/** Preserves imported ID links, including cycles and repeated merges. */
+export function planDraftMerge(incoming: DraftRow[], existing: DraftRow[]) {
+	const candidates = new Map<string, DraftRow>();
+	const importedIdMap = new Map<string, string>();
+	const dependants = new Map<string, Set<string>>();
+	const byId = new Map(incoming.map((draft) => [draft.id, draft]));
+	for (const draft of incoming) {
+		const matches = existing.filter(
+			(row) =>
+				row.name === draft.name &&
+				row.createdAt === draft.createdAt &&
+				row.updatedAt === draft.updatedAt
+		);
+		const candidate = matches.find((row) => row.content === draft.content) ?? matches[0];
+		if (candidate) candidates.set(draft.id, candidate);
+		importedIdMap.set(draft.id, candidate?.id ?? newId());
+		rewriteWikiLinkTargets(draft.content, (target) => {
+			if (byId.has(target)) {
+				const ids = dependants.get(target) ?? new Set<string>();
+				ids.add(draft.id);
+				dependants.set(target, ids);
+			}
+			return target;
+		});
+	}
+	const rewrite = (content: string) =>
+		rewriteWikiLinkTargets(content, (id) => importedIdMap.get(id) ?? id);
+	const queue = [...candidates.keys()];
+	for (let index = 0; index < queue.length; index++) {
+		const id = queue[index]!;
+		const candidate = candidates.get(id);
+		if (!candidate || candidate.content === rewrite(byId.get(id)!.content)) continue;
+		candidates.delete(id);
+		importedIdMap.set(id, newId());
+		queue.push(...(dependants.get(id) ?? []));
+	}
+	let order = existing.reduce((max, draft) => Math.max(max, draft.order), -1);
+	const draftsToPut = incoming.map((draft): DraftRow | null =>
+		candidates.has(draft.id)
+			? null
+			: {
+					...draft,
+					id: importedIdMap.get(draft.id)!,
+					content: rewrite(draft.content),
+					order: ++order
+				}
+	);
+	return { importedIdMap, draftsToPut };
 }
 
 export type RestoreMode = 'merge' | 'replace';
@@ -116,6 +167,10 @@ function isObject(v: unknown): v is Record<string, unknown> {
 	return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+function validTimestamp(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 8.64e15;
+}
+
 function validDraft(v: unknown): v is DraftRow {
 	if (!isObject(v)) return false;
 	return (
@@ -123,10 +178,8 @@ function validDraft(v: unknown): v is DraftRow {
 		v.id.length > 0 &&
 		typeof v.name === 'string' &&
 		typeof v.content === 'string' &&
-		typeof v.createdAt === 'number' &&
-		Number.isFinite(v.createdAt) &&
-		typeof v.updatedAt === 'number' &&
-		Number.isFinite(v.updatedAt) &&
+		validTimestamp(v.createdAt) &&
+		validTimestamp(v.updatedAt) &&
 		typeof v.order === 'number' &&
 		Number.isFinite(v.order) &&
 		(v.open === undefined || typeof v.open === 'boolean')
@@ -144,10 +197,8 @@ function validWorkspace(v: unknown): v is WorkspaceRow {
 		v.fileIds.every((x) => typeof x === 'string' && x.length > 0) &&
 		new Set(v.fileIds).size === v.fileIds.length &&
 		(v.activeId === null || (typeof v.activeId === 'string' && v.fileIds.includes(v.activeId))) &&
-		typeof v.createdAt === 'number' &&
-		Number.isFinite(v.createdAt) &&
-		typeof v.updatedAt === 'number' &&
-		Number.isFinite(v.updatedAt)
+		validTimestamp(v.createdAt) &&
+		validTimestamp(v.updatedAt)
 	);
 }
 
@@ -159,10 +210,8 @@ function validTemplate(v: unknown): v is TemplateRow {
 		typeof v.name === 'string' &&
 		typeof v.content === 'string' &&
 		typeof v.builtin === 'boolean' &&
-		typeof v.createdAt === 'number' &&
-		Number.isFinite(v.createdAt) &&
-		typeof v.updatedAt === 'number' &&
-		Number.isFinite(v.updatedAt)
+		validTimestamp(v.createdAt) &&
+		validTimestamp(v.updatedAt)
 	);
 }
 
@@ -200,7 +249,7 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 	) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
 	}
-	if (typeof raw.exportedAt !== 'number' || !Number.isFinite(raw.exportedAt)) {
+	if (!validTimestamp(raw.exportedAt)) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
 	}
 	if (
@@ -326,27 +375,7 @@ export async function applyBackup(
 			}
 			// merge
 			const existing = await db.drafts.toArray();
-			const allDrafts = [...existing];
-			const importedIdMap = new Map<string, string>();
-			let maxOrder = existing.reduce((m, d) => Math.max(m, d.order), -1);
-			const draftsToPut = backup.drafts.map((d) => {
-				const sameVariant = allDrafts.find(
-					(row) =>
-						row.name === d.name &&
-						row.content === d.content &&
-						row.createdAt === d.createdAt &&
-						row.updatedAt === d.updatedAt
-				);
-				if (sameVariant) {
-					importedIdMap.set(d.id, sameVariant.id);
-					return null;
-				}
-				const id = newId();
-				const row = { ...d, id, order: ++maxOrder };
-				importedIdMap.set(d.id, id);
-				allDrafts.push(row);
-				return row;
-			});
+			const { importedIdMap, draftsToPut } = planDraftMerge(backup.drafts, existing);
 			const existingWorkspaces = await db.workspaces.toArray();
 			const workspaceIds = new Set(existingWorkspaces.map((row) => row.id));
 			const workspacesToPut = backup.workspaces.flatMap((workspace) => {
@@ -488,14 +517,19 @@ export async function restoreFromText(
 	ensureDurable: () => Promise<void> = ensureLiveDraftsDurable
 ): Promise<RestoreCounts> {
 	await ensureDurable();
+	const { backup, skipped } = await inspectBackupText(text, passphrase);
+	const skippedTotal = skipped.drafts + skipped.workspaces + skipped.templates;
+	return applyBackup(backup, mode, skippedTotal);
+}
+
+/** Validates a backup without changing drafts or requesting disk access. */
+export async function inspectBackupText(text: string, passphrase?: string): Promise<ParsedBackup> {
 	let json = text;
 	if (isEncryptedBackup(text)) {
 		if (!passphrase) throw new BackupParseError(t('backup.passphraseRequired'));
 		json = await decryptBackupText(text, passphrase);
 	}
-	const { backup, skipped } = parseBackupWithReport(json);
-	const skippedTotal = skipped.drafts + skipped.workspaces + skipped.templates;
-	return applyBackup(backup, mode, skippedTotal);
+	return parseBackupWithReport(json);
 }
 
 /** Reads a backup file (plaintext or encrypted), validates it and applies it. */

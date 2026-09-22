@@ -5,7 +5,7 @@ import { resetAppState } from './helpers';
 // not use the drawer.
 test.describe('Mobile UI - sidebar drawer', () => {
 	test.beforeEach(async ({ page }, testInfo) => {
-		test.skip(testInfo.project.name !== 'mobile-chromium', 'mobile-only');
+		test.skip(!testInfo.project.name.startsWith('mobile-'), 'mobile-only');
 		await resetAppState(page);
 	});
 
@@ -46,4 +46,19 @@ test.describe('Mobile UI - sidebar drawer', () => {
 		await page.getByRole('button', { name: 'Palette de commandes' }).click();
 		await expect(page.getByRole('dialog', { name: 'Palette de commandes' })).toBeVisible();
 	});
+});
+
+test('mobile actions expose export and the document library with a neutral keyboard icon', async ({
+	page
+}) => {
+	await resetAppState(page);
+	await page.getByTestId('welcome-new').click();
+	await page.locator('.cm-content').fill('# Mobile note');
+	await expect(page.locator('#app-toolbar .lucide-keyboard')).toBeVisible();
+	await expect(page.locator('#app-toolbar .lucide-command')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Actions', exact: true }).click();
+	const actions = page.getByRole('dialog', { name: 'Actions', exact: true });
+	await expect(actions.getByRole('button', { name: 'Exporter en PDF' })).toBeVisible();
+	await actions.getByRole('button', { name: 'Bibliothèque de documents', exact: true }).click();
+	await expect(page.getByRole('dialog', { name: 'Bibliothèque de documents' })).toBeVisible();
 });

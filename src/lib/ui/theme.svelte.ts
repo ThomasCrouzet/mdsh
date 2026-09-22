@@ -7,6 +7,7 @@
 // imperatively (no `$effect`) to stay outside of any component scope.
 
 import { browser } from '$app/environment';
+import { readPreference, writePreference } from '$lib/preferences';
 import {
 	THEME_COLORS,
 	THEME_STORAGE_KEY,
@@ -47,7 +48,7 @@ class ThemeStore {
 	/** Loads the persisted preference, subscribes to system tracking, applies. */
 	load(): void {
 		if (!browser) return;
-		const saved = localStorage.getItem(THEME_STORAGE_KEY);
+		const saved = readPreference(THEME_STORAGE_KEY);
 		if (isThemePref(saved)) this.pref = saved;
 		if (!this.mq && typeof window.matchMedia === 'function') {
 			this.mq = window.matchMedia('(prefers-color-scheme: light)');
@@ -58,7 +59,7 @@ class ThemeStore {
 
 	set(pref: ThemePref): void {
 		this.pref = pref;
-		if (browser) localStorage.setItem(THEME_STORAGE_KEY, pref);
+		writePreference(THEME_STORAGE_KEY, pref);
 		applyTheme(pref);
 	}
 

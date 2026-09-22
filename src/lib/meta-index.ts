@@ -23,9 +23,11 @@ import { getTags as getFmTags, getTitle as getFmTitle, stripFrontmatter } from '
 
 /** Per-file cache entry. */
 interface MetaEntry {
+	name: string;
 	/** Content fingerprint: we invalidate if `content !== file.content`. */
 	content: string;
 	title: string;
+	documentTitle: string;
 	tags: string[];
 	targets: string[];
 }
@@ -53,7 +55,7 @@ export class MetaIndex {
 	// All meta reads (title/tags/targets) go through here.
 	getMeta(file: FileItem): MetaEntry {
 		const cached = this.metaCache.get(file.id);
-		if (cached && cached.content === file.content) return cached;
+		if (cached && cached.content === file.content && cached.name === file.name) return cached;
 
 		const fallback = stripMdExtension(file.name);
 		const { content, raw } = stripFrontmatter(file.content);
@@ -94,7 +96,14 @@ export class MetaIndex {
 
 		const targets = extractWikiLinkTargets(file.content);
 
-		const entry: MetaEntry = { content: file.content, title, tags, targets };
+		const entry: MetaEntry = {
+			name: file.name,
+			content: file.content,
+			title,
+			documentTitle: raw ? title : getFmTitle({}, content, fallback),
+			tags,
+			targets
+		};
 		this.metaCache.set(file.id, entry);
 		return entry;
 	}
@@ -175,6 +184,11 @@ export class MetaIndex {
 		return this.getMeta(file).title;
 	}
 
+	documentTitle(id: string): string {
+		const file = this.getFiles().find((entry) => entry.id === id);
+		return file ? this.getMeta(file).documentTitle : '';
+	}
+
 	/**
 	 * Backlinks: lists the files that contain a wiki-link pointing to the targeted
 	 * file (by name without extension OR by id).
@@ -206,16 +220,20 @@ export class MetaIndex {
 	 * Case-insensitive on the name (consistent with `backlinks()`).
 	 */
 	resolveWikiLink(target: string): string | null {
+		const matches = this.wikiLinkCandidates(target);
+		return matches.length === 1 ? matches[0]!.id : null;
+	}
+
+	wikiLinkCandidates(target: string): FileItem[] {
 		const t = target.trim();
-		if (!t) return null;
+		if (!t) return [];
 		const files = this.getFiles();
 		// Match by exact id first.
 		const byId = files.find((f) => f.id === t);
-		if (byId) return byId.id;
+		if (byId) return [byId];
 		// Otherwise, match by name without extension (case-insensitive).
 		const tLower = t.toLowerCase();
-		const byName = files.find((f) => stripMdExtension(f.name).toLowerCase() === tLower);
-		return byName?.id ?? null;
+		return files.filter((f) => stripMdExtension(f.name).toLowerCase() === tLower);
 	}
 
 	/**

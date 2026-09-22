@@ -70,6 +70,19 @@ of a runtime fallback. `i18n.test.ts` also checks key parity, nonempty values,
 and the English default. The type system alone cannot check these value rules.
 For two locales, this layer uses less code and gives strict guarantees.
 
+## Document identity is independent of tabs
+
+`filesStore.library` includes open and closed drafts. Search, metadata, graph links,
+and full-library ZIP export use this collection. Opening a closed result calls
+`openDocument()` and preserves the document ID and history. Open-tab operations
+use an explicit scope.
+
+Renames rewrite incoming wiki targets after a history checkpoint. The rewrite
+preserves aliases, front matter, escaped examples, and code. Backup merge maps
+imported identifiers in both workspace references and Markdown links. It checks
+existing variants against the mapped references before reusing them, including
+cycles. Repeating the same merge does not duplicate an unchanged linked notebook.
+
 ## Durability is a state transition, not a timer
 
 The 400 ms save debounce is an optimization, not proof that content is durable. `SaveQueue` serializes writes per document and records a rejected IndexedDB revision as a durability failure. `flushAwait()` retries failed rows and rejects while any in-memory revision is not represented in IndexedDB. Backup export, restore, and workspace replacement stop at that barrier. The UI reports the error without converting it into a successful save.

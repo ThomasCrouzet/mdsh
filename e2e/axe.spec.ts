@@ -121,6 +121,7 @@ test('secondary panels pass accessibility checks in both themes', async ({ page 
 		await page.evaluate((value) => localStorage.setItem('mdsh:theme', value), theme);
 		await page.reload();
 		for (const command of [
+			'Bibliothèque de documents',
 			'Recherche cross-fichiers',
 			'Charger un workspace',
 			'Gérer les liens disque',
