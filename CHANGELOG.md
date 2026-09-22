@@ -5,6 +5,14 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.6.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.5.4...v1.6.0) (2026-09-22)
+
+
+### Features
+
+* keep disk links and add workspace file navigation ([73cc9a9](https://github.com/ThomasCrouzet/mdsh/commit/73cc9a9eadc2f688e1b06d666ed62735afcd4ddc))
+* restore disk access and add workspace navigation ([43e3ded](https://github.com/ThomasCrouzet/mdsh/commit/43e3ded218220da38ead4f38089fa06029c77000))
+
 ## [1.5.4](https://github.com/ThomasCrouzet/mdsh/compare/v1.5.3...v1.5.4) (2026-09-16)
 
 
