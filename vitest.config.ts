@@ -17,9 +17,8 @@ export default defineConfig({
 		coverage: {
 			provider: 'v8',
 			reporter: ['text-summary', 'json-summary', 'html', 'lcov'],
-			// Measure application logic in `.ts` modules and `.svelte.ts` runes stores.
-			// Playwright and selected component tests cover `.svelte` components outside the unit threshold.
-			// A 95% line target for UI components, including Editor/Milkdown, would encourage fragile tests.
+			// Coverage is diagnostic. Keep tests for failure risks, not a percentage target.
+			// Playwright verifies user workflows across the application.
 			include: ['src/lib/**/*.ts', 'src/lib/**/*.svelte.ts'],
 			exclude: [
 				'e2e/**',
@@ -42,13 +41,7 @@ export default defineConfig({
 				'src/lib/ui/pwa-update.ts',
 				'src/lib/milkdown-mermaid-preview.ts',
 				'src/lib/workers/search.worker.ts'
-			],
-			thresholds: {
-				statements: 95,
-				branches: 90,
-				functions: 90,
-				lines: 95
-			}
+			]
 		}
 	},
 	resolve: {

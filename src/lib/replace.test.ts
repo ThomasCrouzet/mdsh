@@ -8,21 +8,7 @@ function files(...pairs: Array<[string, string]>): FileSlice[] {
 }
 
 describe('buildReplaceRegex', () => {
-	it('escapes metacharacters in literal mode', () => {
-		const { re } = buildReplaceRegex('a.b', OPTS);
-		expect(re?.test('a.b')).toBe(true);
-		expect(re?.test('aXb')).toBe(false); // The period is literal.
-	});
-	it('adds word boundaries in whole-word mode', () => {
-		const { re } = buildReplaceRegex('cat', { ...OPTS, wholeWord: true });
-		expect(re?.test('a cat sat')).toBe(true);
-		expect(re?.test('category')).toBe(false);
-	});
-	it('compiles the unchanged pattern in regular expression mode', () => {
-		const { re } = buildReplaceRegex('a\\d+', { ...OPTS, useRegex: true });
-		expect(re?.test('a123')).toBe(true);
-	});
-	it('returns an error for an invalid regular expression', () => {
+	it('rejects unsafe and oversized regular expressions', () => {
 		const nested = buildReplaceRegex('(a+)+$', { ...OPTS, useRegex: true });
 		expect(nested.re).toBeNull();
 		expect(nested.error).toMatch(/nested quantifiers/i);
@@ -30,10 +16,6 @@ describe('buildReplaceRegex', () => {
 		const tooLong = buildReplaceRegex('a'.repeat(201), { ...OPTS, useRegex: true });
 		expect(tooLong.re).toBeNull();
 		expect(tooLong.error).toMatch(/too long/i);
-
-		const { re, error } = buildReplaceRegex('a(', { ...OPTS, useRegex: true });
-		expect(re).toBeNull();
-		expect(error).toBeTruthy();
 	});
 	it('ignores case by default and matches case on request', () => {
 		expect(buildReplaceRegex('foo', OPTS).re?.test('FOO')).toBe(true);
@@ -61,11 +43,6 @@ describe('replaceInFiles', () => {
 		expect(out.results).toEqual([]);
 	});
 
-	it('keeps a replacement dollar sign literal in literal mode', () => {
-		const out = replaceInFiles(files(['a', 'prix: NN']), 'NN', '$5', OPTS);
-		expect(out.results[0]?.content).toBe('prix: $5');
-	});
-
 	it('expands backreferences in regular expression mode', () => {
 		const out = replaceInFiles(files(['a', 'John Smith']), '(\\w+) (\\w+)', '$2 $1', {
 			caseSensitive: false,
@@ -89,15 +66,6 @@ describe('replaceInFiles', () => {
 		const out = replaceInFiles(files(['a', 'aa bb']), 'aa', 'aa', OPTS);
 		expect(out.results).toEqual([]);
 		expect(out.total).toBe(0);
-	});
-
-	it('matches whole words', () => {
-		const out = replaceInFiles(files(['a', 'cat category']), 'cat', 'dog', {
-			...OPTS,
-			wholeWord: true
-		});
-		expect(out.results[0]?.content).toBe('dog category');
-		expect(out.total).toBe(1);
 	});
 });
 

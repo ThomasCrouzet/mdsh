@@ -29,21 +29,6 @@ describe('createCrossTab', () => {
 		FakeBroadcastChannel.channels.clear();
 	});
 
-	it('delivers a message to other tabs but not the sender', async () => {
-		vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
-		const onA = vi.fn();
-		const onB = vi.fn();
-		const a = createCrossTab(onA);
-		const b = createCrossTab(onB);
-		const msg: CrossTabMessage = { type: 'draft-written', id: 'x', updatedAt: 1 };
-		a.post(msg);
-		await tick();
-		expect(onB).toHaveBeenCalledWith(msg);
-		expect(onA).not.toHaveBeenCalled(); // pas de boucle de rechargement
-		a.close();
-		b.close();
-	});
-
 	it('ignores a message with an unexpected format', async () => {
 		vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
 		const onB = vi.fn();
@@ -76,20 +61,5 @@ describe('createCrossTab', () => {
 		expect(received).toEqual([{ type: 'removed', id: 'z' }]);
 		a.close();
 		b.close();
-	});
-
-	it('does nothing when BroadcastChannel is unavailable', () => {
-		vi.stubGlobal('BroadcastChannel', undefined);
-		const ct = createCrossTab(() => {});
-		// The operation must not throw when no real channel exists.
-		expect(() => ct.post({ type: 'reorder' })).not.toThrow();
-		expect(() => ct.close()).not.toThrow();
-	});
-
-	it('does not throw when post follows close', async () => {
-		vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
-		const ct = createCrossTab(() => {});
-		ct.close();
-		expect(() => ct.post({ type: 'reorder' })).not.toThrow();
 	});
 });

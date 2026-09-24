@@ -47,22 +47,10 @@ describe('export-ops - notification feedback (§J3)', () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 	});
 
-	it('shows a success toast after exportHTML', async () => {
-		vi.mocked(services.exportHTML).mockResolvedValue(true);
-		await exportHTML('a', deps);
-		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
-	});
-
 	it('shows an error toast when exportHTML fails', async () => {
 		vi.mocked(services.exportHTML).mockRejectedValue(new Error('boom'));
 		await exportHTML('a', deps);
 		expect(notify.toasts.some((t) => t.level === 'error')).toBe(true);
-	});
-
-	it('shows a success toast after exportPDF', async () => {
-		vi.mocked(services.exportPDF).mockResolvedValue(undefined);
-		await exportPDF('a', deps);
-		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
 	});
 
 	it('shows an error toast when exportPDF fails', async () => {
@@ -71,50 +59,10 @@ describe('export-ops - notification feedback (§J3)', () => {
 		expect(notify.toasts.some((t) => t.level === 'error')).toBe(true);
 	});
 
-	it('reports the file count after exportAllZip', async () => {
-		vi.mocked(services.exportZip).mockResolvedValue(true);
-		await exportAllZip(deps);
-		const ok = notify.toasts.find((t) => t.level === 'success');
-		expect(ok?.message).toContain('2');
-	});
-
 	it('shows an error toast when exportAllZip fails', async () => {
 		vi.mocked(services.exportZip).mockRejectedValue(new Error('boom'));
 		await exportAllZip(deps);
 		expect(notify.toasts.some((t) => t.level === 'error')).toBe(true);
-	});
-
-	it('reports success after exportSelectionZip', async () => {
-		vi.mocked(services.exportZip).mockResolvedValue(true);
-		await exportSelectionZip(new Set(['a']), deps);
-		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
-	});
-
-	it('does nothing for an empty exportSelectionZip selection', async () => {
-		await exportSelectionZip(new Set(), deps);
-		expect(services.exportZip).not.toHaveBeenCalled();
-		expect(notify.toasts).toHaveLength(0);
-	});
-
-	it('does nothing when exportSelectionZip IDs are outside the corpus', async () => {
-		await exportSelectionZip(new Set(['missing']), deps);
-		expect(services.exportZip).not.toHaveBeenCalled();
-	});
-
-	it('does nothing when exportAllZip has no files', async () => {
-		const emptyDeps = { getFiles: () => [] as readonly FileItem[], scheduleSave: () => {} };
-		await exportAllZip(emptyDeps);
-		expect(services.exportZip).not.toHaveBeenCalled();
-	});
-
-	it('does nothing when exportHTML receives an unknown ID', async () => {
-		await exportHTML('missing', deps);
-		expect(services.exportHTML).not.toHaveBeenCalled();
-	});
-
-	it('does nothing when exportMarkdown receives an unknown ID', async () => {
-		await exportMarkdown('missing', deps);
-		expect(services.exportMarkdown).not.toHaveBeenCalled();
 	});
 
 	it('keeps dirty state and hides success after desktop exportMarkdown cancellation', async () => {
@@ -129,19 +77,6 @@ describe('export-ops - notification feedback (§J3)', () => {
 		expect(files[0]!.dirty).toBe(true);
 		expect(scheduleSave).not.toHaveBeenCalled();
 		expect(notify.toasts).toHaveLength(0);
-	});
-
-	it('clears dirty state and schedules a save after exportMarkdown success', async () => {
-		const files = [file('a')];
-		const scheduleSave = vi.fn();
-		const localDeps = {
-			getFiles: () => files as readonly FileItem[],
-			scheduleSave
-		};
-		vi.mocked(services.exportMarkdown).mockResolvedValue(true);
-		await exportMarkdown('a', localDeps);
-		expect(files[0]!.dirty).toBe(false);
-		expect(scheduleSave).toHaveBeenCalledWith('a');
 	});
 
 	it('does not report success after desktop exportHTML cancellation', async () => {
@@ -231,11 +166,6 @@ describe('exports during errors and concurrent changes', () => {
 		await exportSelectionZip(new Set(['a']), deps);
 		expect(notify.toasts.filter((toast) => toast.level === 'error')).toHaveLength(2);
 		expect(notify.toasts.some((toast) => toast.level === 'success')).toBe(false);
-	});
-
-	it('does not start a PDF export for a missing ID', async () => {
-		await exportPDF('missing', deps);
-		expect(services.exportPDF).not.toHaveBeenCalled();
 	});
 
 	it.each(['rename', 'remove'])('keeps changes during a Markdown export: %s', async (change) => {

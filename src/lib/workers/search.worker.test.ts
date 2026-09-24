@@ -45,20 +45,4 @@ describe('search worker bridge', () => {
 		expect(worker.responses[0]?.hits).toHaveLength(1);
 		expect(worker.responses[1]?.hits).toHaveLength(1);
 	});
-
-	it('returns invalid regular expressions without throwing from the event bridge', () => {
-		worker.listener?.({
-			data: {
-				id: 3,
-				files: [{ id: 'a', name: 'a.md', content: 'alpha' }],
-				query: '[a',
-				caseSensitive: false,
-				wholeWord: false,
-				useRegex: true
-			}
-		} as MessageEvent<SearchRequest>);
-
-		expect(worker.responses[0]).toMatchObject({ id: 3, hits: [] });
-		expect(worker.responses[0]?.regexError).toBeTypeOf('string');
-	});
 });

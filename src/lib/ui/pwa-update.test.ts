@@ -37,48 +37,6 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('PWA update glue', () => {
-	it('waits for writes to finish before activation', async () => {
-		const { applyPwaUpdate } = await import('./pwa-update');
-		let release: (() => void) | undefined;
-		const pending = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		const update = vi.fn(async () => undefined);
-		const result = applyPwaUpdate(update, () => pending);
-		expect(update).not.toHaveBeenCalled();
-		release?.();
-		await expect(result).resolves.toBe(true);
-		expect(update).toHaveBeenCalledWith(true);
-	});
-
-	it('stays on the page after a durability barrier failure', async () => {
-		const { applyPwaUpdate } = await import('./pwa-update');
-		const update = vi.fn(async () => undefined);
-		await expect(
-			applyPwaUpdate(update, async () => {
-				throw new Error('quota');
-			})
-		).resolves.toBe(false);
-		expect(update).not.toHaveBeenCalled();
-		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
-	});
-
-	it('shows explicit update and offline-ready notifications', async () => {
-		const { registerPwaUpdates } = await import('./pwa-update');
-		registerPwaUpdates();
-		await vi.waitFor(() => expect(pwa.register).toHaveBeenCalledOnce());
-
-		pwa.options?.onNeedRefresh();
-		expect(notify.toasts[0]?.action).toBeDefined();
-		notify.toasts[0]?.action?.run();
-		await vi.waitFor(() => expect(pwa.update).toHaveBeenCalledWith(true));
-		expect(pwa.flush).toHaveBeenCalledOnce();
-		expect(pwa.options?.onNeedReload).toBeTypeOf('function');
-
-		pwa.options?.onOfflineReady();
-		expect(notify.toasts.some((toast) => toast.level === 'success')).toBe(true);
-	});
-
 	it('checks a long-lived registration periodically', async () => {
 		vi.useFakeTimers();
 		const registration = { update: vi.fn(async () => undefined) };

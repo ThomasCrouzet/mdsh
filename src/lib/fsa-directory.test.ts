@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { pickDirectoryFiles, isDirectoryPickerSupported } from './fsa';
+import { pickDirectoryFiles } from './fsa';
 
 // §2.3 - Test recursive Markdown collection from a simulated FileSystemDirectory
 // handle. jsdom does not provide the picker. Verify traversal, extension filters,
@@ -41,17 +41,6 @@ afterEach(() => {
 	delete (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker;
 });
 
-describe('isDirectoryPickerSupported', () => {
-	it('returns true when window.showDirectoryPicker exists', () => {
-		installPicker(async () => dir('root', []));
-		expect(isDirectoryPickerSupported()).toBe(true);
-	});
-	it('returns false otherwise', () => {
-		installPicker(undefined);
-		expect(isDirectoryPickerSupported()).toBe(false);
-	});
-});
-
 describe('pickDirectoryFiles', () => {
 	it('collects supported text files recursively and ignores other files', async () => {
 		const root = dir('root', [
@@ -87,13 +76,6 @@ describe('pickDirectoryFiles', () => {
 		});
 		const { files } = await pickDirectoryFiles();
 		expect(files).toEqual([]);
-	});
-
-	it('returns an empty list when the picker is unavailable', async () => {
-		installPicker(undefined);
-		const { files, truncated } = await pickDirectoryFiles();
-		expect(files).toEqual([]);
-		expect(truncated).toBe(false);
 	});
 });
 

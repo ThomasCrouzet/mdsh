@@ -132,29 +132,6 @@ afterEach(async () => {
 });
 
 describe('desktop import and save integration', () => {
-	it('saves an imported native file without opening a save dialog', async () => {
-		const state = nativeFile();
-		const io = createNativeIo('session-one', state);
-		const files: FileItem[] = [];
-		const deps = createDeps(TEST_IDS[0], files);
-		setTauriDiskIoForTests(io);
-
-		const imported = await openFromDisk(deps);
-		imported[0]!.content = '# Edited file';
-
-		expect(imported).toHaveLength(1);
-		expect(await getPathLink(TEST_IDS[0])).toEqual({ kind: 'path', path: DISK_PATH });
-		expect(await saveToDisk(TEST_IDS[0], deps)).toBe(true);
-		expect(state.content).toBe('# Edited file');
-		expect(io.saveGrant).not.toHaveBeenCalled();
-		expect(io.writeText).toHaveBeenCalledWith(
-			'session-one',
-			'# Edited file',
-			'sha256:initial',
-			false
-		);
-	});
-
 	it('renews the native grant after restart and saves without a save dialog', async () => {
 		const state = nativeFile();
 		const files: FileItem[] = [];

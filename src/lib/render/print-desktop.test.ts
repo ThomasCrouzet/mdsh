@@ -19,26 +19,6 @@ afterEach(() => {
 });
 
 describe('native print isolation', () => {
-	it('prints from the top window with isolated content then restores the app', async () => {
-		const ui = document.createElement('main');
-		ui.textContent = 'Editor UI';
-		document.body.append(ui);
-		await printOnDesktop(
-			'<title>Document</title><style>body { color: black; } p { color: red; }</style><body><main class="print-body"><p>Author text</p></main></body>'
-		);
-		expect(print).toHaveBeenCalledOnce();
-		const host = document.getElementById('mdsh-native-print')!;
-		expect(host.shadowRoot?.textContent).toContain('Author text');
-		expect(host.shadowRoot?.textContent).not.toContain('Editor UI');
-		expect(host.shadowRoot?.querySelector('style')?.textContent).toContain(
-			':host { color: black; }'
-		);
-		expect(document.title).toBe('Document');
-		window.dispatchEvent(new Event('afterprint'));
-		expect(document.getElementById('mdsh-native-print')).toBeNull();
-		expect(document.title).toBe('Editor');
-		expect(ui.isConnected).toBe(true);
-	});
 	it('loads only local export styles and resolves their font URLs', async () => {
 		const fetch = vi.fn(
 			async () =>

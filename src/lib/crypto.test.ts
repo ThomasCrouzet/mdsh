@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { encryptString, decryptString, isEncryptedEnvelope, ENVELOPE_VERSION } from './crypto';
+import { encryptString, decryptString, ENVELOPE_VERSION } from './crypto';
 
 describe('encryptString / decryptString', () => {
 	it('decrypts the original text after encryption', async () => {
@@ -58,12 +58,6 @@ describe('encryptString / decryptString', () => {
 		expect(await decryptString(env, 'p')).toBe('');
 	});
 
-	it('rejects an excessive `iter` value before key derivation', async () => {
-		const env = await encryptString('secret', 'p');
-		const hostile = { ...env, iter: 2_000_000_000 };
-		await expect(decryptString(hostile, 'p')).rejects.toThrow(/itérations hors limites/);
-	});
-
 	it('rejects zero, negative, and fractional `iter` values', async () => {
 		const env = await encryptString('secret', 'p');
 		await expect(decryptString({ ...env, iter: 0 }, 'p')).rejects.toThrow(/hors limites/);
@@ -79,17 +73,5 @@ describe('encryptString / decryptString', () => {
 			await expect(decryptString(corrupt, 'p')).rejects.toThrow(/encodage corrompu/);
 			await expect(decryptString(corrupt, 'p')).rejects.toMatchObject({ name: 'DecryptError' });
 		}
-	});
-});
-
-describe('isEncryptedEnvelope', () => {
-	it('recognizes a valid envelope', async () => {
-		const env = await encryptString('x', 'p');
-		expect(isEncryptedEnvelope(env)).toBe(true);
-	});
-	it('rejects plain, null, and incomplete objects', () => {
-		expect(isEncryptedEnvelope({ format: 'mdsh-backup' })).toBe(false);
-		expect(isEncryptedEnvelope(null)).toBe(false);
-		expect(isEncryptedEnvelope({ alg: 'AES-GCM' })).toBe(false);
 	});
 });

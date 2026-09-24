@@ -17,14 +17,24 @@ export default defineConfig({
 	// Do not depend on asynchronous restoration of `mdsh:mode`.
 	retries: process.env.CI ? 2 : 0,
 	workers: process.env.CI ? 1 : undefined,
-	reporter: process.env.CI ? [['github'], ['list']] : 'list',
+	captureGitInfo: { commit: true },
+	metadata: {
+		nodeVersion: process.version,
+		repeatCommand: 'npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"'
+	},
+	reporter: [
+		...(process.env.CI ? ([['github']] as const) : []),
+		['list'],
+		['html', { outputFolder: 'playwright-report', open: 'never' }],
+		['json', { outputFile: 'test-results/results.json' }]
+	],
 	use: {
 		baseURL: e2eBaseUrl,
-		trace: 'on-first-retry',
+		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
 		// The UI defaults to English and detects navigator.language.
 		// These tests check French strings, so use fr-FR.
-		// i18n unit tests check the English default and en/fr key parity.
+		// locale-en.spec.ts checks English. TypeScript checks catalog key parity.
 		locale: 'fr-FR'
 	},
 	projects: [
@@ -50,7 +60,11 @@ export default defineConfig({
 				'**/golden-path.spec.ts',
 				'**/file-navigation.spec.ts',
 				'**/library-workflows.spec.ts',
-				'**/search-replace.spec.ts'
+				'**/search-replace.spec.ts',
+				'**/bulk-delete.spec.ts',
+				'**/editor-width.spec.ts',
+				'**/slash-commands.spec.ts',
+				'**/wiki-links.spec.ts'
 			]
 		},
 		{
@@ -64,7 +78,11 @@ export default defineConfig({
 				'**/palette.spec.ts',
 				'**/file-navigation.spec.ts',
 				'**/library-workflows.spec.ts',
-				'**/search-replace.spec.ts'
+				'**/search-replace.spec.ts',
+				'**/bulk-delete.spec.ts',
+				'**/editor-width.spec.ts',
+				'**/slash-commands.spec.ts',
+				'**/wiki-links.spec.ts'
 			]
 		},
 		{

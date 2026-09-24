@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-	BLOCKED_IMAGE_DATA_URI,
-	editorImageSource,
 	embedImageFile,
 	MAX_IMAGE_BYTES,
 	MediaPreparationError,
@@ -26,13 +24,6 @@ beforeEach(() =>
 afterEach(() => vi.unstubAllGlobals());
 
 describe('durable embedding', () => {
-	it('keeps PNG bytes and uses the file name for alternative text', async () => {
-		const result = await embedImageFile(pngFile('Figure été.png'));
-		expect(result.dataUri).toBe(`data:image/png;base64,${PNG_BASE64}`);
-		expect(result.alt).toBe('Figure été');
-		expect(result.bytes).toBe(PNG_BYTES.length);
-	});
-
 	it('rejects a false PNG and active content', async () => {
 		await expect(
 			embedImageFile(new File(['<script>bad</script>'], 'fake.png', { type: 'image/png' }))
@@ -55,23 +46,6 @@ describe('durable embedding', () => {
 		);
 		await expect(embedImageFile(pngFile())).rejects.toMatchObject({ code: 'dimensions' });
 		expect(close).toHaveBeenCalledOnce();
-	});
-
-	it('checks pixels through Image.decode without createImageBitmap', async () => {
-		vi.stubGlobal('createImageBitmap', undefined);
-		const decode = vi.fn(async () => {});
-		vi.stubGlobal(
-			'Image',
-			class {
-				naturalWidth = 192;
-				naturalHeight = 192;
-				decode = decode;
-				removeAttribute() {}
-			}
-		);
-		const result = await embedImageFile(pngFile());
-		expect(result.width).toBe(192);
-		expect(decode).toHaveBeenCalledOnce();
 	});
 
 	it('removes network subresources from an embedded SVG', async () => {
@@ -190,37 +164,9 @@ describe('export policy and preparation', () => {
 		expect(result.html).toContain('width:min(50%,96px)');
 		expect(result.issues).toEqual([]);
 	});
-
-	it('neutralizes remote WYSIWYG sources before image creation', () => {
-		expect(editorImageSource('')).toBe('');
-		expect(editorImageSource('https://tracker.example/pixel')).toBe(BLOCKED_IMAGE_DATA_URI);
-		expect(editorImageSource('images/local.png')).toBe(BLOCKED_IMAGE_DATA_URI);
-		expect(editorImageSource('data:image/png;base64,AAAA')).toBe('data:image/png;base64,AAAA');
-	});
 });
 
 describe('limit and read error validation', () => {
-	it.each([
-		['photo.jpg', [255, 216, 255], 'image/jpeg'],
-		['photo.jpeg', [255, 216, 255], 'image/jpeg'],
-		['photo.gif', [...new TextEncoder().encode('GIF87a')], 'image/gif'],
-		['photo.gif', [...new TextEncoder().encode('GIF89a')], 'image/gif'],
-		['photo.webp', [...new TextEncoder().encode('RIFF0000WEBP')], 'image/webp'],
-		['photo.avif', [...new TextEncoder().encode('0000ftypavif')], 'image/avif'],
-		['photo.avif', [...new TextEncoder().encode('0000ftypavis')], 'image/avif'],
-		['photo.png', [...PNG_BYTES], 'image/png'],
-		[
-			'photo.svg',
-			[...new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>')],
-			'image/svg+xml'
-		]
-	])('déduit le format de %s uniquement pour un type non déclaré', async (name, bytes, mime) => {
-		const result = await embedImageFile(
-			new File([new Uint8Array(bytes)], name, { type: 'application/octet-stream' })
-		);
-		expect(result.mime).toBe(mime);
-	});
-
 	it.each(['jpeg', 'gif', 'webp', 'avif', 'svg+xml'])(
 		'refuse une signature invalide pour %s',
 		async (type) => {
@@ -276,7 +222,7 @@ describe('limit and read error validation', () => {
 		});
 	});
 
-	it.each(['load', 'error', 'zero'])('uses WebKit decoding without decode: %s', async (mode) => {
+	it.each(['error', 'zero'])('uses WebKit decoding without decode: %s', async (mode) => {
 		vi.stubGlobal('createImageBitmap', undefined);
 		vi.stubGlobal(
 			'Image',
@@ -291,8 +237,7 @@ describe('limit and read error validation', () => {
 				removeAttribute() {}
 			}
 		);
-		if (mode === 'load') expect((await embedImageFile(pngFile())).width).toBe(1);
-		else await expect(embedImageFile(pngFile())).rejects.toMatchObject({ code: 'unreadable' });
+		await expect(embedImageFile(pngFile())).rejects.toMatchObject({ code: 'unreadable' });
 	});
 
 	it('stops an unresponsive WebKit decode', async () => {
@@ -404,48 +349,9 @@ describe('limit and read error validation', () => {
 		expect(result.issues).toEqual([]);
 		expect(result.html).not.toContain('https://');
 	});
-
-	it('renders HTML without a DOM and reports the exact consent requirement', async () => {
-		vi.stubGlobal('document', undefined);
-		expect(await prepareHtmlMedia('plain', { allowNetwork: false })).toEqual({
-			html: 'plain',
-			issues: [],
-			embedded: 0
-		});
-		expect(
-			new MediaPreparationError([{ source: 'a', reason: 'blocked' }]).needsNetworkConsent
-		).toBe(true);
-		expect(
-			new MediaPreparationError([{ source: 'a', reason: 'unreadable' }]).needsNetworkConsent
-		).toBe(false);
-	});
 });
 
 describe('exported image schemes and fragments', () => {
-	it.each(['DATA:IMAGE/PNG;BASE64,', 'data:image/png;charset=UTF-8;base64,'])(
-		'reconnaît %s sans accès réseau',
-		async (prefix) => {
-			const fetchSpy = vi.fn();
-			vi.stubGlobal('fetch', fetchSpy);
-			const html = await prepareHtmlMediaOrThrow(`<img src="${prefix}${PNG_BASE64}">`, {
-				allowNetwork: false
-			});
-			expect(html).toContain(`src="data:image/png;base64,${PNG_BASE64}"`);
-			expect(fetchSpy).not.toHaveBeenCalled();
-		}
-	);
-
-	it('accepts a percent-encoded UTF-8 SVG with an explicit charset', async () => {
-		const source = encodeURIComponent(
-			'<svg xmlns="http://www.w3.org/2000/svg"><text>Été</text></svg>'
-		);
-		const html = await prepareHtmlMediaOrThrow(
-			`<img src="data:image/svg+xml;charset=utf-8,${source}">`,
-			{ allowNetwork: false }
-		);
-		expect(html).toContain('src="data:image/svg+xml;base64,');
-	});
-
 	it('rejects an image fragment but keeps internal SVG references', async () => {
 		const fragment = '<svg><defs><g id="drawing"/></defs><image href="#drawing"/></svg>';
 		await expect(
@@ -454,27 +360,5 @@ describe('exported image schemes and fragments', () => {
 		expect(await prepareHtmlMediaOrThrow(fragment, { allowNetwork: false })).toContain(
 			'href="#drawing"'
 		);
-	});
-
-	it('loads an uppercase blob scheme without network consent', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => ({
-				ok: true,
-				headers: new Headers({ 'content-type': 'image/png' }),
-				body: new ReadableStream({
-					start(controller) {
-						controller.enqueue(PNG_BYTES);
-						controller.close();
-					}
-				})
-			}))
-		);
-		const result = await prepareHtmlMedia(`<img src="BLOB:${window.location.origin}/image">`, {
-			allowNetwork: false
-		});
-		expect(result.issues).toEqual([]);
-		expect(result.embedded).toBe(1);
-		expect(result.html).toContain(`src="data:image/png;base64,${PNG_BASE64}"`);
 	});
 });

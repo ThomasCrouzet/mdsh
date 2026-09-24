@@ -161,13 +161,14 @@ and automatic updates.
 
 ## Tests
 
-- **Unit** (Vitest, jsdom): `src/**/*.{test,spec}.ts` - config `vitest.config.ts`, setup `src/lib/test-setup.ts` (which forces the locale to French and polyfills `localStorage`), `$app/environment` and `$app/paths` aliases mocked. jsdom uses a non-opaque URL so `localStorage` is available. The coverage `include` targets the logic surface (`src/lib/**/*.ts` + `.svelte.ts`); `.svelte` components are covered by e2e and targeted component tests, not the unit threshold.
-- **i18n**: `src/lib/i18n/i18n.test.ts` verifies en/fr key parity and the English default (it re-sets the locale to `'en'`), plus the pure `locale.ts` logic (`detectLocale`, `isLocale`, `interpolate`).
-- **E2E** (Playwright, chromium): `e2e/*.spec.ts` - config `playwright.config.ts`, shared helpers in `e2e/helpers.ts`.
+- **Policy**: Prefer E2E tests. Before isolated tests and implementation, record the failure risks. Never add unit tests after implementation. See [TESTING.md](TESTING.md).
+- **Isolated failure tests** (Vitest, jsdom): `src/**/*.{test,spec}.ts`, configured in `vitest.config.ts`. The setup forces French and supplies browser aliases. Retain only concrete risks absent from E2E. Coverage is diagnostic and has no percentage gate.
+- **i18n**: TypeScript checks catalog key parity. Isolated tests check nonempty values, locale precedence, invalid preferences, interpolation, and native locale events. Browser tests check English and French workflows.
+- **E2E** (Playwright): `e2e/*.spec.ts`, configured in `playwright.config.ts`, with shared helpers in `e2e/helpers.ts`. Each run produces HTML and JSON reports with source metadata. CI uploads reports and attachments on success and failure.
 - **Visual snapshots**: `e2e/visual.spec.ts-snapshots/` - platform-sensitive (Linux ≠ macOS), both baselines versioned (`*-chromium-linux.png`, `*-chromium-darwin.png`), deliberately skipped in CI (see CONTRIBUTING.md).
 - **E2E accessibility**: `e2e/a11y.spec.ts` checks keyboard and focus behavior. `e2e/axe.spec.ts` blocks serious and critical axe-core violations. These tests are part of the blocking CI E2E suite.
-- **Browsers**: Chromium runs the full desktop suite. Mobile Chromium runs `mobile.spec.ts`.
-  Firefox runs `golden-path.spec.ts`. WebKit also runs `locale-en.spec.ts` and `palette.spec.ts`.
+- **Browsers**: Chromium runs the full desktop suite. Mobile Chromium and WebKit run `mobile.spec.ts`.
+  Firefox and WebKit run the core editing, library, search, bulk deletion, width, and slash-command workflows. WebKit also runs the English locale and palette tests.
   FSA scenarios run only on Chromium.
 
 ## Design limits (deliberate)

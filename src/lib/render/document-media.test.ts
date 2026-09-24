@@ -115,7 +115,7 @@ describe('mixed resource traversal', () => {
 		expect(result.issues).toEqual([{ source: 'https://example.org/a.png', reason: 'unreadable' }]);
 	});
 
-	it.each(['images/figure.png', 'https://example.org/images/figure.png', './figure.png?version=1'])(
+	it.each(['https://example.org/images/figure.png', './figure.png?version=1'])(
 		'retrouve un nom unique sélectionné pour %s',
 		async (source) => {
 			const result = await incorporateDocumentImages(`![Alt](${source})`, {

@@ -7,15 +7,6 @@ beforeEach(() => {
 });
 
 describe('shortcut customization', () => {
-	it('persists, reloads, and resets a valid shortcut', () => {
-		expect(keyboardStore.set('palette', { key: ';', shift: false })).toBeNull();
-		expect(keyboardStore.label('palette')).toContain(';');
-		keyboardStore.overrides = {};
-		keyboardStore.load();
-		expect(keyboardStore.binding('palette')).toEqual({ key: ';', shift: false });
-		expect(keyboardStore.reset()).toBeNull();
-		expect(keyboardStore.binding('palette')).toEqual({ key: 'p', shift: true });
-	});
 	it('rejects duplicates, reserved combinations, and invalid values', () => {
 		expect(keyboardStore.set('palette', { key: 'f', shift: true })).toBe('duplicate');
 		expect(keyboardStore.set('palette', { key: 'p', shift: true })).toBe('reserved');

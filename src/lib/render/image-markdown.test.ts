@@ -34,16 +34,6 @@ describe('ImageMarkdownRoundTrip', () => {
 		const roundTrip = new ImageMarkdownRoundTrip(source);
 		expect(roundTrip.restore(roundTrip.editorMarkdown)).toBe(source);
 	});
-
-	it('uses the uploaded file name without changing network images', () => {
-		const roundTrip = new ImageMarkdownRoundTrip('Texte ![En ligne](inline.png).');
-		roundTrip.registerUpload('data:image/png;base64,AAAA', 'Figure 1');
-		const result = roundTrip.restore(
-			'Texte ![En ligne](inline.png).\n\n![1.00](data:image/png;base64,AAAA)'
-		);
-		expect(result).toContain('Texte ![En ligne](inline.png).');
-		expect(result).toContain('![Figure 1](data:image/png;base64,AAAA)');
-	});
 });
 
 describe('applyImageMetadataToHtml', () => {

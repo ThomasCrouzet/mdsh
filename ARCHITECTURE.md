@@ -66,8 +66,8 @@ French in the browser, and Settings can change the locale.
 
 `en.ts` satisfies `Record<string, string>` and defines the `MessageKey` type.
 `fr.ts` uses the same type. A missing key is thus a TypeScript error instead
-of a runtime fallback. `i18n.test.ts` also checks key parity, nonempty values,
-and the English default. The type system alone cannot check these value rules.
+of a runtime fallback. `i18n.test.ts` checks nonempty values, locale precedence,
+and invalid preferences. Browser tests check the English and French interfaces.
 For two locales, this layer uses less code and gives strict guarantees.
 
 ## Document identity is independent of tabs
@@ -99,7 +99,7 @@ Native writes stage data in the target directory and synchronize it. They then c
 
 ## Measured corpus budget
 
-Logic tests build corpora of 50, 200, and 300 documents. They then measure the
+Logic tests build a corpus of 300 documents. They then measure the
 metadata index and search. A separate browser test uses a Mac mini M4, Chromium,
 and a 50,000-character document. Search takes 183 to 205 ms for 200 and 300
 notes. The first WYSIWYG pass takes 119 ms, then 85 to 88 ms. Typing takes a

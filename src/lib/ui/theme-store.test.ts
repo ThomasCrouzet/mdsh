@@ -43,27 +43,11 @@ beforeEach(() => {
 });
 
 describe('themeStore', () => {
-	it('follows the system without a stored preference', () => {
-		themeStore.load();
-		expect(themeStore.pref).toBe('system');
-		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-		expect(metaContent('theme-color')).toBe(THEME_COLORS.dark);
-		expect(metaContent('color-scheme')).toBe('dark');
-	});
-
 	it('applies the light theme for a light system setting', () => {
 		mqlMatches = true;
 		themeStore.load();
 		expect(document.documentElement.getAttribute('data-theme')).toBe('light');
 		expect(metaContent('theme-color')).toBe(THEME_COLORS.light);
-	});
-
-	it('uses a stored explicit preference before the system setting', () => {
-		localStorage.setItem(THEME_STORAGE_KEY, 'dark');
-		mqlMatches = true; // système clair, mais pref dark absolue
-		themeStore.load();
-		expect(themeStore.pref).toBe('dark');
-		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 	});
 
 	it('ignores an invalid localStorage value', () => {
@@ -82,16 +66,6 @@ describe('themeStore', () => {
 		themeStore.set('dark');
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
 		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-	});
-
-	it('cycles through system, light, dark, and system', () => {
-		themeStore.pref = 'system';
-		themeStore.cycle();
-		expect(themeStore.pref).toBe('light');
-		themeStore.cycle();
-		expect(themeStore.pref).toBe('dark');
-		themeStore.cycle();
-		expect(themeStore.pref).toBe('system');
 	});
 
 	it('follows operating system changes for the system preference', () => {

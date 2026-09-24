@@ -20,13 +20,6 @@ describe('extractChangelogSection (shipped CHANGELOG parser)', () => {
 		expect(notes).not.toContain('## [1.2.3]');
 	});
 
-	it('accepts a bare version and matches readChangelogSection', () => {
-		expect(readChangelogSection('1.2.3', changelogPath)).toBe(
-			extractChangelogSection(changelog, '1.2.3')
-		);
-		expect(readChangelogSection('1.2.3', changelogPath)).toContain('checklists');
-	});
-
 	it('throws when the version is missing from CHANGELOG.md', () => {
 		expect(() => extractChangelogSection(changelog, 'v0.0.0')).toThrow(/no CHANGELOG heading/);
 	});

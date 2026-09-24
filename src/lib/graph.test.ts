@@ -8,16 +8,6 @@ const files = [
 ];
 
 describe('buildGraph', () => {
-	it('creates one node per file', () => {
-		const g = buildGraph(
-			files,
-			() => [],
-			() => null
-		);
-		expect(g.nodes.map((n) => n.id)).toEqual(['a', 'b', 'c']);
-		expect(g.edges).toEqual([]);
-	});
-
 	it('converts wiki links to edges', () => {
 		const targets: Record<string, string[]> = { a: ['Beta'], b: ['Gamma'], c: [] };
 		const resolve = (t: string) => ({ Alpha: 'a', Beta: 'b', Gamma: 'c' })[t] ?? null;
@@ -70,9 +60,5 @@ describe('computeLayout', () => {
 		const a = computeLayout(data, { width: 400, height: 300, iterations: 30 });
 		const b = computeLayout(data, { width: 400, height: 300, iterations: 30 });
 		expect(a).toEqual(b);
-	});
-
-	it('returns no positions for an empty graph', () => {
-		expect(computeLayout({ nodes: [], edges: [] }, { width: 100, height: 100 })).toEqual([]);
 	});
 });

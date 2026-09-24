@@ -53,6 +53,17 @@ CI runs check, lint, tests, builds, accessibility audits, dependency review, sec
 
 `npm install` installs lefthook hooks. `pre-commit` runs Prettier and ESLint on staged files. `pre-push` runs check and tests.
 
+## Test policy
+
+Prefer E2E tests for complex features. Never write unit tests after implementation.
+If a system needs isolated tests, first record its failure risks. Keep each isolated
+test only when it detects a concrete failure absent from the E2E suite. Coverage
+percentages are diagnostic, not a release gate.
+
+Each browser run writes an HTML report and a JSON result file. CI keeps these
+artifacts on success and failure. See [docs/TESTING.md](docs/TESTING.md) for commands,
+retained failure risks, and artifact paths.
+
 ## Visual tests (snapshots)
 
 The Playwright snapshots (`e2e/visual.spec.ts`) are **local-only by design** - not a CI gate (`--ignore-snapshots --grep-invert "Snapshots visuels"` in `deploy.yml`). A Linux baseline generated via the official Playwright Docker image diverges enough from the fixed GitHub runner's font rendering to fail unrelated PRs. Linux and macOS baselines remain versioned for local comparison only. See `ROADMAP.md` for the policy rationale.

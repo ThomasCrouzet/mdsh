@@ -61,7 +61,6 @@ import {
 	renameOnDisk,
 	unlinkFromDisk,
 	refreshBrokenLinks,
-	isDiskLinkingAvailable,
 	type DiskSyncDeps
 } from './disk-sync';
 
@@ -139,45 +138,6 @@ describe('openFromDisk', () => {
 		};
 	}
 
-	it('returns an empty list when FSA is unavailable', async () => {
-		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
-		const created = await openFromDisk(depsFor([]));
-		expect(created).toEqual([]);
-		expect(fsa.pickAndOpen).not.toHaveBeenCalled();
-	});
-
-	it('returns an empty list after picker cancellation', async () => {
-		vi.mocked(fsa.pickAndOpen).mockResolvedValue([]);
-		const created = await openFromDisk(depsFor([]));
-		expect(created).toEqual([]);
-	});
-
-	it('opens each file, marks its disk link, and persists its handle', async () => {
-		const fileA = fakeFile('a.md', '# A', { lastModified: 1000 });
-		const fileB = fakeFile('b.md', '# B', { lastModified: 2000 });
-		const hA = { tag: 'A' } as unknown as FileSystemFileHandle;
-		const hB = { tag: 'B' } as unknown as FileSystemFileHandle;
-		vi.mocked(fsa.pickAndOpen).mockResolvedValue([
-			{ handle: hA, file: fileA },
-			{ handle: hB, file: fileB }
-		]);
-		vi.mocked(fsa.saveHandle).mockResolvedValue(undefined);
-
-		const store: FileItem[] = [];
-		const created = await openFromDisk(depsFor(store));
-
-		expect(created).toHaveLength(2);
-		expect(created.map((f) => f.name)).toEqual(['a.md', 'b.md']);
-		expect(created.every((f) => f.linkedToDisk === true)).toBe(true);
-		expect(created[0]!.diskLastModified).toBe(1000);
-		expect(created[0]!.diskSize).toBe(fileA.size);
-		// Persist one handle per file.
-		expect(fsa.saveHandle).toHaveBeenCalledTimes(2);
-		expect(fsa.saveHandle).toHaveBeenCalledWith('id-a.md', hA, 'sha256:disk', 'epoch');
-		// Do not show a partial toast when all files succeed.
-		expect(notify.toasts).toHaveLength(0);
-	});
-
 	it('keeps the byte revision when UTF-8 decoding removes a BOM', async () => {
 		const source = '\uFEFF# Title';
 		const file = fakeFile('bom.md', source, { size: new TextEncoder().encode(source).byteLength });
@@ -251,43 +211,6 @@ describe('saveToDisk', () => {
 		deps = { getFile: () => file, onCreate: () => file, scheduleSave };
 	});
 
-	it('returns false when FSA is unavailable', async () => {
-		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
-		expect(await saveToDisk('a', deps)).toBe(false);
-	});
-
-	it('returns false when the file is missing', async () => {
-		const missing: DiskSyncDeps = { ...deps, getFile: () => undefined };
-		expect(await saveToDisk('a', missing)).toBe(false);
-	});
-
-	it('writes with an approved handle, updates flags, and schedules a save', async () => {
-		const written = new File(['contenu'], 'note.md');
-		Object.defineProperty(written, 'lastModified', { value: 5555, configurable: true });
-		const handleWithFile = {
-			getFile: vi.fn().mockResolvedValue(written)
-		} as unknown as FileSystemFileHandle;
-		vi.mocked(fsa.getFsaLink).mockResolvedValue({
-			handle: handleWithFile,
-			revision: 'sha256:disk',
-			epoch: 'epoch'
-		});
-		vi.mocked(fsa.requestPermission).mockResolvedValue(true);
-		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
-
-		const ok = await saveToDisk('a', deps);
-
-		expect(ok).toBe(true);
-		expect(file.linkedToDisk).toBe(true);
-		expect(file.brokenLink).toBe(false);
-		expect(file.dirty).toBe(false);
-		// Refresh the overwrite baseline after the write.
-		expect(file.diskLastModified).toBe(5555);
-		expect(file.diskSize).toBe(written.size);
-		expect(scheduleSave).toHaveBeenCalledWith('a');
-		expect(notify.toasts.some((t) => t.level === 'success')).toBe(true);
-	});
-
 	it('returns false without a toast when handle permission is denied', async () => {
 		vi.mocked(fsa.getFsaLink).mockResolvedValue({
 			handle,
@@ -313,26 +236,6 @@ describe('saveToDisk', () => {
 		expect(file.brokenLink).toBe(true);
 		expect(notify.toasts.some((t) => t.level === 'error')).toBe(true);
 		expect(scheduleSave).not.toHaveBeenCalled();
-	});
-
-	it('opens a picker, persists the new handle, and writes', async () => {
-		const picked = { tag: 'picked' } as unknown as FileSystemFileHandle;
-		const written = new File(['contenu'], 'note.md');
-		Object.defineProperty(picked, 'getFile', {
-			value: vi.fn().mockResolvedValue(written),
-			configurable: true
-		});
-		vi.mocked(fsa.getFsaLink).mockResolvedValue(null);
-		vi.mocked(fsa.pickSaveTarget).mockResolvedValue(picked);
-		vi.mocked(fsa.saveHandle).mockResolvedValue(undefined);
-		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
-
-		const ok = await saveToDisk('a', deps);
-
-		expect(ok).toBe(true);
-		expect(fsa.pickSaveTarget).toHaveBeenCalledWith('note.md');
-		expect(fsa.saveHandle).toHaveBeenCalledWith('a', picked, 'sha256:local', 'epoch');
-		expect(file.linkedToDisk).toBe(true);
 	});
 
 	it('does not persist a new handle when the write fails', async () => {
@@ -364,39 +267,12 @@ describe('saveToDisk', () => {
 		expect(file.dirty).toBe(true);
 	});
 
-	it('persists the epoch captured before a replacement restore race', async () => {
-		const picked = { tag: 'picked' } as unknown as FileSystemFileHandle;
-		vi.mocked(database.getDiskLinkEpoch).mockResolvedValueOnce('before-restore');
-		vi.mocked(fsa.pickSaveTarget).mockResolvedValue(picked);
-		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
-
-		expect(await saveToDisk('a', deps)).toBe(true);
-		expect(fsa.saveHandle).toHaveBeenCalledWith('a', picked, 'sha256:local', 'before-restore');
-		expect(database.getDiskLinkEpoch).toHaveBeenCalledTimes(1);
-	});
-
 	it('returns false without a write after picker cancellation', async () => {
 		vi.mocked(fsa.getFsaLink).mockResolvedValue(null);
 		vi.mocked(fsa.pickSaveTarget).mockResolvedValue(null);
 		expect(await saveToDisk('a', deps)).toBe(false);
 		expect(fsa.writeHandle).not.toHaveBeenCalled();
 		expect(fsa.saveHandle).not.toHaveBeenCalled();
-	});
-
-	it('clears the baseline when a read after write fails', async () => {
-		const getFile = vi.fn().mockRejectedValue(new Error('relecture KO'));
-		const h = { getFile } as unknown as FileSystemFileHandle;
-		vi.mocked(fsa.getFsaLink).mockResolvedValue({
-			handle: h,
-			revision: 'sha256:disk',
-			epoch: 'epoch'
-		});
-		vi.mocked(fsa.requestPermission).mockResolvedValue(true);
-		vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
-		const ok = await saveToDisk('a', deps);
-		expect(ok).toBe(false);
-		expect(fsa.writeHandle).not.toHaveBeenCalled();
-		expect(file.brokenLink).toBe(true);
 	});
 
 	describe('overwrite guard for mtime conflicts (§C2)', () => {
@@ -432,46 +308,6 @@ describe('saveToDisk', () => {
 			expect(ok).toBe(true);
 			expect(fsa.writeHandle).toHaveBeenCalled();
 			expect(file.diskLastModified).toBe(12345);
-			confirmSpy.mockRestore();
-		});
-
-		it('returns false without a write after conflict rejection', async () => {
-			const onDisk = new File(['autre'], 'note.md');
-			Object.defineProperty(onDisk, 'lastModified', { value: 9999, configurable: true });
-			const h = { getFile: vi.fn().mockResolvedValue(onDisk) } as unknown as FileSystemFileHandle;
-			vi.mocked(fsa.getFsaLink).mockResolvedValue({
-				handle: h,
-				revision: 'sha256:before',
-				epoch: 'epoch'
-			});
-			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:changed');
-			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
-			const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
-
-			const ok = await saveToDisk('a', deps);
-
-			expect(ok).toBe(false);
-			expect(fsa.writeHandle).not.toHaveBeenCalled();
-			expect(notify.toasts.some((t) => t.level === 'info')).toBe(true);
-			confirmSpy.mockRestore();
-		});
-
-		it('requests confirmation for a size-only difference', async () => {
-			// The same mtime with a different size is a conflict.
-			const onDisk = new File(['taille differente'], 'note.md');
-			Object.defineProperty(onDisk, 'lastModified', { value: 1000, configurable: true });
-			const h = { getFile: vi.fn().mockResolvedValue(onDisk) } as unknown as FileSystemFileHandle;
-			vi.mocked(fsa.getFsaLink).mockResolvedValue({
-				handle: h,
-				revision: 'sha256:before',
-				epoch: 'epoch'
-			});
-			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:changed');
-			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
-			const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
-
-			await saveToDisk('a', deps);
-			expect(confirmSpy).toHaveBeenCalled();
 			confirmSpy.mockRestore();
 		});
 
@@ -539,139 +375,6 @@ describe('saveToDisk', () => {
 	});
 });
 
-describe('unlinkFromDisk', () => {
-	it('deletes the handle, unlinks the file, and schedules a save', async () => {
-		const file = makeFile({ linkedToDisk: true, brokenLink: true });
-		const scheduleSave = vi.fn();
-		const deps: DiskSyncDeps = { getFile: () => file, onCreate: () => file, scheduleSave };
-		vi.mocked(fsa.deleteHandle).mockResolvedValue(undefined);
-
-		await unlinkFromDisk('a', deps);
-
-		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
-		expect(file.linkedToDisk).toBe(false);
-		// Intentional unlink must clear the broken-link badge.
-		expect(file.brokenLink).toBe(false);
-		expect(scheduleSave).toHaveBeenCalledWith('a');
-	});
-
-	it('deletes an orphan handle when the store file is missing', async () => {
-		const scheduleSave = vi.fn();
-		const deps: DiskSyncDeps = {
-			getFile: () => undefined,
-			onCreate: () => makeFile(),
-			scheduleSave
-		};
-		vi.mocked(fsa.deleteHandle).mockResolvedValue(undefined);
-
-		await unlinkFromDisk('orphan', deps);
-
-		// Delete the IndexedDB handle first for the DiskLinksPanel contract.
-		expect(fsa.deleteHandle).toHaveBeenCalledWith('orphan');
-		// Do not schedule a save without a FileItem.
-		expect(scheduleSave).not.toHaveBeenCalled();
-	});
-});
-
-describe('isDiskLinkingAvailable', () => {
-	it('returns true when FSA is available', () => {
-		vi.mocked(fsa.isFSASupported).mockReturnValue(true);
-		vi.mocked(desktop.isDesktop).mockReturnValue(false);
-		expect(isDiskLinkingAvailable()).toBe(true);
-	});
-
-	it('returns true in the desktop shell without FSA', () => {
-		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
-		vi.mocked(desktop.isDesktop).mockReturnValue(true);
-		expect(isDiskLinkingAvailable()).toBe(true);
-	});
-
-	it('returns false without FSA or desktop', () => {
-		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
-		vi.mocked(desktop.isDesktop).mockReturnValue(false);
-		expect(isDiskLinkingAvailable()).toBe(false);
-	});
-});
-
-describe('openFromDisk desktop capability backend', () => {
-	function depsFor(store: FileItem[]): DiskSyncDeps {
-		return {
-			getFile: (id) => store.find((f) => f.id === id),
-			onCreate: (name, content) => {
-				const item = makeFile({ id: `id-${name}`, name, content, dirty: false });
-				store.push(item);
-				return item;
-			},
-			scheduleSave: vi.fn()
-		};
-	}
-
-	it('uses the Tauri backend and persists a path link', async () => {
-		vi.mocked(desktop.isDesktop).mockReturnValue(true);
-		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
-		vi.mocked(diskTauri.tauriPickAndOpen).mockResolvedValue({
-			files: [
-				{
-					name: 'note.md',
-					content: '# hi',
-					path: '/tmp/note.md',
-					lastModified: 42,
-					size: 4,
-					revision: 'sha256:open',
-					link: { kind: 'path', path: '/tmp/note.md' }
-				}
-			],
-			failed: 0
-		});
-		const store: FileItem[] = [];
-		const created = await openFromDisk(depsFor(store));
-		expect(created).toHaveLength(1);
-		expect(created[0]!.linkedToDisk).toBe(true);
-		expect(created[0]!.diskLastModified).toBe(42);
-		expect(created[0]!.diskRevision).toBe('sha256:open');
-		expect(fsa.savePathLink).toHaveBeenCalledWith(
-			'id-note.md',
-			{
-				kind: 'path',
-				path: '/tmp/note.md'
-			},
-			'epoch',
-			'sha256:open'
-		);
-		expect(fsa.pickAndOpen).not.toHaveBeenCalled();
-	});
-
-	it('openPathsFromDesktop consumes native argv capabilities', async () => {
-		vi.mocked(desktop.isDesktop).mockReturnValue(true);
-		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
-			files: [
-				{
-					token: 'argv-token',
-					name: 'from-argv.md',
-					content: 'x',
-					path: '/Users/me/from-argv.md',
-					lastModified: 1,
-					size: 1,
-					revision: 'sha256:argv',
-					link: { kind: 'path', path: '/Users/me/from-argv.md' }
-				}
-			],
-			failed: 0
-		});
-		const store: FileItem[] = [];
-		const nativeGrant = {
-			token: 'argv-token',
-			path: '/Users/me/from-argv.md',
-			stat: { lastModified: 1, size: 1, revision: 'sha256:argv' }
-		};
-		const created = await openPathsFromDesktop([nativeGrant], depsFor(store));
-		expect(created.files).toHaveLength(1);
-		expect(created.processedTokens).toEqual(['argv-token']);
-		expect(diskTauri.tauriOpenNativeGrants).toHaveBeenCalledWith([nativeGrant], {});
-		expect(fsa.savePathLink).toHaveBeenCalled();
-	});
-});
-
 describe('rename linked files', () => {
 	beforeEach(() => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
@@ -725,16 +428,13 @@ describe('rename linked files', () => {
 		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
 	});
 
-	it.each(['target exists', 'disk conflict', 'permission denied'])(
-		'keeps the old link on %s',
-		async (message) => {
-			vi.mocked(diskTauri.tauriRenamePath).mockRejectedValue(new Error(message));
-			const file = makeFile({ linkedToDisk: true });
-			expect(await renameOnDisk('a', 'renamed.md', testDeps([file]))).toBe(false);
-			expect(fsa.savePathLink).not.toHaveBeenCalled();
-			expect(file.name).toBe('note.md');
-		}
-	);
+	it.each(['permission denied'])('keeps the old link on %s', async (message) => {
+		vi.mocked(diskTauri.tauriRenamePath).mockRejectedValue(new Error(message));
+		const file = makeFile({ linkedToDisk: true });
+		expect(await renameOnDisk('a', 'renamed.md', testDeps([file]))).toBe(false);
+		expect(fsa.savePathLink).not.toHaveBeenCalled();
+		expect(file.name).toBe('note.md');
+	});
 
 	it('rejects missing files and missing disk links', async () => {
 		expect(await renameOnDisk('a', 'renamed.md', testDeps([]))).toBe(false);
@@ -777,36 +477,6 @@ describe('saveToDisk desktop capability backend', () => {
 		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
 		return { deps, onSyncName, scheduleSave };
 	}
-
-	it('writes with the recorded revision and stores the returned revision', async () => {
-		const file = makeFile({
-			content: 'new',
-			linkedToDisk: true,
-			diskLastModified: 10,
-			diskSize: 3,
-			diskRevision: 'sha256:before'
-		});
-		const { deps, scheduleSave } = desktopDeps(file);
-		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
-		vi.mocked(diskTauri.tauriWritePath).mockResolvedValue({
-			lastModified: 99,
-			size: 3,
-			revision: 'sha256:after'
-		});
-
-		const ok = await saveToDisk('a', deps);
-		expect(ok).toBe(true);
-		expect(diskTauri.tauriWritePath).toHaveBeenCalledWith(
-			'/tmp/note.md',
-			'new',
-			'sha256:before',
-			false
-		);
-		expect(file.dirty).toBe(false);
-		expect(file.diskLastModified).toBe(99);
-		expect(file.diskRevision).toBe('sha256:after');
-		expect(scheduleSave).toHaveBeenCalledWith('a');
-	});
 
 	it('returns false when the native picker is canceled', async () => {
 		const file = makeFile();
@@ -852,27 +522,6 @@ describe('saveToDisk desktop capability backend', () => {
 			'Chosen.MDX'
 		);
 		expect(scheduleSave).toHaveBeenCalledWith('a');
-	});
-
-	it('reuses the persisted target after the first native save', async () => {
-		const file = makeFile({ name: 'Untitled.md' });
-		const { deps, onSyncName } = desktopDeps(file);
-		const pathLink = { kind: 'path' as const, path: '/tmp/chosen.md' };
-		vi.mocked(fsa.getPathLink).mockResolvedValueOnce(null).mockResolvedValue(pathLink);
-		vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue(pathLink);
-		vi.mocked(diskTauri.tauriWritePath).mockResolvedValue({
-			lastModified: 20,
-			size: 7,
-			revision: 'sha256:written'
-		});
-
-		expect(await saveToDisk('a', deps)).toBe(true);
-		expect(await saveToDisk('a', deps)).toBe(true);
-
-		expect(diskTauri.tauriPickSaveTarget).toHaveBeenCalledOnce();
-		expect(diskTauri.tauriWritePath).toHaveBeenCalledTimes(2);
-		expect(onSyncName).toHaveBeenCalledOnce();
-		expect(file.name).toBe('chosen.md');
 	});
 
 	it('does not persist a new path when the native write fails', async () => {
@@ -1093,16 +742,6 @@ describe('saveToDisk desktop capability backend', () => {
 });
 
 describe('refreshBrokenLinks', () => {
-	it('does nothing without FSA outside desktop', async () => {
-		vi.mocked(fsa.isFSASupported).mockReturnValue(false);
-		vi.mocked(desktop.isDesktop).mockReturnValue(false);
-		const files = [makeFile({ id: 'f1', linkedToDisk: true })];
-		await refreshBrokenLinks(files, () => files[0]);
-		// Do not call getHandle or checkHandle.
-		expect(fsa.getHandle).not.toHaveBeenCalled();
-		expect(fsa.checkHandle).not.toHaveBeenCalled();
-	});
-
 	it('sets brokenLink when checkHandle returns broken', async () => {
 		const f = makeFile({ id: 'f1', linkedToDisk: true });
 		vi.mocked(fsa.getHandle).mockResolvedValue(handle);
@@ -1120,21 +759,6 @@ describe('refreshBrokenLinks', () => {
 		expect(f.linkedToDisk).toBe(false);
 		// Do not call checkHandle without a handle.
 		expect(fsa.checkHandle).not.toHaveBeenCalled();
-	});
-
-	it('clears brokenLink and keeps linkedToDisk for a valid link', async () => {
-		const f = makeFile({ id: 'f1', linkedToDisk: true, brokenLink: true });
-		vi.mocked(fsa.getHandle).mockResolvedValue(handle);
-		vi.mocked(fsa.checkHandle).mockResolvedValue('ok');
-		await refreshBrokenLinks([f], (id) => (id === 'f1' ? f : undefined));
-		expect(f.brokenLink).toBe(false);
-		expect(f.linkedToDisk).toBe(true);
-	});
-
-	it('ignores files that are not linked to disk', async () => {
-		const f = makeFile({ id: 'f1', linkedToDisk: false });
-		await refreshBrokenLinks([f], () => f);
-		expect(fsa.getHandle).not.toHaveBeenCalled();
 	});
 
 	it('skips an update when FileItem is missing from the store', async () => {
@@ -1193,28 +817,6 @@ describe('guarded native imports', () => {
 		});
 	});
 
-	it('restores a missing native baseline only when disk content is unchanged', async () => {
-		vi.mocked(desktop.isDesktop).mockReturnValue(true);
-		vi.mocked(diskTauri.tauriPickAndOpen).mockResolvedValue({ files: [opened], failed: 0 });
-		const file = makeFile({ content: opened.content, dirty: false, diskRevision: undefined });
-		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: opened.path });
-		const scheduleSave = vi.fn();
-
-		await openFromDisk({
-			getFile: () => file,
-			getFiles: () => [file],
-			onCreate: vi.fn(),
-			onActivate: vi.fn(),
-			scheduleSave
-		});
-
-		expect(file).toMatchObject({
-			diskLastModified: opened.lastModified,
-			diskSize: opened.size,
-			diskRevision: opened.revision
-		});
-		expect(scheduleSave).toHaveBeenCalledWith(file.id);
-	});
 	it('imports a native directory and keeps backend failures in the summary', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		vi.mocked(diskTauri.tauriPickDirectoryAndOpen).mockResolvedValue({

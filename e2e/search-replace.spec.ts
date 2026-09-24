@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAppState, createFirstFile } from './helpers';
+import { resetAppState, createFirstFile, writeSourceContent } from './helpers';
 
 test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 	test.beforeEach(async ({ page }) => {
@@ -51,10 +51,12 @@ test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 	});
 
 	test('finds text in WYSIWYG without changing mode or content', async ({ page }) => {
+		await writeSourceContent(page, 'texte un\n\ntexte deux');
 		// Select WYSIWYG from the toolbar radio group.
 		await page.getByRole('radio', { name: 'Mode WYSIWYG' }).click();
 		// Wait for the lazy Milkdown module to mount ProseMirror.
-		await expect(page.locator('.milkdown, .ProseMirror').first()).toBeVisible({
+		const editor = page.locator('.ProseMirror');
+		await expect(editor.locator('p')).toHaveText(['texte un', 'texte deux'], {
 			timeout: 15_000
 		});
 
@@ -64,13 +66,18 @@ test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 		const find = page.getByRole('searchbox', { name: 'Rechercher dans ce document' });
 		await expect(find).toBeFocused();
 		await find.fill('texte');
+		const results = page.locator('[data-document-navigation]').getByRole('status');
+		await expect(results).toHaveText('1/2');
+		await find.press('Enter');
+		await expect(results).toHaveText('2/2');
 		await expect(page.getByRole('radio', { name: 'Mode WYSIWYG' })).toHaveAttribute(
 			'aria-checked',
 			'true'
 		);
-		await expect(page.locator('.ProseMirror')).toBeVisible();
 		await find.press('Escape');
 		await expect(find).toHaveCount(0);
-		await expect(page.locator('.ProseMirror')).toBeFocused();
+		await expect(editor).toBeFocused();
+		await expect(editor.locator('p')).toHaveText(['texte un', 'texte deux']);
+		await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('texte');
 	});
 });

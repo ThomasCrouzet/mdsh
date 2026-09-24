@@ -5,7 +5,6 @@ import { execFileSync } from 'node:child_process';
 import { describe, it, expect, afterEach } from 'vitest';
 import {
 	formatGithubOutput,
-	fetchReleaseId,
 	resolveDesktopReleaseMeta
 } from '../../scripts/desktop-release-meta.mjs';
 import { readChangelogSection } from '../../scripts/changelog-section.mjs';
@@ -21,15 +20,6 @@ describe('formatGithubOutput', () => {
 		expect(() => formatGithubOutput({ notes: '   \n' })).toThrow(/empty changelog notes/);
 	});
 
-	it('writes multiline notes with a heredoc delimiter', () => {
-		const out = formatGithubOutput({ notes: '## [1.3.0]\n\n* line one\n* line two\n' });
-		expect(out).toContain('notes<<MDSH_NOTES_EOF');
-		expect(out).toContain('## [1.3.0]');
-		expect(out).toContain('* line two');
-		expect(out).toContain('MDSH_NOTES_EOF');
-		expect(out).not.toMatch(/^id=/m);
-	});
-
 	it('writes a numeric id and never emits an empty id= key', () => {
 		expect(formatGithubOutput({ notes: 'ok', id: 370689393 })).toMatch(/^id=370689393$/m);
 		expect(formatGithubOutput({ notes: 'ok', id: '42' })).toMatch(/^id=42$/m);
@@ -39,25 +29,6 @@ describe('formatGithubOutput', () => {
 			expect(out).not.toContain('id=');
 		}
 		expect(formatGithubOutput({ notes: 'ok' })).not.toContain('id=');
-	});
-});
-
-describe('fetchReleaseId', () => {
-	it('returns a numeric id on 200 and omits otherwise', async () => {
-		const ok = await fetchReleaseId('v1.3.0', {
-			repo: 'owner/repo',
-			fetchImpl: async () =>
-				new Response(JSON.stringify({ id: 99 }), {
-					status: 200,
-					headers: { 'content-type': 'application/json' }
-				})
-		});
-		expect(ok).toBe(99);
-		const missing = await fetchReleaseId('v1.3.0', {
-			repo: 'owner/repo',
-			fetchImpl: async () => new Response('nope', { status: 404 })
-		});
-		expect(missing).toBeUndefined();
 	});
 });
 

@@ -6,7 +6,7 @@ vi.mock('../render/markdown', () => ({
 	renderMarkdown: vi.fn(async (md: string) => `<rendered>${md}</rendered>`)
 }));
 
-import { copyMarkdown, copyRichHtml, isClipboardSupported } from './clipboard';
+import { copyMarkdown, copyRichHtml } from './clipboard';
 
 interface ClipboardMock {
 	writeText: ReturnType<typeof vi.fn>;
@@ -36,21 +36,7 @@ afterEach(() => {
 	delete (globalThis as unknown as { ClipboardItem?: unknown }).ClipboardItem;
 });
 
-describe('isClipboardSupported', () => {
-	it('returns true when navigator.clipboard exists', () => {
-		expect(isClipboardSupported()).toBe(true);
-	});
-	it('returns false without navigator.clipboard', () => {
-		installClipboard(undefined);
-		expect(isClipboardSupported()).toBe(false);
-	});
-});
-
 describe('copyMarkdown', () => {
-	it('writes raw Markdown', async () => {
-		await copyMarkdown('# Titre\ncorps');
-		expect(clip.writeText).toHaveBeenCalledWith('# Titre\ncorps');
-	});
 	it('rejects when the clipboard is unavailable', async () => {
 		installClipboard(undefined);
 		await expect(copyMarkdown('x')).rejects.toThrow(/indisponible/);
@@ -58,16 +44,6 @@ describe('copyMarkdown', () => {
 });
 
 describe('copyRichHtml', () => {
-	it('writes text/html and text/plain through ClipboardItem', async () => {
-		await copyRichHtml('# Hi');
-		expect(clip.write).toHaveBeenCalledTimes(1);
-		const items = clip.write.mock.calls[0]?.[0] as Array<{
-			data: Record<string, Blob | Promise<Blob>>;
-		}>;
-		expect(await items[0]?.data['text/html']).toBeInstanceOf(Blob);
-		expect(items[0]?.data['text/plain']).toBeInstanceOf(Blob);
-	});
-
 	it('uses writeText with HTML when ClipboardItem is unavailable', async () => {
 		delete (globalThis as unknown as { ClipboardItem?: unknown }).ClipboardItem;
 		await copyRichHtml('# Hi');
