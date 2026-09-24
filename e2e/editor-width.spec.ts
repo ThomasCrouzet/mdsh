@@ -60,6 +60,7 @@ async function textWidth(content: Locator) {
 }
 
 async function expectPdfTextWidth(page: Page) {
+	await expect(page.locator('.mdsh-shell[aria-busy="false"]:not([inert])')).toBeVisible();
 	for (const mode of ['read', 'wysiwyg'] as const) {
 		await page.locator(`button[data-mode="${mode}"]`).click();
 		const content = page.locator(mode === 'read' ? '.mdsh-preview' : '.ProseMirror');
