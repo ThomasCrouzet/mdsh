@@ -15,16 +15,24 @@
 	let toolbarBottom = $state(48);
 	onMount(() => {
 		const toolbar = document.getElementById('app-toolbar');
+		let frame = 0;
 		const measure = () => {
+			frame = 0;
 			toolbarBottom = toolbar?.getBoundingClientRect().bottom ?? 0;
 		};
+		// Do not change layout during ResizeObserver delivery in WebKit.
+		const scheduleMeasure = () => {
+			if (!frame) frame = requestAnimationFrame(measure);
+		};
 		measure();
-		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+		const observer =
+			typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure);
 		if (toolbar) observer?.observe(toolbar);
-		window.addEventListener('resize', measure);
+		window.addEventListener('resize', scheduleMeasure);
 		return () => {
 			observer?.disconnect();
-			window.removeEventListener('resize', measure);
+			window.removeEventListener('resize', scheduleMeasure);
+			if (frame) cancelAnimationFrame(frame);
 		};
 	});
 
