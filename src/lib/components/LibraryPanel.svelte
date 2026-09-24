@@ -188,7 +188,7 @@
 		{/if}
 		<ul class="min-h-0 flex-1 overflow-y-auto border-t border-border">
 			{#each matches as file (file.id)}
-				<li class="flex items-center border-b border-border px-2">
+				<li class="flex items-center border-b border-border px-2" data-document-id={file.id}>
 					<label class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
 						<input
 							type="checkbox"
