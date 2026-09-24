@@ -5,6 +5,14 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.8.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.7.0...v1.8.0) (2026-09-24)
+
+
+### Features
+
+* add bulk document actions and refresh the mdsh identity ([57cc500](https://github.com/ThomasCrouzet/mdsh/commit/57cc5004d19cf2a01289a4a2d3d665fe8b55200d))
+* add bulk document actions and refresh the mdsh identity ([eaafe7a](https://github.com/ThomasCrouzet/mdsh/commit/eaafe7a2335050b8709a8e2a203f8a3e47a95131))
+
 ## [1.7.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.6.0...v1.7.0) (2026-09-22)
 
 
