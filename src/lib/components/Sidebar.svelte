@@ -19,6 +19,8 @@
 	import { spinnerStore } from '$lib/spinner.svelte';
 	import { t } from '$lib/i18n';
 	import { promptStore } from '$lib/prompt.svelte';
+	import BrandLogo from './BrandLogo.svelte';
+	import TrashPanel from './TrashPanel.svelte';
 	import { ArrowUp, ArrowDown } from '@lucide/svelte';
 
 	interface Props {
@@ -36,6 +38,7 @@
 	let dragOverId = $state<string | null>(null);
 	let fileList = $state<HTMLUListElement | null>(null);
 	let closeButton = $state<HTMLButtonElement | null>(null);
+	let libraryButton = $state<HTMLButtonElement | null>(null);
 
 	// Tag filter: null = "all files". Auto-reset if the tag
 	// disappears from the corpus (file deleted / modified without the tag).
@@ -157,16 +160,6 @@
 		const index = filesStore.files.findIndex((file) => file.id === id);
 		const target = filesStore.files[index + direction];
 		if (target) filesStore.reorder(id, target.id);
-	}
-	async function purgeFile(id: string) {
-		if (
-			await promptStore.confirm({
-				title: t('sidebar.purgeConfirm'),
-				message: t('sidebar.purgeMessage'),
-				danger: true
-			})
-		)
-			filesStore.purgeTrash(id);
 	}
 	async function deleteFile(id: string) {
 		if (
@@ -333,19 +326,16 @@
 	use:focusTrap={{ active: trapActive, restoreOnDeactivate: true }}
 >
 	<!-- Header -->
-	<div class="mdsh-sidebar-head flex h-12 items-center justify-between border-b border-border px-4">
-		<div class="flex items-center gap-2 font-mono text-sm font-semibold tracking-tight">
-			<span class="mdsh-brand-mark" aria-hidden="true">M</span>
-			<div class="flex flex-col leading-none">
-				<span class="tracking-[0.08em]">MDSH</span>
-				<span class="mt-1 text-[8px] font-normal tracking-[0.18em] text-fg-dim" aria-hidden="true"
-					>LOCAL WORKSPACE</span
-				>
-			</div>
+	<div
+		class="mdsh-sidebar-head flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-4"
+	>
+		<div class="mdsh-sidebar-brand">
+			<BrandLogo />
+			<span class="mdsh-sidebar-label">{t('brand.localWorkspace')}</span>
 		</div>
 		<button
 			bind:this={closeButton}
-			class="text-fg-subtle hover:text-fg md:hidden"
+			class="shrink-0 text-fg-subtle hover:text-fg md:hidden"
 			onclick={onClose}
 			aria-label={t('sidebar.closePanel')}
 		>
@@ -355,6 +345,7 @@
 
 	{#if onOpenLibrary}
 		<button
+			bind:this={libraryButton}
 			class="m-2 rounded border border-border px-3 py-2 text-left text-sm text-fg-muted hover:bg-bg-2"
 			onclick={(event) => {
 				event.currentTarget.focus({ preventScroll: true });
@@ -587,24 +578,7 @@
 		</details>
 	{/if}
 	{#if filesStore.trash.length > 0}
-		<details class="max-h-48 overflow-y-auto border-t border-border px-3 py-2 text-xs">
-			<summary class="cursor-pointer text-fg"
-				>{t('sidebar.trash')} ({filesStore.trash.length})</summary
-			>
-			{#each filesStore.trash as entry (entry.file.id)}
-				<div class="flex items-center gap-1">
-					<button
-						class="min-w-0 flex-1 truncate py-2 text-left"
-						onclick={() => filesStore.restore(entry.file.id)}
-						>{t('sidebar.restore', { name: entry.file.name })}</button
-					><button
-						class="p-2 text-danger"
-						aria-label={t('sidebar.purge', { name: entry.file.name })}
-						onclick={() => void purgeFile(entry.file.id)}><X size={14} /></button
-					>
-				</div>
-			{/each}
-		</details>
+		<TrashPanel onEmpty={() => (libraryButton ?? closeButton)?.focus()} />
 	{/if}
 
 	<!-- §5.2 - Backlinks: files pointing to the active file via [[...]].
@@ -689,16 +663,19 @@
 		height: 1px;
 		background: var(--color-accent);
 	}
-	.mdsh-brand-mark {
-		display: grid;
-		width: 22px;
-		height: 22px;
-		place-items: center;
-		border: 1px solid var(--color-accent);
-		color: var(--color-accent);
-		font-size: 11px;
-		font-weight: 700;
-		clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 0 100%);
+	.mdsh-sidebar-brand {
+		display: flex;
+		min-width: 0;
+		width: 7rem;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+	.mdsh-sidebar-label {
+		font-family: var(--font-mono);
+		font-size: 0.625rem;
+		line-height: 1.2;
+		letter-spacing: 0.04em;
+		color: var(--color-fg-muted);
 	}
 	.mdsh-tag {
 		border: 1px solid var(--color-border);

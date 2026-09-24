@@ -12,9 +12,18 @@ import type { DraftRow, TrashedRow } from './db';
 import type { FileItem, TrashedFile } from './types';
 import { TIMERS } from './config';
 import { deleteHandle } from './fsa';
+import { isDesktop } from './desktop';
 import { reportPersistenceError } from './storage';
-import { reportError } from './report';
 import { uniqueName } from './file-utils';
+
+async function deletePurgedDiskLink(id: string): Promise<void> {
+	if (isDesktop()) {
+		const { deleteUnownedDiskLink } = await import('./disk-cleanup');
+		await deleteUnownedDiskLink(id);
+	} else {
+		await deleteHandle(id);
+	}
+}
 
 /**
  * Complete and symmetric purge of a file leaving the trash: removes the
@@ -29,7 +38,8 @@ async function fullPurge(id: string): Promise<void> {
 		if (!current) await db.versions.where('draftId').equals(id).delete();
 		return Boolean(current);
 	});
-	if (!hasDraft) await deleteHandle(id).catch((err) => reportError('delete disk link', err));
+	if (!hasDraft)
+		await deletePurgedDiskLink(id).catch((error) => reportPersistenceError(error, 'delete'));
 }
 
 async function preserveCurrentVariant(
@@ -151,6 +161,50 @@ export async function moveToTrash(
 		reportPersistenceError(err, 'trash');
 		return false;
 	}
+}
+
+/** Moves the complete batch or leaves every document in place. */
+export async function moveManyToTrash(rows: readonly TrashedRow[]): Promise<{
+	preserved: TrashedRow[];
+	variants: DraftRow[];
+}> {
+	const unique = [...new Map(rows.map((row) => [row.id, row])).values()];
+	const preserved: TrashedRow[] = [];
+	const variants: DraftRow[] = [];
+	if (unique.length === 0) return { preserved, variants };
+	await db.transaction('rw', db.drafts, db.trashed, db.versions, async () => {
+		for (const row of unique) {
+			const variant = await preserveCurrentVariant(row.id, row.file);
+			if (variant) variants.push(variant);
+			const previous = await preserveTrashEntry(row.id);
+			if (previous) preserved.push(previous);
+		}
+		await db.trashed.bulkPut(unique);
+		await db.drafts.bulkDelete(unique.map((row) => row.id));
+	});
+	return { preserved, variants };
+}
+
+/** Deletes only the requested trash entries. A live draft keeps its history and disk link. */
+export async function purgeManyPermanently(ids: readonly string[]): Promise<void> {
+	const unique = [...new Set(ids)];
+	if (unique.length === 0) return;
+	const unlinkedIds = await db.transaction('rw', db.drafts, db.trashed, db.versions, async () => {
+		const entries = (await db.trashed.bulkGet(unique)).filter(
+			(row): row is TrashedRow => row !== undefined
+		);
+		const drafts = await db.drafts.bulkGet(entries.map((row) => row.id));
+		const removedIds = entries.filter((_row, index) => !drafts[index]).map((row) => row.id);
+		await db.trashed.bulkDelete(entries.map((row) => row.id));
+		if (removedIds.length) await db.versions.where('draftId').anyOf(removedIds).delete();
+		return removedIds;
+	});
+	// Disk links use a separate database. Report cleanup failures after the main commit.
+	await Promise.all(
+		unlinkedIds.map((id) =>
+			deletePurgedDiskLink(id).catch((error) => reportPersistenceError(error, 'delete'))
+		)
+	);
 }
 
 /**

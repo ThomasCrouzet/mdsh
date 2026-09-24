@@ -9,23 +9,39 @@
 import { browser } from '$app/environment';
 import { readPreference, writePreference } from '$lib/preferences';
 import { EDITOR } from '$lib/config';
+import { PRINT_TEXT_WIDTH_PX } from '$lib/render/print-geometry';
 
 const DEFAULT_EDITOR_WIDTH = EDITOR.defaultWidth;
 const MIN_EDITOR_WIDTH = EDITOR.minWidth;
 const EDITOR_WIDTH_MARGIN = EDITOR.margin;
 
+export type EditorWidth = number | typeof EDITOR.widthPresets.pdf;
+
 export function createEditorWidth(opts: {
 	getHydrated: () => boolean;
 	getResizing: () => boolean;
 }) {
-	// Internal reactive state
-	let editorMaxWidth = $state<number>(DEFAULT_EDITOR_WIDTH);
+	// Keep the selected width when the viewport becomes smaller.
+	let selectedWidth = $state<EditorWidth>(DEFAULT_EDITOR_WIDTH);
+	let viewportWidth = $state(
+		browser ? window.innerWidth : DEFAULT_EDITOR_WIDTH + EDITOR_WIDTH_MARGIN
+	);
+	// Edit and Read use 5vw side padding, or 1.25rem on a viewport up to 640px.
+	const editorMaxWidth = $derived(
+		clampEditorWidth(
+			selectedWidth === EDITOR.widthPresets.pdf
+				? PRINT_TEXT_WIDTH_PX + (viewportWidth <= 640 ? 40 : viewportWidth * 0.1)
+				: selectedWidth
+		)
+	);
 	let resizing = $state(false);
 
 	// Non-reactive drag variables (updated on each pointermove)
 	let resizeHandle: HTMLDivElement | null = null;
 	let resizeStartX = 0;
 	let resizeStartWidth = 0;
+	let resizeStartSelection: EditorWidth = DEFAULT_EDITOR_WIDTH;
+	let resizePointerId: number | null = null;
 	// rAF-throttle of the drag: on a 120 Hz macOS trackpad (and some
 	// high-polling mice), pointermove can fire > 60 times/s. Each update of
 	// editorMaxWidth forces a full ProseMirror reflow (word wrap). We
@@ -35,39 +51,53 @@ export function createEditorWidth(opts: {
 
 	function clampEditorWidth(w: number): number {
 		if (!browser) return w;
-		const maxAllowed = Math.max(MIN_EDITOR_WIDTH, window.innerWidth - EDITOR_WIDTH_MARGIN);
+		const maxAllowed = Math.max(MIN_EDITOR_WIDTH, viewportWidth - EDITOR_WIDTH_MARGIN);
 		return Math.round(Math.max(MIN_EDITOR_WIDTH, Math.min(maxAllowed, w)));
 	}
 
-	function persistEditorWidth(w: number) {
+	function persistEditorWidth() {
 		if (!browser) return;
-		writePreference('mdsh:editor-width', String(w));
+		writePreference('mdsh:editor-width', String(selectedWidth));
 	}
 
 	function startResize(e: PointerEvent) {
-		if (!resizeHandle) return;
+		if (!resizeHandle || e.button !== 0 || resizing) return;
 		resizing = true;
+		resizePointerId = e.pointerId;
 		resizeStartX = e.clientX;
-		resizeStartWidth = editorMaxWidth;
+		resizePendingX = e.clientX;
+		resizeStartSelection = selectedWidth;
+		resizeStartWidth = Math.min(
+			editorMaxWidth,
+			resizeHandle.parentElement?.clientWidth ?? editorMaxWidth
+		);
 		resizeHandle.setPointerCapture(e.pointerId);
 		e.preventDefault();
 	}
 
+	function applyResize(clientX: number) {
+		const deltaX = clientX - resizeStartX;
+		selectedWidth =
+			deltaX === 0 ? resizeStartSelection : clampEditorWidth(resizeStartWidth + deltaX * 2);
+	}
+
 	function onResize(e: PointerEvent) {
-		if (!resizing) return;
+		if (!resizing || e.pointerId !== resizePointerId) return;
 		resizePendingX = e.clientX;
 		if (resizeRafId) return;
 		resizeRafId = requestAnimationFrame(() => {
 			resizeRafId = 0;
 			if (!resizing) return;
-			const deltaX = resizePendingX - resizeStartX;
-			editorMaxWidth = clampEditorWidth(resizeStartWidth + deltaX * 2);
+			applyResize(resizePendingX);
 		});
 	}
 
 	function stopResize(e: PointerEvent) {
-		if (!resizing) return;
+		if (!resizing || e.pointerId !== resizePointerId) return;
+		// Save the last pointer position even if its animation frame has not run.
+		if (e.type === 'pointerup') applyResize(e.clientX);
 		resizing = false;
+		resizePointerId = null;
 		if (resizeRafId) {
 			cancelAnimationFrame(resizeRafId);
 			resizeRafId = 0;
@@ -75,17 +105,18 @@ export function createEditorWidth(opts: {
 		if (resizeHandle && resizeHandle.hasPointerCapture(e.pointerId)) {
 			resizeHandle.releasePointerCapture(e.pointerId);
 		}
-		persistEditorWidth(editorMaxWidth);
+		persistEditorWidth();
 	}
 
 	function resetEditorWidth() {
-		editorMaxWidth = clampEditorWidth(DEFAULT_EDITOR_WIDTH);
-		persistEditorWidth(editorMaxWidth);
+		selectedWidth = DEFAULT_EDITOR_WIDTH;
+		persistEditorWidth();
 	}
 
-	function setEditorWidth(w: number) {
-		editorMaxWidth = clampEditorWidth(w);
-		persistEditorWidth(editorMaxWidth);
+	function setEditorWidth(w: EditorWidth) {
+		if (w !== EDITOR.widthPresets.pdf && (!Number.isFinite(w) || w < MIN_EDITOR_WIDTH)) return;
+		selectedWidth = w;
+		persistEditorWidth();
 	}
 
 	// §A2.5 - Re-clamp the editor width if the window shrinks below the current value.
@@ -101,7 +132,7 @@ export function createEditorWidth(opts: {
 			raf = requestAnimationFrame(() => {
 				raf = 0;
 				if (opts.getResizing()) return;
-				editorMaxWidth = clampEditorWidth(editorMaxWidth);
+				viewportWidth = window.innerWidth;
 			});
 		};
 		window.addEventListener('resize', onWindowResize);
@@ -114,11 +145,14 @@ export function createEditorWidth(opts: {
 	// Load the persisted width from localStorage (to call in onMount).
 	function loadPersistedWidth() {
 		if (!browser) return;
+		viewportWidth = window.innerWidth;
 		const savedWidth = readPreference('mdsh:editor-width');
-		if (savedWidth) {
+		if (savedWidth === EDITOR.widthPresets.pdf) {
+			selectedWidth = savedWidth;
+		} else if (savedWidth) {
 			const n = Number(savedWidth);
 			if (Number.isFinite(n) && n >= MIN_EDITOR_WIDTH) {
-				editorMaxWidth = clampEditorWidth(n);
+				selectedWidth = n;
 			}
 		}
 	}
@@ -134,6 +168,7 @@ export function createEditorWidth(opts: {
 			resizeHandle = el;
 		},
 		clampEditorWidth,
+		isActiveWidth: (width: EditorWidth) => selectedWidth === width,
 		loadPersistedWidth,
 		startResize,
 		onResize,

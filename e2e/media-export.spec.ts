@@ -129,7 +129,7 @@ test.describe('Durable images and PDF export', () => {
 		await testInfo.attach('uploaded-image-pdf', { path: pdfPath, contentType: 'application/pdf' });
 	});
 
-	test('shows and persists images from paste and drop actions', async ({ page }) => {
+	test('shows and persists images from paste and drop actions', async ({ page }, testInfo) => {
 		const base64 = (await readFile(imagePath)).toString('base64');
 		await page.locator('.ProseMirror').click();
 		await page.evaluate((encoded) => {
@@ -154,11 +154,60 @@ test.describe('Durable images and PDF export', () => {
 		await expectDecodedImage(page, '.milkdown-image-block img', 2);
 		await switchToSource(page);
 		await expect(page.locator('.cm-content')).toContainText('![pasted](data:image/png;base64,');
+		// CodeMirror does not keep off-screen lines in the DOM. Find the second image first.
+		await page.locator('.cm-content').press('ControlOrMeta+f');
+		const search = page.locator('.cm-search input[name="search"]');
+		await search.pressSequentially('![dropped](');
+		await search.press('Enter');
+		await page.keyboard.press('Escape');
 		await expect(page.locator('.cm-content')).toContainText('![dropped](data:image/png;base64,');
-		await page.waitForTimeout(700);
+		const storedImageNames = () =>
+			page.evaluate(() => {
+				if (typeof indexedDB === 'undefined') throw new Error('IndexedDB is unavailable');
+				return new Promise<string[][]>((resolve, reject) => {
+					const request = indexedDB.open('mdsh');
+					request.onerror = () => reject(request.error);
+					request.onsuccess = () => {
+						const database = request.result;
+						const drafts = database.transaction('drafts').objectStore('drafts').getAll();
+						drafts.onerror = () => {
+							database.close();
+							reject(drafts.error);
+						};
+						drafts.onsuccess = () => {
+							database.close();
+							resolve(
+								drafts.result.map((draft: { content: string }) =>
+									[...draft.content.matchAll(/!\[([^\]]*)\]\(data:image\//g)].map(
+										(match) => match[1]
+									)
+								)
+							);
+						};
+					};
+				});
+			});
+		await expect.poll(storedImageNames).toEqual([['pasted', 'dropped']]);
 		await page.reload();
 		await visualEditor(page);
 		await expectDecodedImage(page, '.milkdown-image-block img', 2);
+		await expect(page.locator('.milkdown-image-block img').first()).toHaveAttribute(
+			'alt',
+			'pasted'
+		);
+		await expect(page.locator('.milkdown-image-block img').last()).toHaveAttribute(
+			'alt',
+			'dropped'
+		);
+		expect(await storedImageNames()).toEqual([['pasted', 'dropped']]);
+		await testInfo.attach('paste-drop-persistence.json', {
+			body: JSON.stringify({ imagesPerDraft: await storedImageNames() }, null, 2),
+			contentType: 'application/json'
+		});
+		await testInfo.attach('paste-drop-after-reload.png', {
+			body: await page.screenshot({ fullPage: true }),
+			contentType: 'image/png'
+		});
 	});
 
 	test('waits for consent before a request and reuses the embedded image in all modes', async ({

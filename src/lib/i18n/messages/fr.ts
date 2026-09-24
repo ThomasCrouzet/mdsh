@@ -4,6 +4,8 @@
 import type { MessageKey } from './en';
 
 export const fr: Record<MessageKey, string> = {
+	'brand.name': 'mdsh',
+	'brand.localWorkspace': 'Espace local',
 	'library.browseCount': 'Retrouver vos documents ({n})',
 	'files.invalidLinkName': 'Utilisez un nom sans crochets, barre verticale ni saut de ligne.',
 	'library.unresolved': 'Liens introuvables ou ambigus ({n})',
@@ -65,6 +67,26 @@ export const fr: Record<MessageKey, string> = {
 	'library.filter': 'Filtrer par titre, nom de fichier ou tag',
 	'library.empty': 'Aucun document correspondant.',
 	'library.openDocument': 'Ouvrir {name}',
+	'bulkDelete.libraryActions': 'Actions de suppression dans la bibliothèque',
+	'bulkDelete.trashActions': 'Actions de suppression dans la corbeille',
+	'bulkDelete.selectDocument': 'Sélectionner {name}',
+	'bulkDelete.selectResults': 'Sélectionner tous les résultats',
+	'bulkDelete.selectTrash': 'Sélectionner tous les documents de la corbeille',
+	'bulkDelete.selectedCount': '{n} document(s) sélectionné(s)',
+	'bulkDelete.deleteSelected': 'Supprimer la sélection',
+	'bulkDelete.deleteAll': 'Tout supprimer',
+	'bulkDelete.librarySelectedConfirm': 'Supprimer {n} document(s) ?',
+	'bulkDelete.librarySelectedMessage':
+		'Les documents sélectionnés seront déplacés dans la corbeille. Vous pourrez les restaurer pendant 30 jours. Les fichiers sur disque seront conservés.',
+	'bulkDelete.libraryAllConfirm': 'Supprimer les {n} document(s) de la bibliothèque ?',
+	'bulkDelete.libraryAllMessage':
+		'Tous les documents de la bibliothèque, y compris les documents fermés et ceux hors du filtre actuel, seront déplacés dans la corbeille. Vous pourrez les restaurer pendant 30 jours. Les fichiers sur disque seront conservés.',
+	'bulkDelete.purgeSelectedConfirm': 'Supprimer définitivement {n} document(s) ?',
+	'bulkDelete.purgeMessage':
+		'Cette action supprime les documents de la corbeille et leur historique de versions. Elle est irréversible. Les fichiers sur disque seront conservés.',
+	'bulkDelete.purge': 'Supprimer définitivement',
+	'bulkDelete.emptyTrash': 'Vider la corbeille',
+	'bulkDelete.emptyConfirm': 'Vider la corbeille ({n} document(s)) ?',
 	'search.limited':
 		'Affichage des {n} premières lignes correspondantes. Précisez votre recherche pour affiner les résultats.',
 	'palette.exportOpen': 'Exporter les onglets ouverts en ZIP',
@@ -447,6 +469,7 @@ export const fr: Record<MessageKey, string> = {
 	'palette.widthFull': 'Largeur : pleine fenêtre',
 	'palette.widthMedium': 'Largeur : moyenne ({px} px)',
 	'palette.widthNarrow': 'Largeur : étroite ({px} px)',
+	'palette.widthPdf': 'Largeur : PDF (A4)',
 	'palette.widthProse': 'Largeur : prose (~65 caractères)',
 	'palette.widthProseHint': 'Optimal pour la lecture longue',
 	'palette.widthReset': "Réinitialiser la largeur de l'éditeur",
@@ -579,6 +602,9 @@ export const fr: Record<MessageKey, string> = {
 	'settings.widthFull': 'Pleine',
 	'settings.widthMedium': 'Moyenne',
 	'settings.widthNarrow': 'Étroite',
+	'settings.widthPdf': 'PDF (A4)',
+	'settings.widthPdfHelp':
+		"Correspond à la zone de texte PDF de {width} mm dans Éditer et Lire sur A4 avec des marges latérales de {margin} mm, si l'espace le permet. Ce repère indique la largeur. Les polices, les sauts de page et les réglages d'impression peuvent différer.",
 	'settings.widthProse': 'Prose',
 	'settings.widthWide': 'Large',
 
@@ -720,9 +746,9 @@ export const fr: Record<MessageKey, string> = {
 	'welcome.newFile': 'Nouveau fichier',
 	'welcome.openDemo': 'Ouvrir un document de démo',
 	'welcome.privacy': 'Aucun serveur. Aucune télémétrie. Tes fichiers restent chez toi.',
-	'welcome.tagline': 'Aucun backend, cloud ou télémétrie.',
+	'welcome.tagline': 'Le Markdown, sans détour.',
 	'welcome.taglineLine2': 'WYSIWYG, lecture, source - tout dans ton navigateur.',
-	'welcome.systemLabel': 'Système documentaire local',
+	'welcome.systemLabel': 'Espace Markdown local',
 
 	// workspaces
 	'workspaces.close': 'Fermer',

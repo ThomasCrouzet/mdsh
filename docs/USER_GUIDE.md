@@ -10,6 +10,13 @@ The **Actions** button gives direct access to documents, search, export, and set
 
 Open **Document library** to filter open and closed documents by filename, title, or tag. The list shows recent changes first. It also lists unresolved or ambiguous wiki links. Open the referring document to correct a target.
 
+Use the library checkboxes to select documents, then select **Delete selected**.
+**Select all results** follows the current filter. **Delete all** includes the full
+library, including closed documents. Confirm the count before you continue.
+Documents move to trash. In the trash, select individual documents or use
+**Empty trash** to remove them permanently. This removes their version history
+and unused disk permissions, but does not delete files from disk.
+
 **Document outline** in Actions works in all three modes and on small screens. Source mode includes headings outside code and front matter. Reading and WYSIWYG modes use the visible headings. Find in document keeps the current mode. In source mode, the search panel also supports replacement.
 
 Source mode keeps a separate undo history for each recently used draft. A change of draft cannot undo content from another draft.
@@ -76,6 +83,10 @@ Replace mode also disconnects disk links. Imported content cannot reuse an old f
 
 PDF export renders content, embedded images, formulas, code blocks, and diagrams before it opens the print dialog. The app reports success only after preparation finishes. Select a PDF printer in the browser or system dialog. You can disable browser headers and footers in that dialog.
 
+Select **PDF (A4)** under **Editor width** in Settings or through Commands. This
+preset uses the 178 mm text width of an A4 page with 16 mm side margins. It is a
+width guide. Fonts, page breaks, and print settings can differ from the editor.
+
 The standalone HTML file embeds its styles, images, and required KaTeX fonts. You can read the local file without a network. Markdown, ZIP, and HTML exports do not include direct disk-access permissions.
 
 **Export all files (ZIP)** includes open and closed documents in the library. **Export open tabs as ZIP** limits the archive to the current session. Selection export includes only selected tabs.
@@ -92,6 +103,10 @@ In the sidebar, focus a draft and press Space to change its selection. Press Ent
 Focus another draft and press Shift+Space to select the range. The buttons expose their selection state to screen readers.
 
 Use `Ctrl+Tab` for the next workspace file and `Ctrl+Shift+Tab` for the previous file. Both shortcuts use Control on macOS too. Navigation follows the workspace order and continues from the last file to the first. Some browsers reserve these shortcuts for browser tabs. The Desktop app receives them directly.
+
+In the visual editor, type `/h1` through `/h6`, or `/t1` through `/t6`, to select
+a heading level. Press Enter to apply it. The full translated command names also
+remain available.
 
 ## Desktop Beta app
 

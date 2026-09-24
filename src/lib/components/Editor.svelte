@@ -21,6 +21,7 @@
 	} from '$lib/render/image-media';
 	import { ImageMarkdownRoundTrip } from '$lib/render/image-markdown';
 	import { editorStateCache } from '$lib/editor-state';
+	import { stripFrontmatter } from '$lib/frontmatter';
 
 	interface Props {
 		fileId: string;
@@ -38,7 +39,7 @@
 
 	let container: HTMLElement;
 	let crepe: CrepeType | null = null;
-	let imageRoundTrip: ImageMarkdownRoundTrip | null = null;
+	let restoreMountedMarkdown: ((markdown: string) => string) | null = null;
 	let imageObserver: MutationObserver | null = null;
 	let loadError = $state(false);
 	let retryVersion = $state(0);
@@ -107,17 +108,22 @@
 			{ linkTooltipConfig: linkTooltipConfigCtx },
 			{ imageBlockConfig: imageBlockConfigCtx },
 			{ inlineImageConfig: inlineImageConfigCtx },
-			{ codeBlockConfig: codeBlockConfigCtx }
+			{ codeBlockConfig: codeBlockConfigCtx },
+			{ wikiLinkPlugins }
 		] = await Promise.all([
 			loadCrepeModule(),
 			import('@milkdown/kit/core'),
 			import('@milkdown/kit/component/link-tooltip'),
 			import('@milkdown/kit/component/image-block'),
 			import('@milkdown/kit/component/image-inline'),
-			import('@milkdown/kit/component/code-block')
+			import('@milkdown/kit/component/code-block'),
+			import('$lib/milkdown-wiki-links')
 		]);
 		if (token !== mountToken) return;
-		let roundTrip = new ImageMarkdownRoundTrip(initial);
+		// Keep YAML outside the Markdown editor so it cannot become headings or links.
+		let frontmatter = stripFrontmatter(initial);
+		let roundTrip = new ImageMarkdownRoundTrip(frontmatter.content);
+		const restoreMarkdown = (markdown: string) => frontmatter.raw + roundTrip.restore(markdown);
 		lastEditorMarkdown = initial;
 		const applyImageAlternatives = () => {
 			const alternatives = roundTrip.alternatives;
@@ -197,9 +203,10 @@
 				[Crepe.Feature.CodeMirror]: codeMirrorConfig
 			}
 		});
+		instance.editor.use(wikiLinkPlugins);
 		instance.on((listener) => {
 			listener.markdownUpdated((_ctx, md) => {
-				const portableMarkdown = roundTrip.restore(md);
+				const portableMarkdown = restoreMarkdown(md);
 				if (token === mountToken) lastEditorMarkdown = portableMarkdown;
 				queueMicrotask(applyImageAlternatives);
 				// §C1 - If the instance is still the current one, normal keystroke ->
@@ -424,7 +431,7 @@
 			});
 		};
 		crepe = instance;
-		imageRoundTrip = roundTrip;
+		restoreMountedMarkdown = restoreMarkdown;
 		imageObserver = new MutationObserver(applyImageAlternatives);
 		imageObserver.observe(container, {
 			childList: true,
@@ -438,7 +445,7 @@
 		const flushCurrentContent = () => {
 			if (token !== mountToken) return;
 			saveMountedPosition?.();
-			const markdown = roundTrip.restore(instance.getMarkdown());
+			const markdown = restoreMarkdown(instance.getMarkdown());
 			lastEditorMarkdown = markdown;
 			onFlush?.(idForMount, markdown);
 		};
@@ -449,8 +456,8 @@
 			if (markdown === lastEditorMarkdown) return;
 			const { replaceAll } = await import('@milkdown/kit/utils');
 			if (token !== mountToken || markdown !== content || idForMount !== fileId) return;
-			roundTrip = new ImageMarkdownRoundTrip(markdown);
-			imageRoundTrip = roundTrip;
+			frontmatter = stripFrontmatter(markdown);
+			roundTrip = new ImageMarkdownRoundTrip(frontmatter.content);
 			lastEditorMarkdown = markdown;
 			instance.editor.action(replaceAll(roundTrip.editorMarkdown));
 			applyImageAlternatives();
@@ -471,8 +478,8 @@
 			refreshMountedLocale = null;
 			saveMountedPosition?.();
 			saveMountedPosition = null;
-			const roundTrip = imageRoundTrip;
-			imageRoundTrip = null;
+			const restoreMarkdown = restoreMountedMarkdown;
+			restoreMountedMarkdown = null;
 			mountedFileId = null;
 			// §C1 - Before destroying the outgoing instance, we re-read its current
 			// markdown (synchronous Crepe API) and flush it one last time to ITS
@@ -481,7 +488,7 @@
 			// (the late event is rejected by the `token === mountToken` guard).
 			if (id && onFlush) {
 				try {
-					onFlush(id, roundTrip?.restore(instance.getMarkdown()) ?? instance.getMarkdown());
+					onFlush(id, restoreMarkdown?.(instance.getMarkdown()) ?? instance.getMarkdown());
 				} catch (err) {
 					reportError('Crepe flush on unmount', err);
 				}

@@ -17,6 +17,7 @@
 	import { keyboardStore, type ShortcutError } from '$lib/ui/keyboard.svelte';
 	import { isDesktop } from '$lib/desktop';
 	import { EDITOR, IMPORT_LIMITS } from '$lib/config';
+	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '$lib/render/print-geometry';
 	import { readUtf8File } from '$lib/import-limits';
 	import { notify } from '$lib/notify.svelte';
 	import { promptStore } from '$lib/prompt.svelte';
@@ -44,7 +45,7 @@
 		recordExternalBackupSuccess,
 		type StorageHealth
 	} from '$lib/storage';
-	import type { createEditorWidth } from '$lib/ui/editor-width.svelte';
+	import type { createEditorWidth, EditorWidth } from '$lib/ui/editor-width.svelte';
 	import type { createUiPrefs } from '$lib/ui/prefs.svelte';
 	import type { ThemePref } from '$lib/theme';
 	import { Settings, X, Download, Upload, Check, Lock } from '@lucide/svelte';
@@ -172,17 +173,21 @@
 		{ value: 'dark', label: t('settings.themeDark') }
 	]);
 
-	const widthPresets: { key: string; label: string; value: number }[] = $derived([
+	const widthPresets: { key: string; label: string; value: EditorWidth }[] = $derived([
 		{ key: 'prose', label: t('settings.widthProse'), value: EDITOR.widthPresets.prose },
 		{ key: 'narrow', label: t('settings.widthNarrow'), value: EDITOR.widthPresets.narrow },
+		{ key: 'pdf', label: t('settings.widthPdf'), value: EDITOR.widthPresets.pdf },
 		{ key: 'medium', label: t('settings.widthMedium'), value: EDITOR.widthPresets.medium },
 		{ key: 'wide', label: t('settings.widthWide'), value: EDITOR.widthPresets.wide },
-		{ key: 'full', label: t('settings.widthFull'), value: 9999 }
+		{ key: 'full', label: t('settings.widthFull'), value: EDITOR.widthPresets.full }
 	]);
 
-	function isActiveWidth(px: number): boolean {
-		return editorWidth.clampEditorWidth(px) === editorWidth.editorMaxWidth;
-	}
+	const pdfWidthHelp = $derived(
+		t('settings.widthPdfHelp', {
+			width: PRINT_TEXT_WIDTH_MM,
+			margin: PRINT_PAGE.marginInlineMm
+		})
+	);
 
 	async function handleExportBackup(): Promise<void> {
 		try {
@@ -456,10 +461,11 @@
 							{#each widthPresets as preset (preset.key)}
 								<button
 									class="rounded px-2.5 py-1 text-xs transition"
-									class:bg-bg-3={isActiveWidth(preset.value)}
-									class:text-fg={isActiveWidth(preset.value)}
-									class:text-fg-dim={!isActiveWidth(preset.value)}
-									aria-pressed={isActiveWidth(preset.value)}
+									class:bg-bg-3={editorWidth.isActiveWidth(preset.value)}
+									class:text-fg={editorWidth.isActiveWidth(preset.value)}
+									class:text-fg-dim={!editorWidth.isActiveWidth(preset.value)}
+									aria-pressed={editorWidth.isActiveWidth(preset.value)}
+									aria-describedby={preset.key === 'pdf' ? 'editor-width-pdf-help' : undefined}
 									onclick={() => editorWidth.setEditorWidth(preset.value)}
 								>
 									{preset.label}
@@ -467,6 +473,7 @@
 							{/each}
 						</div>
 					</div>
+					<p id="editor-width-pdf-help" class="mt-2 text-xs text-fg-muted">{pdfWidthHelp}</p>
 				</section>
 
 				<details class="mb-5 rounded border border-border p-3 text-sm">

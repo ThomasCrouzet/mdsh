@@ -1,16 +1,21 @@
 import { t } from '$lib/i18n';
 
+function headingLabel(level: number): string {
+	// Crepe searches the label text. Keep both aliases in each translated label.
+	return `${t('editor.heading', { n: level })} (/h${level}, /t${level})`;
+}
+
 export function blockEditLabels() {
 	return {
 		textGroup: {
 			label: t('editor.text'),
 			text: { label: t('editor.text') },
-			h1: { label: t('editor.heading', { n: 1 }) },
-			h2: { label: t('editor.heading', { n: 2 }) },
-			h3: { label: t('editor.heading', { n: 3 }) },
-			h4: { label: t('editor.heading', { n: 4 }) },
-			h5: { label: t('editor.heading', { n: 5 }) },
-			h6: { label: t('editor.heading', { n: 6 }) },
+			h1: { label: headingLabel(1) },
+			h2: { label: headingLabel(2) },
+			h3: { label: headingLabel(3) },
+			h4: { label: headingLabel(4) },
+			h5: { label: headingLabel(5) },
+			h6: { label: headingLabel(6) },
 			quote: { label: t('editor.quote') },
 			divider: { label: t('editor.divider') }
 		},

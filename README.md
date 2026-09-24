@@ -1,89 +1,163 @@
-# `$ mdsh`
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="static/brand/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="static/brand/logo-light.svg">
+    <img src="static/brand/logo-light.svg" alt="mdsh" width="320" height="94">
+  </picture>
+</p>
 
-[![Deploy and tests](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml/badge.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml)
-[![Security](https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml/badge.svg)](https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<h1 align="center">Markdown, without detours.</h1>
 
-**mdsh editor is a local-first, offline Markdown workspace.** Write in WYSIWYG, source, or reading mode without an account, backend, cloud sync, collaboration service, telemetry, or tracking.
+<p align="center">
+  A local Markdown workspace. Write, connect, and export your documents.<br>
+  No account. No server. No tracking.
+</p>
 
-[Try web app](https://thomascrouzet.github.io/mdsh/) | [Install PWA](docs/USER_GUIDE.md#install-the-pwa) | [Download Desktop Beta](https://github.com/ThomasCrouzet/mdsh/releases) | [User guide](docs/USER_GUIDE.md) | [Contribute](CONTRIBUTING.md)
+<p align="center">
+  <a href="https://thomascrouzet.github.io/mdsh/"><strong>Open the web app</strong></a> ·
+  <a href="https://github.com/ThomasCrouzet/mdsh/releases">Download Desktop Beta</a> ·
+  <a href="docs/USER_GUIDE.md">User guide</a>
+</p>
 
-The BLACKSITE interface uses graphite surfaces, warm ivory text, and subtle amber indicators. Choose the light, dark, or system theme. The initial setting follows the system.
+<p align="center">
+  <a href="https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml"><img src="https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml/badge.svg" alt="Build, browser tests, and deployment"></a>
+  <a href="https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml"><img src="https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml/badge.svg" alt="Security checks"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-c79a55" alt="MIT license"></a>
+</p>
 
-![WYSIWYG editing, source mode, the command palette, the link graph and a wiki-link click](docs/demo.gif)
+![The mdsh interface: the new logo, heading shortcuts, visual and source editing, reading, document selection, the PDF width guide, and linked notes](docs/demo.gif)
 
-## What it does
+## One document, three views
 
-- Three editing modes: Milkdown WYSIWYG, CodeMirror source, and rendered reading view.
-- GFM, code highlighting, KaTeX, Mermaid, YAML front matter, wiki links, backlinks, and a link graph.
-- Local tabs, workspaces, version history, templates, trash, tags, search, and cross-file replace.
-- A searchable library of open and closed documents, link repair on rename, and backup inspection.
-- Touch-friendly actions, document outlines in every mode, and in-place visual search.
-- Markdown, content-only PDF, self-contained offline HTML, and ZIP exports.
-- Installable offline PWA with file and share intents where the browser supports them.
-- Optional encrypted JSON backup using WebCrypto AES-GCM and PBKDF2.
-- English and French interface.
-- Documented keyboard support and release-blocking automated accessibility checks. These checks are not a WCAG certification or a substitute for a human audit.
+**Edit** with a visual Markdown editor. Use `/h1` or `/t1` for a heading, add a
+checklist, and insert images. **Source** gives you the Markdown directly, with
+syntax highlighting, search, replacement, and per-document undo. **Read** shows
+the rendered document with an outline for navigation.
 
-## Browser and desktop support
+Switch views without leaving your document. Choose the light, dark, or system
+theme. The bracket-and-hash logo, warm text, and amber accents keep the interface
+consistent across the web app and Desktop.
 
-| Capability                         | Chromium                                    | Firefox                      | Safari / WebKit              | Tauri Desktop Beta                    |
-| ---------------------------------- | ------------------------------------------- | ---------------------------- | ---------------------------- | ------------------------------------- |
-| Edit, read, search, export         | Tested                                      | Golden path tested           | Golden path tested           | Same static application               |
-| Offline PWA shell                  | Tested                                      | Browser-dependent install UX | Browser-dependent install UX | Bundled locally                       |
-| Direct save back to an opened path | File System Access API                      | Download fallback            | Download fallback            | Native capability token               |
-| Remote Markdown images             | Blocked until explicit per-document consent | Same                         | Same                         | Same                                  |
-| Native installers                  | Not applicable                              | Not applicable               | Not applicable               | Unsigned beta, OS warnings may appear |
+## A workspace that stays local
 
-Desktop downloads are published separately as prerelease Desktop Beta artifacts. They are not notarized on macOS or signed for Windows. Each beta release includes checksums, npm and Cargo SBOMs, and build provenance. Verify those files before installation.
+| Write | Organize | Take your work with you |
+| --- | --- | --- |
+| GFM tables, task lists, and code | Open and closed documents in one library | Markdown and ZIP export |
+| KaTeX formulas and Mermaid diagrams | Tags, search, and cross-file replacement | Content-only PDF export |
+| YAML front matter and embedded images | Wiki links, backlinks, and a link graph | Self-contained offline HTML |
+| Heading shortcuts and document outlines | Workspaces, templates, and version history | JSON backup, with optional encryption |
 
-## Local data and backups
+- **Manage many documents:** filter the library, select several documents, or move
+  the full library to trash. Restore individual documents or empty the trash.
+- **Keep disk links:** save back to an opened file in supported browsers and
+  Desktop. Revision checks detect external edits before an overwrite.
+- **Check the PDF width:** select **PDF (A4)** for a guide to the 178 mm text area.
+  The print dialog controls the final page settings.
+- **Work offline:** install the PWA and wait for offline preparation to finish.
+  Editing, rendering, search, and export then work without a connection.
+- **Use English or French:** change the interface language in Settings.
 
-The app saves drafts to IndexedDB after a 400 ms debounce. A failed write stays visible. It blocks backup, restore, workspace replacement, and other actions that depend on saved data. The app also saves when the page becomes hidden. But a process kill or device failure can lose the final keystrokes.
+<details>
+<summary><strong>See the light theme and reading view</strong></summary>
 
-IndexedDB is one local storage area. It is not a backup. Export backups regularly from Settings. The JSON backup includes drafts, workspaces, and custom templates. It excludes trash, version history, browser file handles, and native path capabilities. See the [user guide](docs/USER_GUIDE.md#backups-and-storage-health).
+![Visual editing in the light theme with the mdsh logo](docs/screenshots/mode-wysiwyg-light.webp)
 
-## Privacy model
+![Reading view with rendered formulas and the document sidebar](docs/screenshots/mode-read.webp)
 
-- The application has no backend, account, telemetry, cloud sync, or runtime CDN.
-- User HTML is sanitized. CSS URLs are limited to validated local fragments.
-- Remote Markdown images are placeholders until the user explicitly loads them for that document. Loading them reveals the client IP to their hosts, with no referrer sent.
-- Drafts and preferences remain in browser storage unless the user exports or opens a file.
-- See [SECURITY.md](SECURITY.md) for the browser and Desktop threat models.
+</details>
 
-## Shortcuts
+## Start in your browser or on Desktop
 
-On Windows and Linux, the displayed Command shortcuts become Control shortcuts.
+The [web app](https://thomascrouzet.github.io/mdsh/) needs no installation.
+Create a file, import Markdown, or open the built-in demo. Use your browser's
+install action to add the [PWA](docs/USER_GUIDE.md#install-the-pwa).
 
-| Shortcut                                 | Action                                     |
-| ---------------------------------------- | ------------------------------------------ |
-| `Cmd+N`, `Cmd+O`, `Cmd+S`, `Cmd+Shift+S` | New, open, export Markdown, save to disk   |
-| `Cmd+P`, `Cmd+,`                         | Export PDF, settings                       |
-| `Cmd+E`, `Cmd+R`, `Cmd+/`                | WYSIWYG, reading, source                   |
-| `Cmd+B`, `Cmd+W`, `Cmd+Shift+.`          | Sidebar, close tab, focus mode             |
-| `Ctrl+Tab`, `Ctrl+Shift+Tab`              | Next file, previous file                   |
-| `Cmd+Shift+P`, `Cmd+F`, `Cmd+Shift+F`    | Palette, in-file search, cross-file search |
+| Platform | Editing and export | Save back to a disk file |
+| --- | --- | --- |
+| Chromium | Full desktop and mobile browser tests | File System Access API where available |
+| Firefox | Core workflow tests | Download fallback |
+| Safari / WebKit | Core desktop and mobile workflow tests | Download fallback |
+| Desktop Beta | Local Tauri app, native WebView tests | Native file access on macOS, Windows, and Linux |
 
-## Scope and limits
+[Desktop Beta downloads](https://github.com/ThomasCrouzet/mdsh/releases) are separate
+prereleases. Installers are unsigned and can trigger an operating-system warning.
+Each release includes checksums, dependency inventories, and build provenance.
+See the [Desktop guide](docs/USER_GUIDE.md#desktop-beta-app) for requirements.
 
-- No backend, account, cloud sync, collaboration, plugins, or telemetry.
-- The in-memory corpus model targets about 200 to 300 documents. Larger corpora are outside the current performance target.
-- Milkdown may normalize Markdown formatting during AST serialization. Use source mode when byte-for-byte formatting matters.
-- Browser-generated print headers and footers, such as date, URL, title, and page number, are controlled by the browser print dialog. Disable them there for a content-only PDF.
+## Your data and privacy
 
-## Development
+Drafts stay in IndexedDB in your browser profile. The app saves after a **400 ms**
+delay and reports write failures. Closing a tab keeps the document in the library.
+Deleting a document moves it to trash for 30 days.
+
+Browser storage is not a backup. Export backups from Settings before clearing
+browser data or changing profiles. Backups include open and closed documents,
+workspaces, and custom templates. They exclude trash, version history, and disk
+permissions. Optional encryption uses AES-GCM and PBKDF2 through WebCrypto.
+
+The app has no backend, account, telemetry, cloud sync, or runtime CDN. It sanitizes
+document HTML and blocks remote images until you explicitly load them for that
+document. Loading a remote image contacts its host. See [SECURITY.md](SECURITY.md)
+and the [backup guide](docs/USER_GUIDE.md#backups-and-storage-health).
+
+## Useful shortcuts
+
+Use **Control** instead of **Command** on Windows and Linux. Commands lists all
+shortcuts, and Settings lets you change them.
+
+| Shortcut | Action |
+| --- | --- |
+| `Cmd+N` / `Cmd+O` | New document / import Markdown |
+| `Cmd+E` / `Cmd+/` / `Cmd+R` | Edit / Source / Read |
+| `Cmd+Shift+P` | Command palette |
+| `Cmd+F` / `Cmd+Shift+F` | Find in document / search across documents |
+| `Cmd+S` / `Cmd+Shift+S` | Export Markdown / save to disk |
+| `Cmd+P` / `Cmd+,` | Export PDF / Settings |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous open document |
+
+The interface supports keyboard navigation and reduced motion. Browser tests
+check focus behavior and accessibility rules. These checks do not replace a human
+accessibility audit.
+
+## Build and contribute
+
+Use **Node 22 or later** and npm. The committed lockfile fixes dependency versions.
 
 ```sh
 npm ci --legacy-peer-deps
 npm run dev
+```
+
+Before a pull request:
+
+```sh
 npm run check
 npm run lint
 npm test
 npm run build
+npm run size
+npx playwright install --with-deps chromium firefox webkit
+npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"
 ```
 
-The stack is SvelteKit 2, Svelte 5 runes, strict TypeScript, Milkdown, CodeMirror, Dexie, Tailwind CSS, Vite PWA, and Tauri 2. Heavy rendering libraries remain behind dynamic imports and blocking bundle budgets.
+On Linux without a display, prefix the final command with `xvfb-run -a`.
+Browser tests produce HTML and JSON reports. E2E tests are the preferred method;
+isolated tests cover documented failure risks that browser workflows miss.
+See the [test policy and artifacts](docs/TESTING.md).
 
-Read [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions, [CONTRIBUTING.md](CONTRIBUTING.md) for setup and contribution policy, and [SUPPORT.md](SUPPORT.md) for support.
+The stack uses **Svelte 5**, **SvelteKit**, **TypeScript**, **Milkdown**,
+**CodeMirror**, **Dexie**, and **Tauri 2**. Desktop builds also need the Rust version
+and native libraries specified in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-License: [MIT](LICENSE). Redistributed asset notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The working target is about 200 to 300 documents. Cloud services, collaboration,
+and plugins are outside the project scope. Visual editing can normalize Markdown;
+use Source when exact formatting matters.
+
+[Architecture](ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) ·
+[Brand assets and demo capture](docs/BRANDING.md) · [Issues](https://github.com/ThomasCrouzet/mdsh/issues) ·
+[Support](SUPPORT.md)
+
+## License
+
+[MIT](LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for redistributed
+asset notices.

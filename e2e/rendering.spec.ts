@@ -33,6 +33,48 @@ test.describe('KaTeX and Mermaid rendering in read mode', () => {
 		await resetAppState(page);
 	});
 
+	for (const mode of ['read', 'wysiwyg'] as const) {
+		test(`keeps the complete flowchart visible in ${mode} with reduced motion`, async ({
+			page
+		}, testInfo) => {
+			await page.emulateMedia({ reducedMotion: 'reduce' });
+			await seedFiles(page, [
+				{
+					name: 'flowchart',
+					content:
+						'# Diagram\n\n```mermaid\nflowchart LR\nA[Write] --> B[Save locally]\nB --> C[Export]\n```'
+				}
+			]);
+			await page.locator(`button[data-mode="${mode}"]`).click();
+			const diagram = page.locator(mode === 'read' ? '.mdsh-preview svg' : '.milkdown svg').filter({
+				has: page.locator('.node')
+			});
+			await expect(diagram).toBeVisible({ timeout: 20_000 });
+			await expect(diagram.locator('.node')).toHaveCount(3);
+			await expect
+				.poll(() =>
+					diagram.evaluate((element) => {
+						const svg = element as SVGSVGElement;
+						const box = svg.getBBox();
+						const view = svg.viewBox.baseVal;
+						return (
+							box.width > 0 &&
+							box.height > 0 &&
+							box.x >= view.x - 1 &&
+							box.y >= view.y - 1 &&
+							box.x + box.width <= view.x + view.width + 1 &&
+							box.y + box.height <= view.y + view.height + 1
+						);
+					})
+				)
+				.toBe(true);
+			await testInfo.attach(`reduced-motion-${mode}`, {
+				body: await diagram.screenshot(),
+				contentType: 'image/png'
+			});
+		});
+	}
+
 	test('renders KaTeX in read mode', async ({ page }) => {
 		await seedFiles(page, [
 			{

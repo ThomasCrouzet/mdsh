@@ -11,6 +11,10 @@ node_modules
 # OS
 .DS_Store
 Thumbs.db
+._*
+
+# Source archive supplied for the brand update. Keep canonical assets only.
+/mdsh-logo-04-balises.zip
 
 # Env
 .env
