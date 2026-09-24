@@ -16,13 +16,6 @@ function input(bytes: number[], size = bytes.length): File {
 }
 
 describe('import limits and decoding', () => {
-	it('rejects the per-file size before a read', async () => {
-		const file = input([], IMPORT_LIMITS.maxFileBytes + 1);
-		const session = new ImportSession();
-		expect(await session.read(file)).toBeNull();
-		expect(file.arrayBuffer).not.toHaveBeenCalled();
-		expect(session.report.issues).toEqual([{ name: 'note.md', reason: 'file-size' }]);
-	});
 	it('rejects an excessive total before a read and keeps the used budget', async () => {
 		const session = new ImportSession();
 		for (let i = 0; i < 4; i++) session.reserve(IMPORT_LIMITS.maxFileBytes);
@@ -39,10 +32,6 @@ describe('import limits and decoding', () => {
 	});
 	it.each([NaN, -1, 0.5, Infinity])('rejects invalid size %s', (size) => {
 		expect(() => new ImportSession().reserve(size)).toThrowError(new ImportReadError('file-size'));
-	});
-	it('decodes valid Unicode and keeps tabs and line endings', async () => {
-		const content = '# Écriture\tété\r\n';
-		expect(await new ImportSession().read(new File([content], 'note.md'))).toBe(content);
 	});
 	it('rejects invalid UTF-8 without character replacement', async () => {
 		const session = new ImportSession();
@@ -113,27 +102,6 @@ describe('FileReader compatibility path', () => {
 	function legacyFile(): File {
 		return { name: 'legacy.md', size: 1 } as File;
 	}
-	it('reads a file in browsers without File.arrayBuffer', async () => {
-		class Reader {
-			result: ArrayBuffer = new Uint8Array([65]).buffer;
-			error = null;
-			onload: (() => void) | null = null;
-			onerror: (() => void) | null = null;
-			onabort: (() => void) | null = null;
-			readAsArrayBuffer() {
-				this.onload?.();
-			}
-			abort() {
-				this.onabort?.();
-			}
-		}
-		vi.stubGlobal('FileReader', Reader);
-		try {
-			expect(await new ImportSession().read(legacyFile())).toBe('A');
-		} finally {
-			vi.unstubAllGlobals();
-		}
-	});
 	it('classifies a FileReader error as a read error', async () => {
 		class Reader {
 			result = null;

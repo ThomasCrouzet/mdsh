@@ -186,6 +186,7 @@ export default defineConfig(({ mode }) => {
 						// Workbox reads the pre-adapter output, which has no such file in `.svelte-kit/output/client/`.
 						// Workbox creates the service worker fallback from `navigateFallback` below.
 						'client/favicon.{ico,svg}',
+						'client/brand/logo-{dark,light}.svg',
 						'client/apple-touch-icon-180x180.png',
 						'client/maskable-icon-512x512.png',
 						'client/pwa-{64x64,192x192,512x512}.png',

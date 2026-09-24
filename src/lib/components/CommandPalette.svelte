@@ -24,6 +24,8 @@
 	import { isDiskLinkingAvailable } from '$lib/disk-sync';
 	import type { EditMode } from '$lib/types';
 	import { EDITOR } from '$lib/config';
+	import type { EditorWidth } from '$lib/ui/editor-width.svelte';
+	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '$lib/render/print-geometry';
 	import { coreCommands, normalizeCommandSearch } from '$lib/ui/commands';
 	import { keyboardStore } from '$lib/ui/keyboard.svelte';
 	import { focusTrap } from '$lib/a11y/focusTrap';
@@ -87,7 +89,7 @@
 		onSetMode: (m: EditMode) => void;
 		onOpenSearch: () => void;
 		onOpenInFileSearch: () => void;
-		onSetEditorWidth: (px: number) => void;
+		onSetEditorWidth: (width: EditorWidth) => void;
 		onResetEditorWidth: () => void;
 		focusMode: boolean;
 		onToggleFocus: () => void;
@@ -529,6 +531,16 @@
 			run: () => onSetEditorWidth(EDITOR.widthPresets.narrow)
 		},
 		{
+			id: 'width-pdf',
+			label: t('palette.widthPdf'),
+			hint: t('settings.widthPdfHelp', {
+				width: PRINT_TEXT_WIDTH_MM,
+				margin: PRINT_PAGE.marginInlineMm
+			}),
+			icon: MoveHorizontal,
+			run: () => onSetEditorWidth(EDITOR.widthPresets.pdf)
+		},
+		{
 			id: 'width-medium',
 			label: t('palette.widthMedium', { px: EDITOR.widthPresets.medium }),
 			icon: MoveHorizontal,
@@ -544,7 +556,7 @@
 			id: 'width-full',
 			label: t('palette.widthFull'),
 			icon: MoveHorizontal,
-			run: () => onSetEditorWidth(9999)
+			run: () => onSetEditorWidth(EDITOR.widthPresets.full)
 		},
 		{
 			id: 'width-reset',

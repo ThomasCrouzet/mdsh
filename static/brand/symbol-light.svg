@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="symbol-light-title symbol-light-desc">
+  <title id="symbol-light-title">mdsh symbol for light backgrounds</title>
+  <desc id="symbol-light-desc">An amber Markdown heading mark between graphite brackets.</desc>
+  <path d="M8 22H30V33H19V95H30V106H8Z M98 22H120V106H98V95H109V33H98Z" fill="#171819"/>
+  <path d="M53 31H63L52 97H42Z M77 31H87L76 97H66Z" fill="#946d34"/>
+  <path d="M37 48H94V58H35Z M33 73H90V83H31Z" fill="#946d34"/>
+</svg>

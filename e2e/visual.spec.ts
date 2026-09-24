@@ -35,13 +35,13 @@ function hello() { return x; }
 
 /**
  * Visual snapshots for the source mode, read mode, and command palette.
- * The expected snapshots are versioned. If the rendering changes, the test fails
- * and Playwright creates a readable PNG diff.
+ * These checks are for local comparison. CI excludes this suite.
+ * The versioned Linux and macOS baselines are platform-specific.
+ * Playwright creates a PNG diff when a local comparison fails.
  *
- * Generate or update: `npm run test:e2e -- --update-snapshots`
- * Snapshots are platform-specific (`-chromium-darwin.png`, `-chromium-linux.png`).
- * Linux CI must create its snapshots with `--update-snapshots` on the first run.
- * Then, commit the snapshots.
+ * Compare: `npm run test:e2e -- visual.spec.ts`
+ * Update: `npm run test:e2e -- visual.spec.ts --update-snapshots`
+ * See CONTRIBUTING.md for the Linux baseline update command.
  */
 test.describe('Snapshots visuels - 3 modes', () => {
 	test.beforeEach(async ({ page }) => {

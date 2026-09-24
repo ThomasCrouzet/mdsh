@@ -8,8 +8,10 @@ export const EDITOR = {
 	widthPresets: {
 		prose: 720,
 		narrow: 640,
+		pdf: 'pdf',
 		medium: 820,
-		wide: 1100
+		wide: 1100,
+		full: 9999
 	}
 } as const;
 

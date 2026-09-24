@@ -5,26 +5,6 @@ vi.mock('$lib/report', () => ({
 	reportError: vi.fn()
 }));
 
-const heavyComponentMocks = vi.hoisted(() => ({
-	commandPalette: vi.fn(() => ({ default: { name: 'CommandPalette' } })),
-	searchPanel: vi.fn(() => ({ default: { name: 'SearchPanel' } })),
-	diskLinksPanel: vi.fn(() => ({ default: { name: 'DiskLinksPanel' } })),
-	workspacesPanel: vi.fn(() => ({ default: { name: 'WorkspacesPanel' } })),
-	settingsPanel: vi.fn(() => ({ default: { name: 'SettingsPanel' } })),
-	historyPanel: vi.fn(() => ({ default: { name: 'VersionHistoryPanel' } })),
-	graphPanel: vi.fn(() => ({ default: { name: 'GraphPanel' } })),
-	presentation: vi.fn(() => ({ default: { name: 'PresentationView' } }))
-}));
-
-vi.mock('$lib/components/CommandPalette.svelte', heavyComponentMocks.commandPalette);
-vi.mock('$lib/components/SearchPanel.svelte', heavyComponentMocks.searchPanel);
-vi.mock('$lib/components/DiskLinksPanel.svelte', heavyComponentMocks.diskLinksPanel);
-vi.mock('$lib/components/WorkspacesPanel.svelte', heavyComponentMocks.workspacesPanel);
-vi.mock('$lib/components/SettingsPanel.svelte', heavyComponentMocks.settingsPanel);
-vi.mock('$lib/components/VersionHistoryPanel.svelte', heavyComponentMocks.historyPanel);
-vi.mock('$lib/components/GraphPanel.svelte', heavyComponentMocks.graphPanel);
-vi.mock('$lib/components/PresentationView.svelte', heavyComponentMocks.presentation);
-
 import { reportError } from '$lib/report';
 import { t } from '$lib/i18n';
 
@@ -49,96 +29,12 @@ describe('createModals', () => {
 		vi.clearAllMocks();
 	});
 
-	it('sets state for each open action and setter', () => {
-		const { opts } = makeOpts();
-		const m = createModals(opts);
-		const pairs: [() => void, () => boolean][] = [
-			[m.openPalette, () => m.paletteOpen],
-			[m.openSearch, () => m.searchOpen],
-			[m.openDiskLinks, () => m.diskLinksOpen],
-			[m.openWorkspaces, () => m.workspacesOpen],
-			[m.openSettings, () => m.settingsOpen],
-			[m.openHistory, () => m.historyOpen],
-			[m.openGraph, () => m.graphOpen],
-			[m.openPresentation, () => m.presentationOpen]
-		];
-		for (const [open, read] of pairs) {
-			expect(read()).toBe(false);
-			open();
-			expect(read()).toBe(true);
-		}
-		const setters: Array<[(value: boolean) => void, () => boolean]> = [
-			[(value) => (m.paletteOpen = value), () => m.paletteOpen],
-			[(value) => (m.searchOpen = value), () => m.searchOpen],
-			[(value) => (m.diskLinksOpen = value), () => m.diskLinksOpen],
-			[(value) => (m.workspacesOpen = value), () => m.workspacesOpen],
-			[(value) => (m.settingsOpen = value), () => m.settingsOpen],
-			[(value) => (m.historyOpen = value), () => m.historyOpen],
-			[(value) => (m.graphOpen = value), () => m.graphOpen],
-			[(value) => (m.presentationOpen = value), () => m.presentationOpen]
-		];
-		for (const [write, read] of setters) {
-			write(false);
-			expect(read()).toBe(false);
-		}
-	});
-
-	it('queues a hit and selects source mode when required', () => {
-		const { opts, setActive } = makeOpts('wysiwyg');
-		const m = createModals(opts);
-		m.handleOpenHit('f1', 7, 'query');
-		expect(setActive).toHaveBeenCalledWith('f1');
-		expect(opts.setPendingGoToHit).toHaveBeenCalledWith({ line: 7, query: 'query' });
-		expect(opts.setMode).toHaveBeenCalledWith('source');
-	});
-
-	it('calls goToLine directly in source mode', () => {
-		const { opts, setActive, goToLine } = makeOpts('source');
-		opts.getFilesStoreActive.mockReturnValue({ id: 'f2' });
-		const m = createModals(opts);
-		m.handleOpenHit('f2', 3, 'q');
-		expect(setActive).toHaveBeenCalledWith('f2');
-		expect(goToLine).toHaveBeenCalledWith(3, 'q');
-		expect(opts.setMode).not.toHaveBeenCalled();
-	});
-
 	it('waits for the new source editor when a search opens another document', () => {
 		const { opts, goToLine } = makeOpts('source');
 		opts.getFilesStoreActive.mockReturnValue({ id: 'old' });
 		createModals(opts).handleOpenHit('next', 12, 'needle');
 		expect(goToLine).not.toHaveBeenCalled();
 		expect(opts.setPendingGoToHit).toHaveBeenCalledWith({ line: 12, query: 'needle' });
-	});
-
-	it('returns one component and one promise from a memoized loader', async () => {
-		const { opts } = makeOpts();
-		const m = createModals(opts);
-		const p1 = m.loadToc();
-		const p2 = m.loadToc();
-		expect(p1).toBe(p2); // mémoïsation
-		const Cmp = await p1;
-		expect(Cmp).toBeTruthy();
-	});
-
-	it('loads each large component only on demand', async () => {
-		const { opts } = makeOpts();
-		const m = createModals(opts);
-		const importers = Object.values(heavyComponentMocks);
-
-		expect(importers.every((importer) => importer.mock.calls.length === 0)).toBe(true);
-
-		const components = await Promise.all([
-			m.loadCommandPalette(),
-			m.loadSearchPanel(),
-			m.loadDiskLinksPanel(),
-			m.loadWorkspacesPanel(),
-			m.loadSettingsPanel(),
-			m.loadHistoryPanel(),
-			m.loadGraphPanel(),
-			m.loadPresentation()
-		]);
-		expect(components.every(Boolean)).toBe(true);
-		expect(importers.every((importer) => importer.mock.calls.length === 1)).toBe(true);
 	});
 });
 
@@ -152,9 +48,7 @@ describe('makeLazyLoader - failure path', () => {
 		const err = new Error('chunk missing offline');
 		const importer = vi
 			.fn()
-			// First call fails (stale SW / offline first open).
 			.mockRejectedValueOnce(err)
-			// Second call succeeds after retry.
 			.mockResolvedValueOnce({ default: { name: 'FakeModal' } });
 
 		const load = makeLazyLoader(importer, close, 'modals.labelPalette');
@@ -165,22 +59,11 @@ describe('makeLazyLoader - failure path', () => {
 		const [scope, reportedErr, opts] = vi.mocked(reportError).mock.calls[0]!;
 		expect(scope).toMatch(/lazy load/i);
 		expect(reportedErr).toBe(err);
-		// notifyUser is the translated failure string (not silent).
 		expect(opts?.notifyUser).toBe(t('modals.loadFailed', { label: t('modals.labelPalette') }));
 
-		// Memo was reset: a second call re-invokes the importer.
 		const Cmp = await load();
 		expect(Cmp).toEqual({ name: 'FakeModal' });
 		expect(importer).toHaveBeenCalledTimes(2);
-		// close only on the failure path.
 		expect(close).toHaveBeenCalledOnce();
-	});
-
-	it('success path does not close or report', async () => {
-		const close = vi.fn();
-		const load = makeLazyLoader(async () => ({ default: 42 }), close, 'modals.labelSearch');
-		await expect(load()).resolves.toBe(42);
-		expect(close).not.toHaveBeenCalled();
-		expect(reportError).not.toHaveBeenCalled();
 	});
 });

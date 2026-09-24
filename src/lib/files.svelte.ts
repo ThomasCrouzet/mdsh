@@ -11,8 +11,10 @@ import type { NativeDiskGrant } from './disk-tauri';
 import {
 	loadTrashRows,
 	moveToTrash,
+	moveManyToTrash,
 	restoreFromTrash,
 	purgePermanently,
+	purgeManyPermanently,
 	persistReorder
 } from './trash';
 import {
@@ -120,6 +122,8 @@ class FilesStore {
 	loadError = $state<string | null>(null);
 	lastSavedAt = $state<number>(0);
 	trash = $state<TrashedFile[]>([]);
+	trashBusy = $state(false);
+	private pendingTrashBatch: Promise<boolean> | null = null;
 	// §B3.2 - `true` during the debounce (400 ms) + the IDB write. Shown by StatusBar.
 	hasPendingSave = $state(false);
 	saveErrorIds = $state<string[]>([]);
@@ -201,9 +205,11 @@ class FilesStore {
 	 */
 	private handleCrossTabMessage(msg: CrossTabMessage): void {
 		if (!browser) return;
+		// Capture editor changes before the policy checks pending saves.
+		this.dispatchEditorFlush();
 		handleCrossTabPolicy(msg, {
 			isLoaded: (id) => [...this.files, ...this.closedFiles].some((f) => f.id === id),
-			isPending: (id) => this.saveQueue.has(id),
+			isPending: (id) => this.trashBusy || this.saveQueue.has(id),
 			hasAnyPending: () => this.hasLocalPendingEdits(),
 			fileName: (id) =>
 				this.files.find((file) => file.id === id)?.name ??
@@ -230,6 +236,7 @@ class FilesStore {
 	/** §M3 - Is there at least one draft with a local write pending? */
 	private hasLocalPendingEdits(): boolean {
 		return (
+			this.trashBusy ||
 			this.pendingTrashMoves.size > 0 ||
 			this.pendingRestores.size > 0 ||
 			[...this.files, ...this.closedFiles].some((file) => this.saveQueue.has(file.id))
@@ -257,7 +264,7 @@ class FilesStore {
 		if (!file) return; // not loaded here → nothing to resynchronize
 		// Local editing pending on this file: real conflict. We do NOT reload (we
 		// would lose the local keystroke) - we signal the conflict to the user.
-		if (this.saveQueue.has(id)) {
+		if (this.trashBusy || this.saveQueue.has(id)) {
 			this.notifyCrossTabConflict(t('files.modifiedInOtherTab', { name: file.name }));
 			return;
 		}
@@ -266,7 +273,7 @@ class FilesStore {
 			if (!row) return;
 			// Re-check the absence of local editing AFTER the await (a keystroke may
 			// have arrived in the meantime): if it became dirty, we abstain.
-			if (this.saveQueue.has(id)) return;
+			if (this.trashBusy || this.saveQueue.has(id)) return;
 			file.name = row.name;
 			file.content = row.content;
 			file.updatedAt = row.updatedAt;
@@ -284,7 +291,7 @@ class FilesStore {
 		}
 	}
 
-	async load(): Promise<void> {
+	async load(preferredActiveId: string | null = null): Promise<void> {
 		if (!browser || this.loaded) return;
 		try {
 			const rows = await db.drafts.orderBy('order').toArray();
@@ -308,7 +315,10 @@ class FilesStore {
 			for (const row of rows) this.saveQueue.trackPersisted(row);
 			this.files = items.filter((_file, index) => rows[index]?.open !== false);
 			this.closedFiles = items.filter((_file, index) => rows[index]?.open === false);
-			const savedActiveId = readPreference(ACTIVE_ID_KEY);
+			const savedActiveId =
+				preferredActiveId && this.files.some((file) => file.id === preferredActiveId)
+					? preferredActiveId
+					: readPreference(ACTIVE_ID_KEY);
 			if (savedActiveId && this.files.some((f) => f.id === savedActiveId)) {
 				this.activeId = savedActiveId;
 			} else if (this.files.length > 0) {
@@ -339,6 +349,9 @@ class FilesStore {
 	 */
 	async reload(broadcast = true): Promise<void> {
 		if (!browser) return;
+		await this.pendingTrashBatch;
+		// A quiet reload keeps this tab's view if the document is still open.
+		const preferredActiveId = broadcast ? null : this.activeId;
 		// invalidateAll (not discardAll): skip in-flight puts without deleting
 		// IDB rows - discard reverse-delete would wipe restored / reloaded drafts.
 		this.saveQueue.invalidateAll([...this.files, ...this.closedFiles].map((file) => file.id));
@@ -350,7 +363,7 @@ class FilesStore {
 		this.metaIndex = new MetaIndex(() => this.library);
 		this.loaded = false;
 		this.loadError = null;
-		await this.load();
+		await this.load(preferredActiveId);
 		if (broadcast) this.crossTab.post({ type: 'backup-applied' });
 	}
 
@@ -394,6 +407,12 @@ class FilesStore {
 	 * Used before backup export so the JSON snapshot includes the latest edits.
 	 */
 	async flushPendingAwait(): Promise<void> {
+		await this.pendingTrashBatch;
+		await this.flushDraftsAwait();
+		await this.pendingTrashBatch;
+	}
+
+	private async flushDraftsAwait(): Promise<void> {
 		this.dispatchEditorFlush();
 		await Promise.all(this.diskOperations.values());
 		await this.saveQueue.flushAwait((id) => this.rowForFlush(id));
@@ -533,6 +552,7 @@ class FilesStore {
 
 	/** Moves a document to the durable trash. This is distinct from closing a tab. */
 	delete(id: string): void {
+		if (this.trashBusy) return;
 		const open = this.detachFromView(id);
 		const closedIndex = this.closedFiles.findIndex((file) => file.id === id);
 		const file =
@@ -572,6 +592,96 @@ class FilesStore {
 		this.pendingTrashMoves.set(id, moveP);
 		void moveP.finally(() => {
 			if (this.pendingTrashMoves.get(id) === moveP) this.pendingTrashMoves.delete(id);
+		});
+	}
+
+	/** Runs one batch after pending saves, disk operations, moves, and restores finish. */
+	private runTrashBatch(run: () => Promise<void>): Promise<boolean> {
+		if (!browser || this.trashBusy) return Promise.resolve(false);
+		this.trashBusy = true;
+		const operation = (async () => {
+			try {
+				if (typeof indexedDB === 'undefined') throw new Error('IndexedDB is not available');
+				await this.flushDraftsAwait();
+				await run();
+				// The reorder signal reloads library and trash state in clean tabs.
+				this.crossTab.post({ type: 'reorder' });
+				return true;
+			} catch (error) {
+				reportPersistenceError(error, 'trash');
+				return false;
+			} finally {
+				this.trashBusy = false;
+			}
+		})();
+		this.pendingTrashBatch = operation;
+		void operation.then(() => {
+			if (this.pendingTrashBatch === operation) this.pendingTrashBatch = null;
+		});
+		return operation;
+	}
+
+	/** Moves an ID snapshot to trash. Update the view only after the batch commits. */
+	deleteMany(ids: readonly string[]): Promise<boolean> {
+		const requested = new Set(ids);
+		if (requested.size === 0) return Promise.resolve(true);
+		return this.runTrashBatch(async () => {
+			const trashedAt = Date.now();
+			const entries = this.library.flatMap((file, order) =>
+				requested.has(file.id) ? [{ file: { ...file }, order, trashedAt }] : []
+			);
+			if (entries.length === 0) return;
+			const result = await moveManyToTrash(
+				entries.map((entry) => ({
+					id: entry.file.id,
+					file: toDraftRow(entry.file, entry.order, false),
+					order: entry.order,
+					trashedAt
+				}))
+			);
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Local operation result.
+			const removed = new Set<string>();
+			const currentFiles = new Map(this.library.map((file) => [file.id, file]));
+			for (const { file } of entries) {
+				const current = currentFiles.get(file.id);
+				if (current && (current.content !== file.content || current.name !== file.name)) {
+					// Keep an edit made during the transaction as a live document beside its trash copy.
+					this.saveQueue.persist(
+						toDraftRow(current, this.library.indexOf(current), this.files.includes(current))
+					);
+					this.notifyCrossTabConflict(t('files.otherTabChanges'));
+					continue;
+				}
+				removed.add(file.id);
+				this.saveQueue.discard(file.id);
+				this.metaIndex.invalidateMeta(file.id);
+			}
+			const activeIndex = this.files.findIndex((file) => file.id === this.activeId);
+			const nextActive =
+				this.files.slice(activeIndex + 1).find((file) => !removed.has(file.id)) ??
+				this.files.slice(0, activeIndex).findLast((file) => !removed.has(file.id));
+			this.files = this.files.filter((file) => !removed.has(file.id));
+			this.closedFiles = this.closedFiles.filter((file) => !removed.has(file.id));
+			this.selectedIds = new Set([...this.selectedIds].filter((id) => !removed.has(id)));
+			this.renderAllowedIds = this.renderAllowedIds.filter((id) => !removed.has(id));
+			if (this.activeId && removed.has(this.activeId)) {
+				this.activeId = nextActive?.id ?? null;
+				this.persistActiveId();
+			}
+			const movedIds = new Set(entries.map((entry) => entry.file.id));
+			this.trash = [
+				...this.trash.filter((entry) => !movedIds.has(entry.file.id)),
+				...entries,
+				...result.preserved.map((row) => ({
+					file: { ...row.file, dirty: false },
+					order: row.order,
+					trashedAt: row.trashedAt
+				}))
+			];
+			for (const row of result.variants) {
+				this.closedFiles.push({ ...row, dirty: false });
+				this.metaIndex.invalidateMeta(row.id);
+			}
 		});
 	}
 
@@ -685,6 +795,7 @@ class FilesStore {
 	}
 
 	restore(id: string): FileItem | null {
+		if (this.trashBusy) return null;
 		const idx = this.trash.findIndex((t) => t.file.id === id);
 		if (idx === -1) return null;
 		// invariant: splice on a valid index returns exactly 1 element.
@@ -780,12 +891,24 @@ class FilesStore {
 
 	purgeTrash(id: string): void {
 		if (!this.trash.some((entry) => entry.file.id === id)) return;
-		void purgePermanently(id)
-			.then(() => {
-				const index = this.trash.findIndex((entry) => entry.file.id === id);
-				if (index >= 0) this.trash.splice(index, 1);
-			})
-			.catch((error) => reportPersistenceError(error, 'trash'));
+		void this.runTrashBatch(async () => {
+			const entry = this.trash.find((entry) => entry.file.id === id);
+			if (!entry) return;
+			await purgePermanently(id);
+			this.trash = this.trash.filter((current) => current !== entry);
+		});
+	}
+
+	/** Deletes a trash ID snapshot after pending moves and restores settle. */
+	purgeTrashMany(ids: readonly string[]): Promise<boolean> {
+		const requested = new Set(ids);
+		if (requested.size === 0) return Promise.resolve(true);
+		return this.runTrashBatch(async () => {
+			const entries = this.trash.filter((entry) => requested.has(entry.file.id));
+			await purgeManyPermanently(entries.map((entry) => entry.file.id));
+			const removed = new Set(entries);
+			this.trash = this.trash.filter((entry) => !removed.has(entry));
+		});
 	}
 
 	updateContent(id: string, content: string): void {

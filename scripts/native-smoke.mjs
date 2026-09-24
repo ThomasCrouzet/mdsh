@@ -2,6 +2,7 @@
 // Packaged installers contain no test server or additional permissions.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import {
 	existsSync,
@@ -205,7 +206,8 @@ function collectWindowsDiagnostics() {
 	}
 }
 
-async function connect() {
+/** @param {boolean} [expectDocument] */
+async function connect(expectDocument = true) {
 	await until(
 		async () => (await request('/status', undefined, 'GET')).ready === true,
 		'WebDriver window ready',
@@ -216,6 +218,15 @@ async function connect() {
 	});
 	session = created.sessionId;
 	results.runtime = created.capabilities;
+	await until(
+		() =>
+			execute(
+				'return document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false" && !document.querySelector(".mdsh-shell")?.hasAttribute("inert");'
+			),
+		'native application ready',
+		45_000
+	);
+	if (!expectDocument) return;
 	await until(
 		() =>
 			execute(
@@ -293,6 +304,91 @@ async function saveLinkedFile(label) {
 		`${label}: saved content matches the durable draft`
 	);
 	passed(label);
+}
+
+/** @param {string} selector @param {string} text @param {boolean} [prefix] */
+async function clickText(selector, text, prefix = false) {
+	await until(
+		() =>
+			execute(
+				`const element = [...document.querySelectorAll(arguments[0])].find(node => {
+					const text = node.textContent.trim();
+					return arguments[2] ? text.startsWith(arguments[1]) : text === arguments[1];
+				});
+				if (!element || element.disabled || element.closest('[inert]') || !element.getClientRects().length) return false;
+				element.click(); return true;`,
+				[selector, text, prefix]
+			),
+		`click ${text}`
+	);
+}
+
+async function nativeGrantPaths() {
+	const paths = await executeAsync(
+		`const done = arguments[arguments.length - 1];
+		window.__TAURI__.core.invoke('disk_restore_grants').then(
+			grants => done(grants.map(grant => grant.path).sort()), error => done({ error: String(error) })
+		);`
+	);
+	assert.ok(Array.isArray(paths), `Native grants could not load: ${JSON.stringify(paths)}`);
+	return paths;
+}
+
+async function purgeState() {
+	const state = await executeAsync(
+		`const done = arguments[arguments.length - 1];
+		async function rows(name, table, keys = false) {
+			return new Promise((resolve, reject) => {
+				const request = indexedDB.open(name);
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const db = request.result;
+					const tx = db.transaction(table);
+					const store = tx.objectStore(table);
+					const query = keys ? store.getAllKeys() : store.getAll();
+					tx.oncomplete = () => { db.close(); resolve(query.result); };
+					tx.onabort = () => { db.close(); reject(tx.error); };
+				};
+			});
+		}
+		Promise.all([
+			rows('mdsh', 'drafts', true), rows('mdsh', 'trashed', true),
+			rows('mdsh-fs', 'handles', true), rows('mdsh-fs', 'handles')
+		]).then(([draftIds, trashIds, linkIds, links]) => done({ draftIds, trashIds, linkIds, links }),
+			error => done({ error: String(error) }));`
+	);
+	assert.equal(state.error, undefined, `Purge state could not load: ${JSON.stringify(state)}`);
+	return state;
+}
+
+/** @param {string[]} names */
+async function trashLinkedDocuments(names) {
+	const library = '[role="dialog"][aria-label="Bibliothèque de documents"]';
+	await clickText('aside button', 'Bibliothèque de documents (', true);
+	for (const name of names) {
+		await click(`${library} input[aria-label=${JSON.stringify(`Sélectionner ${name}`)}]`);
+	}
+	await clickText(`${library} button`, 'Supprimer la sélection');
+	await clickText('[aria-labelledby="prompt-modal-title"] button', 'Supprimer la sélection');
+	await until(
+		() =>
+			execute(
+				'return document.querySelector(arguments[0] + " [role=status]")?.textContent.trim() === "0 document(s) sélectionné(s)";',
+				[library]
+			),
+		'linked documents moved to trash'
+	);
+	await click(`${library} header button`);
+	await clickText('aside summary', 'Corbeille (', true);
+	await clickText('aside details[open] button', 'Vider la corbeille');
+	await clickText('[aria-labelledby="prompt-modal-title"] button', 'Vider la corbeille');
+	await until(
+		() =>
+			execute(
+				'return ![...document.querySelectorAll("aside summary")].some(node => node.textContent.trim().startsWith("Corbeille ("));'
+			),
+		'native trash purge complete'
+	);
 }
 
 try {
@@ -538,6 +634,113 @@ try {
 	);
 	passed('immediate native WYSIWYG close waits for durable save and relaunch');
 	assert.ok(readFileSync(fixture, 'utf8').includes(title));
+
+	const diskBeforePurge = readFileSync(fixture);
+	const linkedDraft = (await drafts()).find(
+		(/** @type {{name: string}} */ item) => item.name === basename(fixture)
+	);
+	assert.ok(linkedDraft, 'Native purge fixture has a durable draft');
+	const initialState = await purgeState();
+	const link = initialState.links[initialState.linkIds.indexOf(linkedDraft.id)];
+	assert.equal(link?.kind, 'path');
+	const grantsBeforePurge = await nativeGrantPaths();
+	assert.ok(grantsBeforePurge.includes(link.path), 'Native grant exists before purge');
+	// Give two closed documents the same real native link. The UI performs all deletions.
+	const sharedOwners = [1, 2].map((index) => ({
+		...linkedDraft,
+		id: `${linkedDraft.id}-shared-${index}`,
+		name: `${title} shared ${index}.md`,
+		open: false,
+		order: linkedDraft.order + index
+	}));
+	const seeded = await executeAsync(
+		`const [owners, link] = arguments; const done = arguments[arguments.length - 1];
+		function put(name, table, values, keyed) {
+			return new Promise((resolve, reject) => {
+				const request = indexedDB.open(name);
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const db = request.result; const tx = db.transaction(table, 'readwrite');
+					for (const owner of values) {
+						if (keyed) tx.objectStore(table).put(link, owner.id);
+						else tx.objectStore(table).put(owner);
+					}
+					tx.oncomplete = () => { db.close(); resolve(); };
+					tx.onabort = () => { db.close(); reject(tx.error); };
+				};
+			});
+		}
+		Promise.all([put('mdsh', 'drafts', owners, false), put('mdsh-fs', 'handles', owners, true)])
+			.then(() => done(true), error => done({ error: String(error) }));`,
+		[sharedOwners, link]
+	);
+	assert.equal(seeded, true);
+	await reload();
+	await trashLinkedDocuments([linkedDraft.name]);
+	const sharedState = await purgeState();
+	assert.equal(sharedState.draftIds.includes(linkedDraft.id), false);
+	assert.equal(sharedState.linkIds.includes(linkedDraft.id), false);
+	for (const owner of sharedOwners) {
+		assert.ok(sharedState.draftIds.includes(owner.id));
+		assert.ok(sharedState.linkIds.includes(owner.id));
+	}
+	assert.ok((await nativeGrantPaths()).includes(link.path));
+	assert.deepEqual(readFileSync(fixture), diskBeforePurge);
+	passed('native trash purge keeps a path owned by closed documents');
+
+	await trashLinkedDocuments(sharedOwners.map((owner) => owner.name));
+	const purgedState = await purgeState();
+	const purgedIds = [linkedDraft.id, ...sharedOwners.map((owner) => owner.id)];
+	for (const id of purgedIds) {
+		assert.equal(purgedState.draftIds.includes(id), false);
+		assert.equal(purgedState.trashIds.includes(id), false);
+		assert.equal(purgedState.linkIds.includes(id), false);
+	}
+	const grantsAfterPurge = await nativeGrantPaths();
+	results.trashPurge = {
+		path: link.path,
+		purgedIds,
+		grantsBeforePurge,
+		grantsAfterPurge,
+		sharedState,
+		purgedState,
+		diskSha256: createHash('sha256').update(diskBeforePurge).digest('hex')
+	};
+	assert.deepEqual(readFileSync(fixture), diskBeforePurge);
+	assert.equal(
+		grantsAfterPurge.includes(link.path),
+		false,
+		'Empty trash must revoke native access'
+	);
+	passed('native Empty trash revokes the last shared path without changing the disk file');
+
+	const purgeClose = once(/** @type {import('node:child_process').ChildProcess} */ (app), 'exit');
+	await executeAsync(
+		`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_request_close').then(() => done(true), error => done({ error: String(error) }));`
+	).catch(() => {});
+	await Promise.race([
+		purgeClose,
+		delay(15_000).then(() => {
+			throw new Error('Native close after trash purge blocked');
+		})
+	]);
+	app = undefined;
+	session = '';
+	launch(false);
+	await connect(false);
+	const grantsAfterRestart = await nativeGrantPaths();
+	const restartedState = await purgeState();
+	results.trashPurge = { ...results.trashPurge, grantsAfterRestart, restartedState };
+	assert.equal(
+		grantsAfterRestart.includes(link.path),
+		false,
+		'Purged native access must stay revoked'
+	);
+	assert.deepEqual(restartedState, purgedState);
+	assert.deepEqual(readFileSync(fixture), diskBeforePurge);
+	const purgedScreenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
+	writeFileSync(join(output, 'trash-purged.png'), Buffer.from(purgedScreenshot, 'base64'));
+	passed('native purge stays revoked after restart without opening the fixture');
 	results.passed = true;
 } catch (error) {
 	results.error = String(error);

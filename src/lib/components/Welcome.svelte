@@ -2,6 +2,7 @@
 	import { FilePlus, Upload, Compass, FolderOpen } from '@lucide/svelte';
 	import { keyboardStore } from '$lib/ui/keyboard.svelte';
 	import { t } from '$lib/i18n';
+	import BrandLogo from './BrandLogo.svelte';
 
 	interface Props {
 		onNew: () => void;
@@ -16,12 +17,11 @@
 
 <div class="welcome-shell flex h-full items-center px-6 py-10 sm:px-10 lg:px-[8vw]">
 	<section class="welcome-console w-full max-w-4xl" aria-labelledby="welcome-title">
-		<div class="welcome-index" aria-hidden="true">MDSH // 01</div>
 		<div class="welcome-grid">
 			<div class="welcome-intro">
 				<div class="mdsh-kicker mb-5">{t('welcome.systemLabel')}</div>
-				<h1 id="welcome-title" class="welcome-title font-mono font-medium tracking-[-0.06em]">
-					<span class="text-accent">M</span>DSH
+				<h1 id="welcome-title" class="welcome-title">
+					<BrandLogo />
 				</h1>
 				<div class="welcome-rule" aria-hidden="true"></div>
 				<p class="mt-6 max-w-md text-base leading-relaxed text-fg-muted">
@@ -131,24 +131,17 @@
 		right: 0;
 		width: 24px;
 	}
-	.welcome-index {
-		position: absolute;
-		top: 0.65rem;
-		right: 0;
-		font-family: var(--font-mono);
-		font-size: 9px;
-		letter-spacing: 0.18em;
-		color: var(--color-fg-dim);
-	}
 	.welcome-grid {
 		display: grid;
 		grid-template-columns: minmax(300px, 1.3fr) minmax(260px, 0.8fr);
 		gap: clamp(2rem, 7vw, 6rem);
 		align-items: end;
 	}
+	.welcome-intro {
+		min-width: 0;
+	}
 	.welcome-title {
-		font-size: clamp(3.5rem, 9vw, 7rem);
-		line-height: 0.84;
+		width: min(100%, 24rem);
 	}
 	.welcome-rule {
 		width: min(100%, 380px);

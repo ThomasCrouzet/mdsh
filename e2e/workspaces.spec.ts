@@ -1,16 +1,20 @@
 import { test, expect } from '@playwright/test';
-import { resetAppState, seedFiles, openPalette } from './helpers';
+import { resetAppState, seedFiles, openPalette, renameActiveFile } from './helpers';
 
 test.describe('Workspaces - save and restore sessions', () => {
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page);
 	});
 
-	test('creates a workspace and shows it in the Workspaces panel', async ({ page }) => {
+	test('restores saved tabs, their order, and the active document', async ({ page }) => {
 		await seedFiles(page, [
 			{ name: 'doc-a', content: '# A\n' },
 			{ name: 'doc-b', content: '# B\n' }
 		]);
+		const fileButtons = page.locator('aside button[data-file-id]');
+		await fileButtons.nth(0).click();
+		const fileName = page.locator('input[aria-label^="Nom du fichier"]');
+		await expect(fileName).toHaveValue('doc-a');
 
 		// Save the workspace from the palette, enter its name, and press Enter.
 		await openPalette(page);
@@ -24,8 +28,19 @@ test.describe('Workspaces - save and restore sessions', () => {
 		const promptInput = promptDialog.locator('input[type="text"]');
 		await promptInput.fill('Mon workspace');
 		await promptInput.press('Enter');
-		// Wait for the store to close the prompt before the palette opens.
+		// Wait for the prompt to close before changing the session.
 		await expect(promptDialog).toBeHidden({ timeout: 5000 });
+
+		// Change the open tabs and active document before loading the saved workspace.
+		await page.locator('aside').getByRole('button', { name: 'Fermer doc-a', exact: true }).click();
+		await page
+			.locator('aside')
+			.getByRole('button', { name: /Nouveau fichier/ })
+			.click();
+		await renameActiveFile(page, 'doc-c');
+		await expect(fileButtons.locator('.truncate')).toHaveText(['doc-b', 'doc-c']);
+		await page.reload();
+		await expect(fileName).toHaveValue('doc-c');
 
 		// Open the Workspaces panel with the "Charger un workspace..." command.
 		await openPalette(page);
@@ -34,5 +49,15 @@ test.describe('Workspaces - save and restore sessions', () => {
 		const wsDialog = page.getByRole('dialog', { name: 'Workspaces' });
 		await expect(wsDialog).toBeVisible({ timeout: 5000 });
 		await expect(wsDialog.getByText('Mon workspace')).toBeVisible();
+		await wsDialog
+			.getByRole('button', { name: 'Charger le workspace Mon workspace', exact: true })
+			.click();
+		await expect(wsDialog).toBeHidden();
+		await expect(fileButtons.locator('.truncate')).toHaveText(['doc-a', 'doc-b']);
+		await expect(fileButtons.nth(0)).toHaveAttribute('aria-current', 'true');
+		await expect(fileName).toHaveValue('doc-a');
+		await expect(page.locator('.cm-content')).toHaveText('# A');
+		await fileButtons.nth(1).click();
+		await expect(page.locator('.cm-content')).toHaveText('# B');
 	});
 });

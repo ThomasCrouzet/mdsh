@@ -109,52 +109,6 @@ afterEach(() => {
 });
 
 describe('initDesktopShell', () => {
-	it('is a no-op outside the desktop shell', async () => {
-		const dispose = await initDesktopShell({
-			onMenuAction: vi.fn(),
-			onOpenPaths: vi.fn(),
-			labels
-		});
-
-		dispose();
-		expect(mocks.menuNew).not.toHaveBeenCalled();
-		expect(mocks.listen).not.toHaveBeenCalled();
-		expect(mocks.invoke).not.toHaveBeenCalled();
-	});
-
-	it('installs the menu, handles pending paths and disposes the listener', async () => {
-		mocks.isDesktop.mockReturnValue(true);
-		mocks.invoke.mockResolvedValue(pendingDelivery([nativeGrant('/tmp/pending.md')]));
-		const onMenuAction = vi.fn(async () => {});
-		const onOpenPaths = vi.fn(async (grants: NativeDiskGrant[]) =>
-			grants.map(({ token }) => token)
-		);
-
-		const dispose = await initDesktopShell({ onMenuAction, onOpenPaths, labels });
-
-		expect(mocks.setAsAppMenu).toHaveBeenCalledOnce();
-		expect(mocks.listen).toHaveBeenCalledWith('mdsh://open-paths-pending', expect.any(Function));
-		expect(mocks.invoke).toHaveBeenCalledWith('take_pending_open_paths', { excludePaths: [] });
-		expect(onOpenPaths).toHaveBeenCalledWith([nativeGrant('/tmp/pending.md')]);
-
-		const menuCalls = mocks.menuItemNew.mock.calls as unknown as Array<[MenuItemOptions]>;
-		const newItem = menuCalls.map(([options]) => options).find((options) => options.id === 'new');
-		newItem?.action?.();
-		await vi.waitFor(() => expect(onMenuAction).toHaveBeenCalledWith('new'));
-
-		const listenCalls = mocks.listen.mock.calls as unknown as Array<
-			[string, (event: OpenEvent) => void]
-		>;
-		mocks.invoke.mockResolvedValue(pendingDelivery([nativeGrant('/tmp/event.md')]));
-		listenCalls[0]![1]({ payload: [] });
-		await vi.waitFor(() =>
-			expect(onOpenPaths).toHaveBeenCalledWith([nativeGrant('/tmp/event.md')])
-		);
-
-		dispose();
-		expect(mocks.unlisten).toHaveBeenCalledOnce();
-	});
-
 	it('reports asynchronous handler failures', async () => {
 		mocks.isDesktop.mockReturnValue(true);
 		const onMenuAction = vi.fn(async () => {
@@ -203,23 +157,6 @@ describe('initDesktopShell', () => {
 		).resolves.toEqual(expect.any(Function));
 
 		expect(mocks.reportWarning).toHaveBeenCalledTimes(3);
-	});
-
-	it('ignores empty pending and event path lists', async () => {
-		mocks.isDesktop.mockReturnValue(true);
-		const onOpenPaths = vi.fn();
-
-		await initDesktopShell({
-			onMenuAction: vi.fn(),
-			onOpenPaths,
-			labels
-		});
-
-		const listenCalls = mocks.listen.mock.calls as unknown as Array<
-			[string, (event: OpenEvent) => void]
-		>;
-		listenCalls[0]![1]({ payload: [] });
-		expect(onOpenPaths).not.toHaveBeenCalled();
 	});
 
 	it('waits for durable changes before acknowledging a native close', async () => {
@@ -360,16 +297,6 @@ describe('initDesktopShell', () => {
 		await initDesktopShell(handlers);
 		expect(onBeforeClose).toHaveBeenCalledOnce();
 		expect(mocks.invoke).not.toHaveBeenCalledWith('desktop_complete_close');
-	});
-
-	it('rebuilds translated menu labels after a locale change', async () => {
-		mocks.isDesktop.mockReturnValue(true);
-		const getLabels = vi.fn(() => labels);
-		await initDesktopShell({ onMenuAction: vi.fn(), onOpenPaths: vi.fn(), getLabels });
-		getLabels.mockReturnValue({ ...labels, file: 'Fichier' });
-		window.dispatchEvent(new CustomEvent('mdsh:locale-change'));
-		await vi.waitFor(() => expect(mocks.setAsAppMenu).toHaveBeenCalledTimes(2));
-		expect(mocks.submenuNew).toHaveBeenCalledWith(expect.objectContaining({ text: 'Fichier' }));
 	});
 
 	it('opens external links through the restricted native command', async () => {

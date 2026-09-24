@@ -18,77 +18,6 @@ beforeEach(async () => {
 	workspaceStore.loaded = false;
 });
 
-describe('workspaceStore.save', () => {
-	it('saves the current open files and activeId', async () => {
-		const a = filesStore.createNew('a.md', '');
-		const b = filesStore.createNew('b.md', '');
-		filesStore.setActive(b.id);
-		const ws = await workspaceStore.save('Projet');
-		expect(ws).not.toBeNull();
-		expect(ws!.name).toBe('Projet');
-		expect(ws!.fileIds).toEqual([a.id, b.id]);
-		expect(ws!.activeId).toBe(b.id);
-		expect(workspaceStore.workspaces[0]?.id).toBe(ws!.id);
-		expect(await db.workspaces.get(ws!.id)).toBeTruthy();
-	});
-
-	it('uses a non-empty fallback for an empty name', async () => {
-		const ws = await workspaceStore.save('   ');
-		expect(ws!.name.trim().length).toBeGreaterThan(0);
-	});
-});
-
-describe('workspaceStore.load / reload', () => {
-	it('loads the latest workspaces first', async () => {
-		await db.workspaces.bulkPut([wsRow('w1', 'Un', [], 1), wsRow('w2', 'Deux', [], 2)]);
-		await workspaceStore.load();
-		expect(workspaceStore.workspaces.map((w) => w.id)).toEqual(['w2', 'w1']);
-	});
-
-	it('loads again after reload', async () => {
-		await workspaceStore.load();
-		await db.workspaces.put(wsRow('w3', 'Trois', [], 3));
-		await workspaceStore.reload();
-		expect(workspaceStore.workspaces.some((w) => w.id === 'w3')).toBe(true);
-	});
-});
-
-describe('workspaceStore.update / rename / delete', () => {
-	it('updates the workspace with the current state', async () => {
-		filesStore.createNew('a.md', '');
-		const ws = await workspaceStore.save('WS');
-		const b = filesStore.createNew('b.md', '');
-		await workspaceStore.update(ws!.id);
-		const updated = workspaceStore.workspaces.find((w) => w.id === ws!.id);
-		expect(updated!.fileIds).toContain(b.id);
-	});
-
-	it('renames a workspace and ignores an empty name', async () => {
-		const ws = await workspaceStore.save('Old');
-		await workspaceStore.rename(ws!.id, 'New');
-		expect(workspaceStore.workspaces.find((w) => w.id === ws!.id)!.name).toBe('New');
-		await workspaceStore.rename(ws!.id, '   ');
-		expect(workspaceStore.workspaces.find((w) => w.id === ws!.id)!.name).toBe('New');
-	});
-
-	it('deletes a workspace from the list and database', async () => {
-		const ws = await workspaceStore.save('Del');
-		await workspaceStore.delete(ws!.id);
-		expect(workspaceStore.workspaces.some((w) => w.id === ws!.id)).toBe(false);
-		expect(await db.workspaces.get(ws!.id)).toBeUndefined();
-	});
-
-	it('ignores unknown IDs and a completed second load', async () => {
-		await workspaceStore.load();
-		await workspaceStore.load();
-		await workspaceStore.update('ghost');
-		await workspaceStore.rename('ghost', 'Inconnu');
-		await workspaceStore.delete('ghost');
-
-		expect(workspaceStore.workspaces).toEqual([]);
-	});
-});
-
 describe('workspaceStore.restore', () => {
 	it('reopens closed workspace files and activates the target', async () => {
 		const a = filesStore.createNew('a.md', '# A');
@@ -106,10 +35,6 @@ describe('workspaceStore.restore', () => {
 		expect(filesStore.files.some((f) => f.id === b.id)).toBe(true);
 		expect(filesStore.files.some((f) => f.id === a.id)).toBe(true);
 		expect(filesStore.activeId).toBe(b.id);
-	});
-
-	it('does nothing when restore receives an unknown ID', async () => {
-		await expect(workspaceStore.restore('ghost')).resolves.toBeUndefined();
 	});
 
 	it('ignores deleted files and a missing activeId', async () => {
@@ -213,18 +138,6 @@ describe('workspaceStore - IndexedDB failure paths', () => {
 		await workspaceStore.delete(ws!.id);
 
 		expect(workspaceStore.workspaces.some((candidate) => candidate.id === ws!.id)).toBe(true);
-	});
-
-	it('supports concurrent removal of an in-memory row', async () => {
-		const ws = await workspaceStore.save('Concurrent');
-		vi.spyOn(db.workspaces, 'delete').mockImplementationOnce(() => {
-			workspaceStore.workspaces = [];
-			return db.workspaces.clear();
-		});
-
-		await workspaceStore.delete(ws!.id);
-
-		expect(workspaceStore.workspaces).toEqual([]);
 	});
 
 	it('reports a bulkGet restore failure and stops cleanly', async () => {

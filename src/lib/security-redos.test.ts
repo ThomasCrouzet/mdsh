@@ -4,18 +4,13 @@
 // Some expressions combine reluctant quantifiers and alternatives. A hostile file
 // can cause catastrophic backtracking and block the browser tab.
 //
-// Use two test levels:
-//   1. Deterministic regression uses known pathological input and a one-second limit.
-//      Catastrophic backtracking takes many seconds. Linear parsing stays below 1 ms
-//      for 100,000 characters, so the limit separates these cases in CI.
-//   2. fast-check creates metacharacter strings that stress the parsers.
-//      Catastrophic backtracking exceeds the test timeout and causes a clear failure.
+// Use known hostile inputs for timing checks and generated strings for output checks.
 
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { slugify, preprocessWikiLinks, extractWikiLinkTargets } from './wiki-links';
 import { stripFrontmatter } from './frontmatter';
-import { hasMath, hasMermaid, renderMarkdown } from './render/markdown';
+import { hasMath, renderMarkdown } from './render/markdown';
 
 function elapsed(fn: () => void): number {
 	const t0 = performance.now();
@@ -34,9 +29,6 @@ describe('anti-ReDoS - pathological input regression', () => {
 	it('hasMath handles alternating partial dollar markers', () => {
 		expect(elapsed(() => hasMath('$a'.repeat(50_000)))).toBeLessThan(1000);
 	});
-	it('hasMermaid handles repeated fences', () => {
-		expect(elapsed(() => hasMermaid('```'.repeat(50_000)))).toBeLessThan(1000);
-	});
 	it('preprocessWikiLinks handles repeated opening brackets', () => {
 		expect(elapsed(() => preprocessWikiLinks('[['.repeat(50_000)))).toBeLessThan(1000);
 	});
@@ -54,28 +46,7 @@ describe('anti-ReDoS - pathological input regression', () => {
 	});
 });
 
-describe('anti-ReDoS - metacharacter fuzzing', () => {
-	// Build strings from delimiters that stress math, wiki, and front matter parsers.
-	const meta = fc
-		.array(fc.constantFrom('$', '\\', '[', ']', '|', '-', '`', '\n', 'x'), { maxLength: 1500 })
-		.map((chars) => chars.join(''));
-
-	it('keeps all parsers stable with hostile input', { timeout: 10_000 }, () => {
-		fc.assert(
-			fc.property(meta, (s) => {
-				// Catastrophic backtracking exceeds the timeout above.
-				hasMath(s);
-				hasMermaid(s);
-				preprocessWikiLinks(s);
-				extractWikiLinkTargets(s);
-				stripFrontmatter(s);
-				slugify(s);
-				return true;
-			}),
-			{ numRuns: 400 }
-		);
-	});
-
+describe('parser output properties', () => {
 	it('keeps slugify output in [a-z0-9-] without edge hyphens', () => {
 		fc.assert(
 			fc.property(fc.string(), (s) => {

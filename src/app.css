@@ -1,10 +1,9 @@
 @import 'tailwindcss';
 
 /* ==========================================================================
-   Theme tokens - BLACKSITE
-   Use graphite, warm ivory, and muted amber. The app chrome has an industrial
-   style. The document surface stays quiet. Avoid pure black and white to reduce
-   halation during long sessions.
+   Theme tokens - mdsh [#]
+   Use graphite, warm ivory, and amber with the supplied logo. Keep the darker
+   light-theme accent for readable controls. Keep the document surface quiet.
    ========================================================================== */
 @theme {
 	--color-bg: #0b0c0d;
@@ -223,7 +222,7 @@ body.typewriter-mode .mdsh-editor {
 }
 
 /* ==========================================================================
-   BLACKSITE chrome
+   mdsh interface
    A faint grid structures the app surfaces. It does not cover the document,
    and it is hidden in the light theme.
    ========================================================================== */
@@ -381,7 +380,8 @@ body.typewriter-mode .mdsh-editor {
 	*::after {
 		animation-duration: 0.01ms !important;
 		animation-iteration-count: 1 !important;
-		transition-duration: 0.01ms !important;
+		/* Mermaid measures SVG transforms before the next animation frame. */
+		transition-duration: 0s !important;
 		scroll-behavior: auto !important;
 	}
 }

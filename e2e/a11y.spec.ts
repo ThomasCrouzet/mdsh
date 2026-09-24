@@ -6,18 +6,16 @@ test.describe('Accessibility - skip link and focus trap', () => {
 		await resetAppState(page);
 	});
 
-	test('keeps the #main skip link hidden until focus', async ({ page }) => {
+	test('shows the skip link on keyboard focus and moves focus to #main', async ({ page }) => {
 		const link = page.locator('a.skip-link');
-		await expect(link).toBeAttached();
 		await expect(link).toHaveAttribute('href', '#main');
-
-		const left = await link.evaluate((el) => getComputedStyle(el).left);
-		expect(left).toBe('-9999px');
-
-		await createFirstFile(page);
-		const main = page.locator('#main');
-		await expect(main).toBeAttached();
-		await expect(main).toHaveAttribute('tabindex', '-1');
+		await expect(link).not.toBeInViewport();
+		await page.keyboard.press('Tab');
+		await expect(link).toBeFocused();
+		await expect(link).toBeInViewport();
+		await page.keyboard.press('Enter');
+		await expect(page.locator('#main')).toBeFocused();
+		await expect(link).not.toBeInViewport();
 	});
 
 	test('CommandPalette - wraps Tab from the last focusable element', async ({ page }) => {

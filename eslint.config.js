@@ -110,6 +110,9 @@ export default [
 		ignores: [
 			'build/',
 			'coverage/',
+			'playwright-report/',
+			'test-results/',
+			'native-test-results/',
 			'.svelte-kit/',
 			'node_modules/',
 			'package-lock.json',

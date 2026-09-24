@@ -7,6 +7,8 @@
 // namespace. Plurals use the parenthetical "(s)" form in both locales.
 
 export const en = {
+	'brand.name': 'mdsh',
+	'brand.localWorkspace': 'Local workspace',
 	'library.browseCount': 'Open your library ({n})',
 	'files.invalidLinkName': 'Use a document name without brackets, a vertical bar, or a line break.',
 	'library.unresolved': 'Unresolved or ambiguous links ({n})',
@@ -68,6 +70,26 @@ export const en = {
 	'library.filter': 'Filter by title, filename, or tag',
 	'library.empty': 'No matching documents.',
 	'library.openDocument': 'Open {name}',
+	'bulkDelete.libraryActions': 'Library deletion actions',
+	'bulkDelete.trashActions': 'Trash deletion actions',
+	'bulkDelete.selectDocument': 'Select {name}',
+	'bulkDelete.selectResults': 'Select all results',
+	'bulkDelete.selectTrash': 'Select all trash documents',
+	'bulkDelete.selectedCount': '{n} document(s) selected',
+	'bulkDelete.deleteSelected': 'Delete selected',
+	'bulkDelete.deleteAll': 'Delete all',
+	'bulkDelete.librarySelectedConfirm': 'Delete {n} document(s)?',
+	'bulkDelete.librarySelectedMessage':
+		'The selected documents will move to Trash. You can restore them for 30 days. Disk files will stay in place.',
+	'bulkDelete.libraryAllConfirm': 'Delete all {n} library document(s)?',
+	'bulkDelete.libraryAllMessage':
+		'All documents in the library, including closed documents and documents outside the current filter, will move to Trash. You can restore them for 30 days. Disk files will stay in place.',
+	'bulkDelete.purgeSelectedConfirm': 'Permanently delete {n} document(s)?',
+	'bulkDelete.purgeMessage':
+		'This deletes the trash documents and their version history. You cannot undo this action. Disk files will stay in place.',
+	'bulkDelete.purge': 'Permanently delete',
+	'bulkDelete.emptyTrash': 'Empty trash',
+	'bulkDelete.emptyConfirm': 'Empty trash ({n} document(s))?',
 	'search.limited':
 		'Showing the first {n} matching lines. Refine your search for more specific results.',
 	'palette.exportOpen': 'Export open tabs as ZIP',
@@ -440,6 +462,7 @@ export const en = {
 	'palette.widthFull': 'Width: full window',
 	'palette.widthMedium': 'Width: medium ({px} px)',
 	'palette.widthNarrow': 'Width: narrow ({px} px)',
+	'palette.widthPdf': 'Width: PDF (A4)',
 	'palette.widthProse': 'Width: prose (~65 characters)',
 	'palette.widthProseHint': 'Optimal for long-form reading',
 	'palette.widthReset': 'Reset the editor width',
@@ -569,6 +592,9 @@ export const en = {
 	'settings.widthFull': 'Full',
 	'settings.widthMedium': 'Medium',
 	'settings.widthNarrow': 'Narrow',
+	'settings.widthPdf': 'PDF (A4)',
+	'settings.widthPdfHelp':
+		'Matches the {width} mm PDF text area in Edit and Read on A4 with {margin} mm side margins, when space permits. This is a width guide. Fonts, page breaks and print settings can differ.',
 	'settings.widthProse': 'Prose',
 	'settings.widthWide': 'Wide',
 
@@ -709,9 +735,9 @@ export const en = {
 	'welcome.newFile': 'New file',
 	'welcome.openDemo': 'Open a demo document',
 	'welcome.privacy': 'No server. No telemetry. Your files stay with you.',
-	'welcome.tagline': 'No backend, cloud sync, or telemetry.',
+	'welcome.tagline': 'Markdown, made simple.',
 	'welcome.taglineLine2': 'WYSIWYG, read, source - all in your browser.',
-	'welcome.systemLabel': 'Local document system',
+	'welcome.systemLabel': 'Local Markdown workspace',
 
 	// workspaces
 	'workspaces.close': 'Close',

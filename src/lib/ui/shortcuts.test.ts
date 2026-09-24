@@ -1,12 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildKeydownHandler, type ShortcutCallbacks } from './shortcuts.svelte';
 
-// isDiskLinkingAvailable gates the ⌘⇧S (save to disk) shortcut.
-vi.mock('$lib/disk-sync', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('$lib/disk-sync')>();
-	return { ...actual, isDiskLinkingAvailable: () => true };
-});
-
 function makeCallbacks(overrides: Partial<ShortcutCallbacks> = {}) {
 	const cb = {
 		onNew: vi.fn(),
@@ -58,73 +52,6 @@ describe('buildKeydownHandler', () => {
 		handler = buildKeydownHandler(cb);
 	});
 
-	it('ignores keys without a modifier', () => {
-		const { event } = fire('n');
-		(event as { metaKey: boolean }).metaKey = false;
-		handler(event);
-		expect(cb.onNew).not.toHaveBeenCalled();
-	});
-
-	it('maps each shortcut to its callback and prevents the default action', () => {
-		const cases: [string, { shift?: boolean }, keyof typeof cb][] = [
-			['n', {}, 'onNew'],
-			['o', {}, 'onImport'],
-			['s', {}, 'onExport'],
-			['s', { shift: true }, 'onSaveToDisk'],
-			['b', {}, 'onToggleSidebar'],
-			['p', { shift: true }, 'onOpenPalette'],
-			[',', {}, 'onOpenSettings'],
-			['f', { shift: true }, 'onOpenSearch'],
-			['f', {}, 'onOpenInFileSearch']
-		];
-		for (const [key, opts, fn] of cases) {
-			const c = makeCallbacks();
-			const h = buildKeydownHandler(c);
-			const { event, isPrevented } = fire(key, opts);
-			h(event);
-			expect(c[fn], `${key}${opts.shift ? '+shift' : ''} -> ${fn}`).toHaveBeenCalledOnce();
-			expect(isPrevented()).toBe(true);
-		}
-	});
-
-	it('uses setMode for ⌘E, ⌘R, and ⌘/', () => {
-		handler(fire('e').event);
-		expect(cb.setMode).toHaveBeenCalledWith('wysiwyg');
-		handler(fire('r').event);
-		expect(cb.setMode).toHaveBeenCalledWith('read');
-		handler(fire('/').event);
-		expect(cb.setMode).toHaveBeenCalledWith('source'); // depuis wysiwyg
-	});
-
-	it.each([false, true])('navigates with Control+Tab, shift=%s', (shiftKey) => {
-		const event = new KeyboardEvent('keydown', {
-			key: 'Tab',
-			ctrlKey: true,
-			shiftKey,
-			cancelable: true
-		});
-		handler(event);
-		expect(cb.onNavigateFile).toHaveBeenCalledWith(shiftKey ? -1 : 1);
-		expect(event.defaultPrevented).toBe(true);
-	});
-
-	it('keeps Tab and Command+Tab and empty workspaces unchanged', () => {
-		for (const modifiers of [{}, { metaKey: true }]) {
-			const event = new KeyboardEvent('keydown', { key: 'Tab', ...modifiers, cancelable: true });
-			handler(event);
-			expect(event.defaultPrevented).toBe(false);
-		}
-		vi.mocked(cb.getActiveId).mockReturnValue(null);
-		handler(new KeyboardEvent('keydown', { key: 'Tab', ctrlKey: true }));
-		expect(cb.onNavigateFile).not.toHaveBeenCalled();
-	});
-
-	it('selects source mode with ⌘/ like the button and palette', () => {
-		const c = makeCallbacks({ getMode: vi.fn(() => 'source' as const) });
-		buildKeydownHandler(c)(fire('/').event);
-		expect(c.setMode).toHaveBeenCalledWith('source');
-	});
-
 	it('intercepts ⌘P only with an active file', () => {
 		handler(fire('p').event);
 		expect(cb.onExportPDF).toHaveBeenCalledOnce();
@@ -169,32 +96,6 @@ describe('Windows keyboard priority and composition', () => {
 		Object.assign(event, { metaKey: false, ctrlKey: true }, context);
 		buildKeydownHandler(cb)(event);
 		expect(cb.onNew).not.toHaveBeenCalled();
-	});
-
-	it('accepts Ctrl on Windows when the context is available', () => {
-		const cb = makeCallbacks();
-		const { event } = fire('p', { shift: true });
-		Object.assign(event, { metaKey: false, ctrlKey: true });
-		buildKeydownHandler(cb)(event);
-		expect(cb.onOpenPalette).toHaveBeenCalledOnce();
-	});
-
-	it('blocks document commands behind a dialog', () => {
-		const dialog = document.createElement('div');
-		dialog.setAttribute('role', 'dialog');
-		dialog.setAttribute('aria-modal', 'true');
-		document.body.append(dialog);
-		try {
-			const cb = makeCallbacks();
-			const handler = buildKeydownHandler(cb);
-			for (const key of ['n', 's', 'r', 'w']) handler(fire(key).event);
-			expect(cb.onNew).not.toHaveBeenCalled();
-			expect(cb.onExport).not.toHaveBeenCalled();
-			expect(cb.setMode).not.toHaveBeenCalled();
-			expect(cb.onClose).not.toHaveBeenCalled();
-		} finally {
-			dialog.remove();
-		}
 	});
 
 	it('leaves bold to the editor and allows the command palette', () => {

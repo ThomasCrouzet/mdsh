@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetAppState } from './helpers';
+import { resetAppState, seedFiles } from './helpers';
 
 // §6.5 - Sidebar multi-selection: Cmd+click toggle, Shift+click range,
 // and grouped actions for ZIP export, close, and deselect.
@@ -56,9 +56,14 @@ test.describe('§6.5 - Sidebar multi-selection', () => {
 		await expect(actionsBar).toContainText('3 sélectionnés');
 	});
 
-	test('moves all selected files to trash from the Close button', async ({ page }) => {
-		await createFiles(page, 3);
+	test('preserves closed selected files and restores one from trash', async ({ page }) => {
+		await seedFiles(page, [
+			{ name: 'doc-a', content: '# A' },
+			{ name: 'doc-b', content: '# B' },
+			{ name: 'doc-c', content: '# C' }
+		]);
 		const fileButtons = page.locator('aside button[data-file-id]');
+		const restoredId = await fileButtons.nth(2).getAttribute('data-file-id');
 
 		const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 		// Select all three files with a full Shift+click range.
@@ -71,9 +76,40 @@ test.describe('§6.5 - Sidebar multi-selection', () => {
 		// Click "Fermer la sélection" to close all selected files.
 		await actionsBar.getByRole('button', { name: 'Fermer la sélection' }).click();
 
-		// The files move to trash and the list becomes empty. The action bar hides when
-		// selectedIds is empty.
 		await expect(actionsBar).not.toBeVisible({ timeout: 5000 });
 		await expect(fileButtons).toHaveCount(0, { timeout: 5000 });
+
+		const retained = page
+			.locator('aside details')
+			.filter({ has: page.locator('summary', { hasText: /^Documents conservés/ }) });
+		await expect(retained.locator('summary')).toHaveText('Documents conservés (3)');
+		await retained.locator('summary').click();
+		await expect(retained.getByRole('button')).toHaveText(['doc-a.md', 'doc-b.md', 'doc-c.md']);
+		await retained.getByRole('button', { name: 'doc-c.md', exact: true }).click();
+		await expect(fileButtons).toHaveAttribute('data-file-id', restoredId!);
+		await expect(page.locator('.cm-content')).toHaveText('# C');
+
+		await page.locator('aside summary').filter({ hasText: 'Actions du document' }).click();
+		await page
+			.locator('aside')
+			.getByRole('button', { name: 'Déplacer le document dans la corbeille', exact: true })
+			.click();
+		await page
+			.getByRole('dialog', { name: 'Déplacer ce document dans la corbeille ?', exact: true })
+			.getByRole('button', { name: 'Confirmer', exact: true })
+			.click();
+		await expect(fileButtons).toHaveCount(0);
+		const trash = page
+			.locator('aside details')
+			.filter({ has: page.locator('summary', { hasText: /^Corbeille/ }) });
+		await expect(trash.locator('summary')).toHaveText('Corbeille (1)');
+		await trash.locator('summary').click();
+		await trash.getByRole('button', { name: 'Restaurer doc-c.md', exact: true }).click();
+		await expect(trash).toHaveCount(0);
+		await expect(fileButtons).toHaveCount(1);
+		await expect(fileButtons).toHaveAttribute('data-file-id', restoredId!);
+		await expect(page.locator('input[aria-label^="Nom du fichier"]')).toHaveValue('doc-c');
+		await expect(page.locator('.cm-content')).toHaveText('# C');
+		await expect(retained.getByRole('button')).toHaveText(['doc-a.md', 'doc-b.md']);
 	});
 });

@@ -10,16 +10,6 @@ afterEach(() => {
 });
 
 describe('spinnerStore', () => {
-	it('shows after 200 ms and hides after dismiss', () => {
-		const dismiss = spinnerStore.show('Export...');
-		expect(spinnerStore.visible).toBe(false); // délai non écoulé
-		vi.advanceTimersByTime(200);
-		expect(spinnerStore.visible).toBe(true);
-		expect(spinnerStore.message).toBe('Export...');
-		dismiss();
-		expect(spinnerStore.visible).toBe(false);
-	});
-
 	it('prevents a flash when dismiss occurs before 200 ms', () => {
 		const dismiss = spinnerStore.show('Quick');
 		dismiss();

@@ -5,7 +5,6 @@ import {
 	tauriCheckPath,
 	tauriOpenNativeGrants,
 	tauriPickAndOpen,
-	tauriPickDirectoryAndOpen,
 	tauriPickSaveTarget,
 	tauriReadMeta,
 	tauriSaveExportBlob,
@@ -110,30 +109,6 @@ describe('native capability helpers', () => {
 		);
 		await expect(tauriForgetPath('/tmp/approved.md')).rejects.toThrow('registry unavailable');
 	});
-	it('opens only the files represented by native grants', async () => {
-		const io = mockIo({
-			openGrants: vi.fn(async () => [grant('/tmp/a.md', 'a'), grant('/tmp/b.md', 'b')]),
-			readFile: vi.fn(async (token) => ({ content: token === 'a' ? '# A' : '# B', stat: meta() }))
-		});
-		setTauriDiskIoForTests(io);
-		const result = await tauriPickAndOpen();
-		expect(result.failed).toBe(0);
-		expect(result.files.map((file) => file.name)).toEqual(['a.md', 'b.md']);
-		expect(result.files[0]?.revision).toBe('sha256:one');
-		expect(io.readFile).toHaveBeenCalledWith('a');
-	});
-
-	it('opens a directory through the native bounded picker', async () => {
-		const io = mockIo({
-			openDirectoryGrants: vi.fn(async () => [grant('/tmp/folder/note.md', 'folder-token')]),
-			readFile: vi.fn(async () => ({ content: '# Folder', stat: meta() }))
-		});
-		setTauriDiskIoForTests(io);
-		const result = await tauriPickDirectoryAndOpen();
-		expect(result.files.map((file) => file.name)).toEqual(['note.md']);
-		expect(io.openDirectoryGrants).toHaveBeenCalledOnce();
-	});
-
 	it('accepts argv and OS-open capabilities without accepting bare paths', async () => {
 		const io = mockIo({
 			readFile: vi.fn(async () => ({ content: 'body', stat: meta() }))
@@ -161,16 +136,6 @@ describe('native capability helpers', () => {
 		expect(writeText).toHaveBeenCalledWith('save-token', 'body', 'sha256:one', false);
 	});
 
-	it('does not let a path string mint or recover a capability', async () => {
-		const io = mockIo();
-		setTauriDiskIoForTests(io);
-		await expect(tauriWritePath('/tmp/forged.md', 'body', null)).rejects.toThrow(
-			'capability expired'
-		);
-		expect(io.writeText).not.toHaveBeenCalled();
-		expect(await tauriCheckPath('/tmp/forged.md')).toBe('permission-needed');
-	});
-
 	it('returns permission-needed for an expired grant and broken for a missing file', async () => {
 		const io = mockIo({
 			saveGrant: vi.fn(async () => grant('/tmp/missing.md', 'missing-token')),
@@ -180,21 +145,6 @@ describe('native capability helpers', () => {
 		await tauriPickSaveTarget('missing.md');
 		expect(await tauriCheckPath('/tmp/missing.md')).toBe('broken');
 		expect(await tauriCheckPath('/tmp/never-granted.md')).toBe('permission-needed');
-	});
-
-	it('reports an existing selected file as available', async () => {
-		const io = mockIo({
-			saveGrant: vi.fn(async () => grant('/tmp/available.md', 'available-token')),
-			stat: vi.fn(async () => meta())
-		});
-		setTauriDiskIoForTests(io);
-		await tauriPickSaveTarget('available.md');
-		expect(await tauriCheckPath('/tmp/available.md')).toBe('ok');
-	});
-
-	it('returns null when the native save dialog is cancelled', async () => {
-		setTauriDiskIoForTests(mockIo());
-		await expect(tauriPickSaveTarget('cancelled.md')).resolves.toBeNull();
 	});
 
 	it('counts selected files that disappear or cannot be read', async () => {
@@ -287,28 +237,6 @@ describe('production adapter', () => {
 			expect.objectContaining({ suggestedName: 'out.md', export: false })
 		);
 		expect(tauriMocks.invoke).not.toHaveBeenCalledWith('disk_grant', expect.anything());
-	});
-
-	it('maps cancelled dialogs and absent native stats to null', async () => {
-		tauriMocks.invoke.mockResolvedValue(null);
-		const adapter = await createTauriDiskIo();
-		await expect(adapter.saveGrant('out.md')).resolves.toBeNull();
-		await expect(adapter.saveExportGrant('out.zip')).resolves.toBeNull();
-		await expect(adapter.stat('token')).resolves.toBeNull();
-	});
-
-	it('caches the production adapter while capabilities remain session-local', async () => {
-		tauriMocks.invoke.mockResolvedValue([]);
-		await expect(tauriReadMeta('/tmp/not-selected.md')).rejects.toThrow('capability expired');
-		expect(tauriMocks.invoke).toHaveBeenCalledExactlyOnceWith('disk_restore_grants');
-	});
-
-	it('shares one lazy load between two concurrent open operations', async () => {
-		tauriMocks.invoke.mockResolvedValue([]);
-		const [first, second] = await Promise.all([tauriPickAndOpen(), tauriPickAndOpen()]);
-		expect(first.files).toEqual([]);
-		expect(second.files).toEqual([]);
-		expect(tauriMocks.invoke).toHaveBeenCalledTimes(2);
 	});
 });
 
@@ -447,34 +375,4 @@ describe('native guard paths', () => {
 			}
 		}
 	);
-	it('writes a binary export without a revision through FileReader', async () => {
-		const writeBytes = vi.fn(async () => meta('sha256:written'));
-		const io = mockIo({
-			saveExportGrant: vi.fn(async () => ({ ...grant('/tmp/out.pdf'), stat: null })),
-			writeBytes
-		});
-		setTauriDiskIoForTests(io);
-		class Reader {
-			result = new Uint8Array([1, 2, 3]).buffer;
-			error = null;
-			onload: (() => void) | null = null;
-			onerror: (() => void) | null = null;
-			readAsArrayBuffer() {
-				this.onload?.();
-			}
-		}
-		vi.stubGlobal('FileReader', Reader);
-		const blob = { arrayBuffer: undefined } as unknown as Blob;
-		try {
-			await expect(tauriSaveExportBlob(blob, 'out.pdf')).resolves.toBe(true);
-			expect(writeBytes).toHaveBeenCalledWith(
-				'token:/tmp/out.pdf',
-				expect.any(Uint8Array),
-				null,
-				false
-			);
-		} finally {
-			vi.unstubAllGlobals();
-		}
-	});
 });

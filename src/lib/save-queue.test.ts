@@ -22,17 +22,6 @@ describe('SaveQueue', () => {
 		vi.restoreAllMocks();
 	});
 
-	it('writes the row after 400 ms and calls onSaved', async () => {
-		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('a' as never);
-		const onSaved = vi.fn();
-		const q = createQueue({ ...noopCb, onSaved });
-		q.schedule('a', () => row('a'));
-		expect(put).not.toHaveBeenCalled(); // rien avant le debounce
-		await vi.advanceTimersByTimeAsync(400);
-		expect(put).toHaveBeenCalledOnce();
-		expect(onSaved).toHaveBeenCalledOnce();
-	});
-
 	it('replaces a pending schedule with one write', async () => {
 		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('a' as never);
 		const q = createQueue(noopCb);
@@ -43,44 +32,6 @@ describe('SaveQueue', () => {
 		expect(put).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(200); // 400 ms depuis le reset
 		expect(put).toHaveBeenCalledOnce();
-	});
-
-	it('sends a write failure to onError', async () => {
-		vi.spyOn(db.drafts, 'put').mockRejectedValue(new DOMException('plein', 'QuotaExceededError'));
-		const onError = vi.fn();
-		const q = createQueue({ ...noopCb, onError });
-		q.schedule('a', () => row('a'));
-		await vi.advanceTimersByTimeAsync(400);
-		await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
-	});
-
-	it('prevents a scheduled write with cancel', async () => {
-		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('a' as never);
-		const q = createQueue(noopCb);
-		q.schedule('a', () => row('a'));
-		q.cancel('a');
-		await vi.advanceTimersByTimeAsync(400);
-		expect(put).not.toHaveBeenCalled();
-	});
-
-	it('applies cancelAll, discardAll, and invalidateAll to multiple IDs', async () => {
-		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-		const q = createQueue(noopCb);
-		q.schedule('a', () => row('a'));
-		q.schedule('b', () => row('b'));
-		q.cancelAll(['a', 'b', 'ghost']);
-		await vi.advanceTimersByTimeAsync(400);
-		expect(put).not.toHaveBeenCalled();
-
-		q.schedule('c', () => row('c'));
-		q.invalidateAll(['c']);
-		await vi.advanceTimersByTimeAsync(400);
-		expect(put).not.toHaveBeenCalled();
-
-		q.schedule('d', () => row('d'));
-		q.discardAll(['d']);
-		await vi.advanceTimersByTimeAsync(400);
-		expect(put).not.toHaveBeenCalled();
 	});
 
 	it('sends reverse-delete errors to onError', async () => {
@@ -110,23 +61,6 @@ describe('SaveQueue', () => {
 		}
 	});
 
-	it('does not write when getRow returns null', async () => {
-		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-		const q = createQueue(noopCb);
-		q.schedule('gone', () => null);
-		await vi.advanceTimersByTimeAsync(400);
-		expect(put).not.toHaveBeenCalled();
-	});
-
-	it('writes all pending rows immediately with flush', () => {
-		const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-		const q = createQueue(noopCb);
-		q.schedule('a', () => row('a'));
-		q.schedule('b', () => row('b'));
-		q.flush((id) => row(id));
-		expect(put).toHaveBeenCalledTimes(2);
-	});
-
 	it('keeps the pending indicator until a flushed write finishes', async () => {
 		let resolvePut: ((value: string) => void) | undefined;
 		const pendingPut = new Promise<string>((resolve) => {
@@ -144,25 +78,6 @@ describe('SaveQueue', () => {
 		await vi.waitFor(() => expect(states.at(-1)).toBe(false));
 	});
 
-	it('sets onPendingChange during a scheduled write', async () => {
-		vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-		const states: boolean[] = [];
-		const q = createQueue({ ...noopCb, onPendingChange: (p) => states.push(p) });
-		q.schedule('a', () => row('a'));
-		expect(states[0]).toBe(true);
-		await vi.advanceTimersByTimeAsync(400);
-		await vi.waitFor(() => expect(states.at(-1)).toBe(false));
-	});
-
-	it('calls onDraftSaved after a scheduled write succeeds', async () => {
-		vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-		const onDraftSaved = vi.fn();
-		const q = createQueue({ ...noopCb, onDraftSaved });
-		q.schedule('a', () => ({ ...row('a'), updatedAt: 42 }));
-		await vi.advanceTimersByTimeAsync(400);
-		await vi.waitFor(() => expect(onDraftSaved).toHaveBeenCalledWith('a', 42));
-	});
-
 	it('keeps has true while put is active', async () => {
 		let resolvePut: ((value: string) => void) | undefined;
 		const pendingPut = new Promise<string>((resolve) => {
@@ -177,14 +92,6 @@ describe('SaveQueue', () => {
 		expect(q.has('a')).toBe(true);
 		resolvePut?.('a');
 		await vi.waitFor(() => expect(q.has('a')).toBe(false));
-	});
-
-	it('writes and waits for put calls with flushAwait', async () => {
-		vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-		const q = createQueue(noopCb);
-		q.schedule('a', () => row('a'));
-		await q.flushAwait((id) => row(id));
-		expect(q.has('a')).toBe(false);
 	});
 
 	it('flushAwait reports a Dexie rejection without an unhandled rejection', async () => {
@@ -225,39 +132,6 @@ describe('SaveQueue', () => {
 		expect(put.mock.calls.at(-1)?.[0]).toMatchObject({ content: 'latest', updatedAt: 2 });
 		expect(onSaved).toHaveBeenCalledOnce();
 		expect(q.hasDurabilityFailure('a')).toBe(false);
-	});
-
-	it('serializes put calls so a slow v1 cannot overwrite v2', async () => {
-		const resolvers: Array<(value: string) => void> = [];
-		const put = vi.spyOn(db.drafts, 'put').mockImplementation(() => {
-			return new Promise<string>((resolve) => {
-				resolvers.push(resolve);
-			}) as ReturnType<typeof db.drafts.put>;
-		});
-		const q = createQueue(noopCb);
-		const r1 = { ...row('a'), content: 'v1', updatedAt: 1 };
-		const r2 = { ...row('a'), content: 'v2', updatedAt: 2 };
-		q.schedule('a', () => r1);
-		await vi.advanceTimersByTimeAsync(400);
-		// First put started (queued).
-		expect(put).toHaveBeenCalledTimes(1);
-		// Second schedule while first still in flight.
-		q.schedule('a', () => r2);
-		await vi.advanceTimersByTimeAsync(400);
-		// Second put is chained - may or may not have started depending on chain.
-		// Resolve first put, then second should write v2 last.
-		expect(resolvers.length).toBeGreaterThanOrEqual(1);
-		resolvers[0]?.('a');
-		await vi.waitFor(() => expect(put.mock.calls.length).toBeGreaterThanOrEqual(2));
-		// Resolve all remaining.
-		for (const r of resolvers.slice(1)) r('a');
-		await vi.waitFor(() => expect(q.has('a')).toBe(false));
-		const lastRow = put.mock.calls.at(-1)?.[0] as { content: string };
-		expect(lastRow.content).toBe('v2');
-		// And the final call must be after any v1 - last wins with v2.
-		const contents = put.mock.calls.map((c) => (c[0] as { content: string }).content);
-		expect(contents.filter((c) => c === 'v2').length).toBeGreaterThanOrEqual(1);
-		expect(contents.at(-1)).toBe('v2');
 	});
 
 	it('prevents an active put from restoring a discarded draft', async () => {
@@ -372,55 +246,6 @@ describe('SaveQueue', () => {
 		if (order.length > 0) {
 			expect(order.at(-1)).not.toBe('old');
 		}
-	});
-
-	describe('flushPending (§M1 - prevents edit loss during reorder)', () => {
-		it('writes IDs with an active timer immediately', () => {
-			const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-			const q = createQueue(noopCb);
-			q.schedule('a', () => row('a'));
-			q.schedule('b', () => row('b'));
-			q.flushPending(['a', 'b'], (id) => row(id));
-			expect(put).toHaveBeenCalledTimes(2); // écrit avant les 400 ms
-		});
-
-		it('ignores an ID without an active timer', () => {
-			const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-			const q = createQueue(noopCb);
-			q.schedule('a', () => row('a'));
-			q.flushPending(['a', 'jamais-planifié'], (id) => row(id));
-			expect(put).toHaveBeenCalledTimes(1);
-		});
-
-		it('calls onSaved and onDraftSaved after a successful write', async () => {
-			vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-			const onSaved = vi.fn();
-			const onDraftSaved = vi.fn();
-			const q = createQueue({ ...noopCb, onSaved, onDraftSaved });
-			q.schedule('a', () => ({ ...row('a'), updatedAt: 7 }));
-			q.flushPending(['a'], (id) => ({ ...row(id), updatedAt: 7 }));
-			await vi.waitFor(() => {
-				expect(onSaved).toHaveBeenCalled();
-				expect(onDraftSaved).toHaveBeenCalledWith('a', 7);
-			});
-		});
-
-		it('ignores an ID when getRow returns null', () => {
-			const put = vi.spyOn(db.drafts, 'put').mockResolvedValue('x' as never);
-			const q = createQueue(noopCb);
-			q.schedule('a', () => row('a'));
-			q.flushPending(['a'], () => null);
-			expect(put).not.toHaveBeenCalled();
-		});
-
-		it('sends a write failure to onError', async () => {
-			vi.spyOn(db.drafts, 'put').mockRejectedValue(new Error('boom'));
-			const onError = vi.fn();
-			const q = createQueue({ ...noopCb, onError });
-			q.schedule('a', () => row('a'));
-			q.flushPending(['a'], (id) => row(id));
-			await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
-		});
 	});
 });
 

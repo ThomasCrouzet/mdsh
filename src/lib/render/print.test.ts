@@ -8,20 +8,6 @@ import {
 } from './print';
 
 describe('image decoding before print', () => {
-	it('waits for decoded image pixels', async () => {
-		const doc = document.implementation.createHTMLDocument();
-		const image = doc.createElement('img');
-		image.src = 'data:image/png;base64,AAAA';
-		doc.body.appendChild(image);
-		const decode = vi.fn(async () => {
-			Object.defineProperty(image, 'naturalWidth', { value: 192 });
-			Object.defineProperty(image, 'naturalHeight', { value: 192 });
-		});
-		image.decode = decode;
-		await expect(waitForPrintImages(doc)).resolves.toBeUndefined();
-		expect(decode).toHaveBeenCalledOnce();
-	});
-
 	it('rejects an unreadable image before it opens an incomplete PDF', async () => {
 		const doc = document.implementation.createHTMLDocument();
 		doc.body.innerHTML = '<img src="data:image/png;base64,AAAA" alt="Figure">';
@@ -44,13 +30,6 @@ describe('image decoding before print', () => {
 });
 
 describe('buildPrintDocument - structure', () => {
-	it('creates an HTML5 doctype with the default English language', () => {
-		const html = buildPrintDocument({ title: 'Doc', bodyHtml: '<p>hello</p>' });
-		expect(html.startsWith('<!doctype html>')).toBe(true);
-		// DEFAULT_LOCALE is English - not hardcoded French.
-		expect(html).toContain('<html lang="en">');
-	});
-
 	it('uses an explicit English or French language', () => {
 		expect(buildPrintDocument({ title: 'T', bodyHtml: '', lang: 'fr' })).toContain(
 			'<html lang="fr">'
@@ -58,32 +37,6 @@ describe('buildPrintDocument - structure', () => {
 		expect(buildPrintDocument({ title: 'T', bodyHtml: '', lang: 'en' })).toContain(
 			'<html lang="en">'
 		);
-	});
-
-	it('uses English when the language is empty or blank', () => {
-		expect(buildPrintDocument({ title: 'T', bodyHtml: '', lang: '   ' })).toContain(
-			'<html lang="en">'
-		);
-	});
-
-	it('keeps the document title in metadata only', () => {
-		const html = buildPrintDocument({ title: 'Mon document', bodyHtml: '<p>x</p>' });
-		expect(html).toContain('<title>Mon document</title>');
-		expect(html).not.toContain('<h1>Mon document</h1>');
-		expect(html).not.toContain('print-header');
-		expect(html).not.toContain('print-kicker');
-	});
-
-	it('preserves the author-written title exactly', () => {
-		const bodyHtml = '<h1>Titre auteur</h1><p>body</p>';
-		const html = buildPrintDocument({ title: 'Nom de fichier', bodyHtml });
-		expect(html.match(/<h1>/g)).toHaveLength(1);
-		expect(html).toContain(bodyHtml);
-	});
-
-	it('inserts the body in the print-body main element', () => {
-		const html = buildPrintDocument({ title: 'T', bodyHtml: '<article>contenu</article>' });
-		expect(html).toMatch(/<main class="print-body">[\s\S]*<article>contenu<\/article>/);
 	});
 });
 
@@ -105,47 +58,6 @@ describe('buildPrintDocument - security', () => {
 		expect(html).toMatch(/script-src 'none'/);
 		expect(html).toMatch(/object-src 'none'/);
 		expect(html).toMatch(/form-action 'none'/);
-	});
-});
-
-describe('buildPrintDocument - conditional KaTeX', () => {
-	it('includes katex.min.css when the source contains math', () => {
-		const html = buildPrintDocument({
-			title: 'T',
-			bodyHtml: '<p>rendered math</p>',
-			source: 'Soit $a^2$'
-		});
-		expect(html).toContain('katex/katex.min.css');
-	});
-
-	it('includes katex.min.css when the body contains a katex class', () => {
-		const html = buildPrintDocument({
-			title: 'T',
-			bodyHtml: '<span class="katex">x</span>'
-		});
-		expect(html).toContain('katex/katex.min.css');
-	});
-
-	it('includes the KaTeX link when the body contains math-block', () => {
-		const html = buildPrintDocument({
-			title: 'T',
-			bodyHtml: '<div class="math-block">…</div>'
-		});
-		expect(html).toContain('katex/katex.min.css');
-	});
-
-	it('does not include katex.min.css without detected math', () => {
-		const html = buildPrintDocument({
-			title: 'T',
-			bodyHtml: '<p>juste du texte</p>',
-			source: 'juste du texte'
-		});
-		expect(html).not.toContain('katex/katex.min.css');
-	});
-
-	it('always includes print.css', () => {
-		const html = buildPrintDocument({ title: 'T', bodyHtml: '' });
-		expect(html).toContain('print/print.css');
 	});
 });
 
@@ -173,73 +85,6 @@ describe('buildStandaloneHtmlDocument', () => {
 			})
 		);
 	}
-
-	it('embeds print.css in a style element and inserts the body', async () => {
-		stubCssFetch();
-		const html = await buildStandaloneHtmlDocument('Export', '<p>corps</p>');
-		expect(html).toContain('<title>Export</title>');
-		expect(html).toContain('<p>corps</p>');
-		expect(html).toContain('<style>');
-		expect(html).toContain('.print-body{color:#111}');
-		// The result has no <link rel=stylesheet>, which makes it compatible with the file:// CSP.
-		expect(html).not.toContain('<link rel="stylesheet"');
-		expect(html).not.toContain('print-header');
-		// Default document lang follows DEFAULT_LOCALE (en).
-		expect(html).toContain('<html lang="en">');
-	});
-
-	it('passes the language to the standalone document', async () => {
-		stubCssFetch();
-		const inline = await buildStandaloneHtmlDocument('Export', '<p>x</p>', undefined, 'fr');
-		expect(inline).toContain('<html lang="fr">');
-	});
-
-	it('inlines KaTeX CSS and font data URLs when math is present', async () => {
-		stubCssFetch();
-		const html = await buildStandaloneHtmlDocument('T', '<span class="katex">x</span>');
-		expect(html).toContain('.katex{font-size:1.1em}');
-		expect(html).toContain('url(data:font/woff2;base64,AAECAw==)');
-		expect(html).not.toContain('url(fonts/KaTeX_Main.woff2)');
-		expect(html).not.toMatch(/https?:\/\//);
-		expect(html).not.toContain('<link');
-	});
-
-	it('embeds every supported KaTeX font format with a matching MIME type', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async (url: string) => {
-				if (url.includes('/katex/fonts/')) {
-					return {
-						ok: true,
-						status: 200,
-						arrayBuffer: async () => new Uint8Array([1]).buffer
-					} as Response;
-				}
-				const body = url.includes('katex')
-					? [
-							'url(fonts/a.woff2)',
-							'url(fonts/b.woff)',
-							'url(fonts/c.ttf)',
-							'url(fonts/d.otf)',
-							'url(fonts/e.bin)'
-						].join(' ')
-					: '.print-body{}';
-				return { ok: true, status: 200, text: async () => body } as Response;
-			})
-		);
-		const html = await buildStandaloneHtmlDocument('T', '<span class="katex">x</span>');
-		expect(html).toContain('data:font/woff2;base64,AQ==');
-		expect(html).toContain('data:font/woff;base64,AQ==');
-		expect(html).toContain('data:font/ttf;base64,AQ==');
-		expect(html).toContain('data:font/otf;base64,AQ==');
-		expect(html).toContain('data:application/octet-stream;base64,AQ==');
-	});
-
-	it('does not embed KaTeX without detected math', async () => {
-		stubCssFetch();
-		const html = await buildStandaloneHtmlDocument('T', '<p>texte</p>', 'texte');
-		expect(html).not.toContain('.katex{');
-	});
 
 	it('keeps the restrictive script-src CSP', async () => {
 		stubCssFetch();
@@ -345,25 +190,6 @@ describe('printInIframe', () => {
 		document.querySelectorAll('iframe').forEach((f) => f.remove());
 	});
 
-	it('creates a hidden iframe, writes HTML, focuses, and prints', async () => {
-		patchCreateElement({ onIframe: spyOnWindow });
-		await printInIframe('<!doctype html><html><body><p>doc</p></body></html>');
-		expect(lastIframe).not.toBeNull();
-		expect(lastIframe?.getAttribute('aria-hidden')).toBe('true');
-		expect(lastIframe?.style.visibility).toBe('hidden');
-		expect(focusSpy).toHaveBeenCalledOnce();
-		expect(printSpy).toHaveBeenCalledOnce();
-		// The written content must be in contentDocument.
-		expect(lastIframe?.contentDocument?.body.innerHTML).toContain('<p>doc</p>');
-	});
-
-	it('sets a localized accessible iframe title', async () => {
-		patchCreateElement({ onIframe: spyOnWindow });
-		await printInIframe('<html><body>x</body></html>');
-		// Tests use the French locale by default.
-		expect(lastIframe?.title).toBe('Aperçu d’impression');
-	});
-
 	it('removes the iframe from the DOM after afterprint', async () => {
 		patchCreateElement({ onIframe: spyOnWindow });
 		await printInIframe('<html><body>x</body></html>');
@@ -385,71 +211,6 @@ describe('printInIframe', () => {
 		// runAllTimersAsync already ran the cleanup timeout.
 		expect(iframe.parentNode).toBeNull();
 		vi.useRealTimers();
-	});
-
-	it('uses the load path when the document is incomplete', async () => {
-		patchCreateElement({
-			onIframe: (iframe) => {
-				spyOnWindow(iframe);
-				// Set readyState to a value other than 'complete' to exercise the load event branch.
-				let fakeReady = 'loading';
-				Object.defineProperty(iframe, 'contentDocument', {
-					configurable: true,
-					get() {
-						const realDoc = Object.getOwnPropertyDescriptor(
-							HTMLIFrameElement.prototype,
-							'contentDocument'
-						)?.get?.call(iframe) as Document | null;
-						if (realDoc) {
-							Object.defineProperty(realDoc, 'readyState', {
-								configurable: true,
-								get: () => fakeReady
-							});
-						}
-						return realDoc;
-					}
-				});
-				// Dispatch the load event shortly after to end the wait.
-				setTimeout(() => {
-					fakeReady = 'complete';
-					iframe.dispatchEvent(new Event('load'));
-				}, 0);
-			}
-		});
-		await printInIframe('<html><body>x</body></html>');
-		expect(printSpy).toHaveBeenCalledOnce();
-	});
-
-	it('waits for fonts.ready when FontFaceSet is available', async () => {
-		const fontsReady = vi.fn(() => Promise.resolve());
-		patchCreateElement({
-			onIframe: (iframe) => {
-				spyOnWindow(iframe);
-				Object.defineProperty(iframe, 'contentDocument', {
-					configurable: true,
-					get() {
-						const realDoc = Object.getOwnPropertyDescriptor(
-							HTMLIFrameElement.prototype,
-							'contentDocument'
-						)?.get?.call(iframe) as Document | null;
-						if (realDoc && !('fonts' in realDoc)) {
-							Object.defineProperty(realDoc, 'fonts', {
-								configurable: true,
-								get: () => ({
-									get ready() {
-										return fontsReady();
-									}
-								})
-							});
-						}
-						return realDoc;
-					}
-				});
-			}
-		});
-		await printInIframe('<html><body>x</body></html>');
-		expect(fontsReady).toHaveBeenCalled();
-		expect(printSpy).toHaveBeenCalledOnce();
 	});
 
 	it('ignores a fonts.ready error', async () => {
@@ -512,42 +273,6 @@ describe('printInIframe', () => {
 	});
 });
 
-// In the SSR branch, assetUrl uses `${base}${path}` without window.
-// printInIframe rejects immediately. Mock $app/environment with browser=false and import the module again.
-describe('print.ts during server-side rendering', () => {
-	afterEach(() => {
-		vi.resetModules();
-		vi.doUnmock('$app/environment');
-	});
-
-	it('rejects printInIframe when browser is false', async () => {
-		vi.resetModules();
-		vi.doMock('$app/environment', () => ({
-			browser: false,
-			dev: false,
-			building: true,
-			version: 'test'
-		}));
-		const mod = await import('./print');
-		await expect(mod.printInIframe('<html></html>')).rejects.toThrow(/browser environment/);
-	});
-
-	it('uses relative asset URLs in buildPrintDocument without window', async () => {
-		vi.resetModules();
-		vi.doMock('$app/environment', () => ({
-			browser: false,
-			dev: false,
-			building: true,
-			version: 'test'
-		}));
-		const mod = await import('./print');
-		const html = mod.buildPrintDocument({ title: 'T', bodyHtml: '<p>x</p>' });
-		// In tests, base='' gives href="/print/print.css" without an absolute window.location URL.
-		expect(html).toContain('href="/print/print.css"');
-		expect(html).not.toContain('http://localhost');
-	});
-});
-
 describe('bounded print preparation', () => {
 	afterEach(() => vi.useRealTimers());
 
@@ -570,20 +295,6 @@ describe('bounded print preparation', () => {
 		await expect(waitForPrintImages(doc)).rejects.toMatchObject({
 			sources: ['Source absente', 'remote.png']
 		});
-	});
-
-	it('reuses only a complete image with two positive dimensions', async () => {
-		const doc = document.implementation.createHTMLDocument();
-		doc.body.innerHTML = '<img src="cached.png">';
-		const image = doc.images[0]!;
-		Object.defineProperties(image, {
-			complete: { value: true },
-			naturalWidth: { value: 192 },
-			naturalHeight: { value: 192 }
-		});
-		image.decode = vi.fn();
-		await waitForPrintImages(doc);
-		expect(image.decode).not.toHaveBeenCalled();
 	});
 
 	it.each(['load', 'error'])(

@@ -1,0 +1,145 @@
+import type { Parent, PhrasingContent } from 'mdast';
+import type { State, Tokenizer } from 'micromark-util-types';
+import { InputRule } from '@milkdown/kit/prose/inputrules';
+import { $inputRule, $markSchema, $remark } from '@milkdown/kit/utils';
+import { extractWikiLinkTargets } from './wiki-links';
+
+interface WikiLink extends Parent {
+	type: 'mdshWikiLink';
+	children: PhrasingContent[];
+}
+
+declare module 'mdast' {
+	interface RootContentMap {
+		mdshWikiLink: WikiLink;
+	}
+
+	interface PhrasingContentMap {
+		mdshWikiLink: WikiLink;
+	}
+}
+
+declare module 'micromark-util-types' {
+	interface TokenTypeMap {
+		mdshWikiLink: 'mdshWikiLink';
+	}
+}
+
+const wikiLinkPattern = /\[\[([^[\]|\n]+)(\|[^[\]\n]*)?\]\]$/;
+
+function isWikiLink(value: string): boolean {
+	return wikiLinkPattern.exec(value)?.index === 0 && extractWikiLinkTargets(value).length === 1;
+}
+
+// Parse before Markdown removes escapes. Code and escaped brackets do not enter this tokenizer.
+const tokenizeWikiLink: Tokenizer = function (effects, ok, nok) {
+	const sliceSerialize = this.sliceSerialize.bind(this);
+	const start: State = (code) => {
+		effects.enter('mdshWikiLink');
+		effects.consume(code);
+		return secondBracket;
+	};
+	const secondBracket: State = (code) => {
+		if (code !== 91) return nok(code);
+		effects.consume(code);
+		return inside;
+	};
+	const inside: State = (code) => {
+		if (code === null || code === -5 || code === -4 || code === -3 || code === 91) {
+			return nok(code);
+		}
+		if (code === 93) {
+			effects.consume(code);
+			return close;
+		}
+		effects.consume(code);
+		return inside;
+	};
+	const close: State = (code) => {
+		if (code !== 93) return nok(code);
+		effects.consume(code);
+		const token = effects.exit('mdshWikiLink');
+		return isWikiLink(sliceSerialize(token)) ? ok : nok;
+	};
+	return start;
+};
+
+const wikiLinkRemark = $remark(
+	'mdshWikiLinks',
+	() =>
+		function () {
+			const data = this.data();
+			(data.micromarkExtensions ??= []).push({
+				text: { 91: { name: 'mdshWikiLink', tokenize: tokenizeWikiLink } }
+			});
+			(data.fromMarkdownExtensions ??= []).push({
+				enter: {
+					mdshWikiLink(token) {
+						this.enter({ type: 'mdshWikiLink', children: [] }, token);
+					}
+				},
+				exit: {
+					mdshWikiLink(token) {
+						const node = this.stack.at(-1) as WikiLink;
+						node.children = [{ type: 'text', value: this.sliceSerialize(token) }];
+						this.exit(token);
+					}
+				}
+			});
+			(data.toMarkdownExtensions ??= []).push({
+				handlers: {
+					mdshWikiLink(node: WikiLink, _parent, state, info) {
+						const value = node.children
+							.map((child) => (child.type === 'text' ? child.value : ''))
+							.join('');
+						// ProseMirror can merge the marks of adjacent links.
+						const links = value.match(/\[\[([^[\]|\n]+)(\|[^[\]\n]*)?\]\]/g) ?? [];
+						if (
+							node.children.every((child) => child.type === 'text') &&
+							links.join('') === value &&
+							links.every(isWikiLink)
+						)
+							return value;
+						// A deleted delimiter or an added code mark makes this ordinary Markdown again.
+						return state.containerPhrasing(node, info);
+					}
+				}
+			});
+		}
+);
+
+const wikiLinkSchema = $markSchema('mdshWikiLink', () => ({
+	inclusive: false,
+	parseDOM: [{ tag: 'span[data-mdsh-wiki-link]' }],
+	toDOM: () => ['span', { 'data-mdsh-wiki-link': '' }, 0],
+	parseMarkdown: {
+		match: (node) => node.type === 'mdshWikiLink',
+		runner: (state, node, markType) => {
+			state.openMark(markType).next(node.children).closeMark(markType);
+		}
+	},
+	toMarkdown: {
+		match: (mark) => mark.type.name === 'mdshWikiLink',
+		runner: (state, mark) => {
+			state.withMark(mark, 'mdshWikiLink');
+		}
+	}
+}));
+
+const wikiLinkInputRule = $inputRule(
+	(ctx) =>
+		new InputRule(wikiLinkPattern, (state, match, start, end) => {
+			const value = match[0];
+			if (!isWikiLink(value)) return null;
+			const position = state.doc.resolve(start);
+			const text = position.parent.textBetween(0, position.parentOffset);
+			if ((/\\+$/.exec(text)?.[0].length ?? 0) % 2) return null;
+			const mark = wikiLinkSchema.type(ctx);
+			return state.tr
+				.insertText(value, start, end)
+				.addMark(start, start + value.length, mark.create())
+				.removeStoredMark(mark);
+		})
+);
+
+export const wikiLinkPlugins = [...wikiLinkRemark, ...wikiLinkSchema, wikiLinkInputRule];

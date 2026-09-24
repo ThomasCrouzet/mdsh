@@ -1,19 +1,15 @@
 // @vitest-environment jsdom
 //
-// Performance regression benchmark for `renderMarkdown`.
-// Render about 50,000 Markdown characters with 10 Mermaid diagrams, tables, highlighted code, and KaTeX math.
-// The 2-second threshold prevents flakes on shared CI runners. It detects major regressions over 2x.
-//
-// The `[bench]` console output tracks performance changes across pull requests.
+// Performance regression benchmark for mixed Markdown rendering.
+// jsdom has no SVG geometry support. This test does not measure Mermaid layout.
+// The two-second limit detects large changes in steady-state rendering time.
 
 import { describe, it, expect } from 'vitest';
 import { renderMarkdown } from './markdown';
 
 function buildLargeMarkdown(): string {
-	// Build about 50,000 characters of realistic Markdown.
-	// Include headings, paragraphs, lists, tables, code blocks, inline math, and 10 Mermaid diagrams.
+	// Include headings, paragraphs, lists, tables, code, math, and Mermaid source.
 	const sections: string[] = [];
-	// Mix content to exercise all renderers.
 	const para =
 		'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ' +
 		'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. '.repeat(3);
@@ -21,7 +17,6 @@ function buildLargeMarkdown(): string {
 	for (let i = 0; i < 50; i++) {
 		sections.push(`## Section ${i + 1}\n\n${para}\n`);
 		if (i % 5 === 0) {
-			// Add a Mermaid block every five sections, for 10 blocks in total.
 			sections.push(
 				'```mermaid\nflowchart LR\n  A[Start] --> B{Decision}\n  B -->|Yes| C[OK]\n  B -->|No| D[KO]\n```\n\n'
 			);
@@ -47,16 +42,14 @@ function buildLargeMarkdown(): string {
 }
 
 describe('renderMarkdown - performance benchmark', () => {
-	it('renders 50,000 characters with 10 Mermaid diagrams in less than 2 seconds', async () => {
+	it('renders 50,000 characters of mixed Markdown in less than 2 seconds', async () => {
 		const md = buildLargeMarkdown();
 		expect(md.length).toBeGreaterThanOrEqual(50_000);
 
-		// The first call dynamically loads marked, KaTeX, and DOMPurify.
-		// Warm Mermaid and initialize the theme singleton.
-		// Exclude import cost because it does not represent steady-state rendering.
+		// Exclude module loading from the measured runs.
 		await renderMarkdown(md);
 
-		// Run three times and use the minimum to reduce noise from garbage collection and other activity.
+		// Use the minimum of three runs to reduce noise from garbage collection.
 		const times: number[] = [];
 		for (let i = 0; i < 3; i++) {
 			const t0 = performance.now();
@@ -64,14 +57,11 @@ describe('renderMarkdown - performance benchmark', () => {
 			times.push(performance.now() - t0);
 		}
 		const min = Math.min(...times);
-		// Log the result so CI can show performance changes across pull requests.
 		console.log(
-			`[bench] renderMarkdown 50k+10mermaid: min=${min.toFixed(0)}ms (runs: ${times.map((t) => t.toFixed(0)).join('/')}ms)`
+			`[bench] renderMarkdown 50k mixed: min=${min.toFixed(0)}ms (runs: ${times.map((t) => t.toFixed(0)).join('/')}ms)`
 		);
 
-		// Use a wide threshold because Mermaid is slow on shared CI runners.
-		// jsdom has no native canvas and uses simulated bounding boxes.
-		// Detect major regressions over 2x. Do not use this benchmark as a P50 guarantee.
+		// Browser tests check the SVG output. This limit checks mixed-content rendering time.
 		expect(min).toBeLessThan(2_000);
-	}, 30_000); // Use a 30-second timeout because the Mermaid warm-up can be slow.
+	}, 30_000);
 });

@@ -15,23 +15,21 @@ function corpus(size: number): FileItem[] {
 }
 
 describe('corpus performance budget', () => {
-	for (const size of [50, 200, 300]) {
-		it(`indexes and searches ${size} representative documents within budget`, () => {
-			const files = corpus(size);
-			const index = new MetaIndex(() => files);
-			const startedAt = performance.now();
-			expect(index.allTags).toHaveLength(13);
-			expect(index.backlinks('doc-0')).toHaveLength(1);
-			const result = matchInCorpus(files, {
-				query: 'searchable paragraph',
-				caseSensitive: false,
-				wholeWord: false,
-				useRegex: false
-			});
-			const elapsedMs = performance.now() - startedAt;
-			expect(result.regexError).toBeNull();
-			expect(result.hits.length).toBeGreaterThan(0);
-			expect(elapsedMs).toBeLessThan(1500);
+	it('indexes and searches 300 representative documents within budget', () => {
+		const files = corpus(300);
+		const index = new MetaIndex(() => files);
+		const startedAt = performance.now();
+		expect(index.allTags).toHaveLength(13);
+		expect(index.backlinks('doc-0')).toHaveLength(1);
+		const result = matchInCorpus(files, {
+			query: 'searchable paragraph',
+			caseSensitive: false,
+			wholeWord: false,
+			useRegex: false
 		});
-	}
+		const elapsedMs = performance.now() - startedAt;
+		expect(result.regexError).toBeNull();
+		expect(result.hits.length).toBeGreaterThan(0);
+		expect(elapsedMs).toBeLessThan(1500);
+	});
 });

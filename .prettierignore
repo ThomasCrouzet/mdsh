@@ -1,5 +1,8 @@
 build
 coverage
+playwright-report
+test-results
+native-test-results
 .svelte-kit
 package-lock.json
 node_modules

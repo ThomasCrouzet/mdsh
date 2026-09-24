@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { resetAppState, seedFiles, openPalette } from './helpers';
 
-test.describe('Exports MD / HTML / PDF / ZIP', () => {
+test.describe('Exports MD / HTML / PDF', () => {
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page);
 	});
@@ -66,19 +66,6 @@ test.describe('Exports MD / HTML / PDF / ZIP', () => {
 		await expect(offlinePage.locator('.katex')).toBeVisible();
 		expect(requests).toEqual([]);
 		await context.close();
-	});
-
-	test('exports all files in a ZIP from the command palette', async ({ page }) => {
-		await seedFiles(page, [
-			{ name: 'one', content: '# One\n' },
-			{ name: 'two', content: '# Two\n' }
-		]);
-		await openPalette(page);
-		await page.keyboard.type('Exporter tous');
-		const downloadPromise = page.waitForEvent('download');
-		await page.keyboard.press('Enter');
-		const download = await downloadPromise;
-		expect(download.suggestedFilename()).toMatch(/\.zip$/);
 	});
 
 	test('real PDF contains author content only', async ({ page, browser }, testInfo) => {

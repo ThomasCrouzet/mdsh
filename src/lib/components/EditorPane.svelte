@@ -148,6 +148,7 @@
 				onpointermove={editorWidth.onResize}
 				onpointerup={editorWidth.stopResize}
 				onpointercancel={editorWidth.stopResize}
+				onlostpointercapture={editorWidth.stopResize}
 				ondblclick={editorWidth.resetEditorWidth}
 				role="presentation"
 				aria-hidden="true"
@@ -199,14 +200,19 @@
 {/if}
 
 <style>
-	/* Editor resize handle - positioned on the right edge of the centered
-	   area, clamped to the window edge if the width overflows. */
+	/* Keep a 24px clear strip inside both the preset edge and the pane edge.
+	   Source scrolls at the preset edge. Edit and Read scroll at the pane edge.
+	   Overlay scrollbars need this space even when their layout width is zero. */
 	.resize-handle {
+		--scrollbar-clearance: 24px;
 		position: absolute;
 		top: 0;
 		bottom: 0;
 		width: 14px;
-		left: min(calc(50% + var(--editor-max-width, 820px) / 2 - 7px), calc(100% - 14px));
+		left: min(
+			calc(50% + var(--editor-max-width, 820px) / 2 - 14px - var(--scrollbar-clearance)),
+			calc(100% - 14px - var(--scrollbar-clearance))
+		);
 		cursor: col-resize;
 		touch-action: none;
 		z-index: 10;
