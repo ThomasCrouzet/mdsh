@@ -1,7 +1,7 @@
 <script lang="ts">
 	// §J1 - Displays the transient toasts of the `notify` store (errors, success,
-	// info). Positioned top-center so it does not overlap the undo-close Toast
-	// or the SpinnerToast (both anchored bottom-center).
+	// info). Keep notices below the toolbar, including its mobile second row.
+	// The undo-close Toast and SpinnerToast are anchored bottom-center.
 	//
 	// A11y (WCAG 4.1.3): each toast carries `role="alert"` for errors
 	// (assertive announcement) and `role="status"` for success/info (polite
@@ -10,6 +10,23 @@
 	import { notify, type ToastLevel } from '$lib/notify.svelte';
 	import { t } from '$lib/i18n';
 	import { TriangleAlert, CircleCheck, Info, X } from '@lucide/svelte';
+	import { onMount } from 'svelte';
+
+	let toolbarBottom = $state(48);
+	onMount(() => {
+		const toolbar = document.getElementById('app-toolbar');
+		const measure = () => {
+			toolbarBottom = toolbar?.getBoundingClientRect().bottom ?? 0;
+		};
+		measure();
+		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+		if (toolbar) observer?.observe(toolbar);
+		window.addEventListener('resize', measure);
+		return () => {
+			observer?.disconnect();
+			window.removeEventListener('resize', measure);
+		};
+	});
 
 	const icons = { error: TriangleAlert, success: CircleCheck, info: Info } as const;
 	const iconColor: Record<ToastLevel, string> = {
@@ -21,7 +38,8 @@
 
 {#if notify.toasts.length > 0}
 	<div
-		class="pointer-events-none fixed top-4 left-1/2 z-[60] flex w-[min(92vw,28rem)] -translate-x-1/2 flex-col gap-2"
+		class="pointer-events-none fixed left-1/2 z-[60] flex w-[min(92vw,28rem)] -translate-x-1/2 flex-col gap-2"
+		style:top="{toolbarBottom + 16}px"
 	>
 		{#each notify.toasts as toast (toast.id)}
 			{@const Icon = icons[toast.level]}
