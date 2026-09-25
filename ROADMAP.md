@@ -7,7 +7,25 @@
 
 - **Watch `@lucide/svelte`** - keep the exact version pinned and test icon API changes before upgrading.
 - **`--legacy-peer-deps`** - still required for Milkdown peer resolution (see `.npmrc`). Re-evaluate when Milkdown peers allow a clean install.
-- **Community announcement** - draft copy lives in [`docs/announcement-draft.md`](./docs/announcement-draft.md) (Show HN / r/sveltejs) for when you choose to post.
+- **Community announcement** - maintain one [announcement draft](docs/outreach/announcement.md) and the [directory entries](docs/outreach/list-submissions.md).
+
+## Proposals that need user validation
+
+The retired [1.6.0 product review](archive/2026-09-25/PRODUCT_REVIEW.md) contains the original evidence and estimates.
+Its library, link, navigation, template-manager, and offline-status corrections are delivered.
+These remaining proposals are not release commitments:
+
+Owner: the project maintainer. Source date: 2026-09-22.
+Close a proposal after a documented scope decision or a release with its workflow checks.
+
+- Split source and rendered preview, with a measured rendering budget.
+- Portable project archives with separate image assets and link reports.
+- Detailed version and disk-conflict comparisons.
+- Metadata forms that preserve unsupported YAML fields.
+- Image insertion at the caret, optional conversion, and clear size feedback.
+- Print presets, text size, and interface density controls.
+- Saved searches, pinned documents, and explicit system sharing.
+- Physical mobile-device workflows and human assistive-technology checks.
 
 ## Desktop clients (Tauri 2)
 

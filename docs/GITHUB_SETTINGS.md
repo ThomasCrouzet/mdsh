@@ -17,7 +17,7 @@ This file records settings that a maintainer must apply manually. Repository aut
 - Require the branch to be up to date before merging.
 - Require conversation resolution.
 - Block force pushes and branch deletion.
-- Require these checks: `check`, `e2e`, both `build` matrix entries, `lighthouse`, `validate-desktop`, `dependency-review`, `dependency-audit`, both `codeql` matrix entries, and `secrets`.
+- Require these checks: `check`, `e2e`, `build (false)`, `build (/mdsh, true)`, `lighthouse`, `desktop-validation`, `dependency-review`, `dependency-audit`, `codeql (javascript-typescript, none)`, `codeql (rust, none)`, and `secrets`.
 - Review the exact check names after the first workflow run because GitHub displays matrix suffixes.
 - Merge Dependabot pull requests manually after required checks pass. The removed token-based workflow bypassed the normal post-merge `push` workflows.
 

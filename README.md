@@ -154,6 +154,7 @@ and plugins are outside the project scope. Visual editing can normalize Markdown
 use Source when exact formatting matters.
 
 [Architecture](ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) ·
+[Documentation index](docs/README.md) ·
 [Brand assets and demo capture](docs/BRANDING.md) · [Issues](https://github.com/ThomasCrouzet/mdsh/issues) ·
 [Support](SUPPORT.md)
 

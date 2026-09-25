@@ -64,8 +64,8 @@ mdsh uses a small runes-based layer in `src/lib/i18n/`. It supports English and
 French without a general i18n library. English is the default. The app detects
 French in the browser, and Settings can change the locale.
 
-`en.ts` satisfies `Record<string, string>` and defines the `MessageKey` type.
-`fr.ts` uses the same type. A missing key is thus a TypeScript error instead
+`src/lib/i18n/messages/en.ts` satisfies `Record<string, string>` and defines the `MessageKey` type.
+The adjacent `fr.ts` uses the same type. A missing key is thus a TypeScript error instead
 of a runtime fallback. `i18n.test.ts` checks nonempty values, locale precedence,
 and invalid preferences. Browser tests check the English and French interfaces.
 For two locales, this layer uses less code and gives strict guarantees.
@@ -96,6 +96,18 @@ The Desktop Beta does not accept JavaScript paths for file commands. A Rust-owne
 The disk-link record keeps the last written content revision across restarts. A restored draft can save through a renewed native token without another picker. External edits still require an overwrite decision. A rename accepts only a filename in the approved directory. It refuses an existing target and keeps file content and permissions. The store serializes rename, save, and unlink operations for each document.
 
 Native writes stage data in the target directory and synchronize it. They then compare a SHA-256 revision immediately before replacement. The operation preserves permissions and uses the platform replacement function. It detects external edits with unchanged size and timestamp. A staging failure keeps the original file.
+
+## Native macOS printing
+
+The frontend prepares sanitized content in a separate shadow tree and waits for images and fonts.
+On macOS, it applies print styles before WKWebView calculates page boundaries.
+Rust starts a WKWebView print operation as an asynchronous native sheet.
+Its completion callback releases the prepared content after printing or cancellation.
+There is no cleanup deadline while the macOS print panel remains open.
+
+The native smoke build saves through this same print operation.
+PDFKit checks pagination, content, and image border pixels in the resulting file.
+WebDriver screen capture alone cannot establish that native PDF export works.
 
 ## Measured corpus budget
 
