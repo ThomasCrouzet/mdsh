@@ -110,11 +110,19 @@ const executeAsync = (script, args = []) =>
 
 /** @param {string} key @param {boolean} [shift] */
 async function nativeShortcut(key, shift = false) {
-	const handled = await executeAsync(
-		`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_key', { key: arguments[0], shift: arguments[1] }).then(done, error => done({ error: String(error) }));`,
-		[key, shift]
-	);
-	assert.equal(handled, true, `Native shortcut ${shift ? 'Shift+' : ''}${key}`);
+	// A restored document can appear before the native menu is installed.
+	const deadline = Date.now() + 30_000;
+	do {
+		const handled = await executeAsync(
+			`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_key', { key: arguments[0], shift: arguments[1] }).then(done, error => done({ error: String(error) }));`,
+			[key, shift]
+		);
+		// Retry only a missing binding. An uncertain IPC result must not run twice.
+		assert.equal(typeof handled, 'boolean', JSON.stringify(handled));
+		if (handled) return;
+		await delay(150);
+	} while (Date.now() < deadline);
+	throw new Error(`Native shortcut is unavailable: ${shift ? 'Shift+' : ''}${key}`);
 }
 /** @param {boolean} printing */
 const diagramIsReadable = (printing) =>
