@@ -135,7 +135,7 @@ test.describe('PWA - offline startup from the precache', () => {
 // The browser performs the install, wait, and activation steps.
 test('recovers two dirty clients after a real update and persistence failure', async ({
 	browser
-}) => {
+}, testInfo) => {
 	const { resolve } = await import('node:path');
 	const { createPwaUpdateServer } = await import('./pwa-update-server');
 	const server = await createPwaUpdateServer(resolve('build'));
@@ -198,6 +198,19 @@ test('recovers two dirty clients after a real update and persistence failure', a
 		const reloadSecond = second.getByRole('button', { name: 'Recharger', exact: true });
 		await expect(reloadFirst).toBeVisible({ timeout: 15000 });
 		await expect(reloadSecond).toBeVisible({ timeout: 15000 });
+		// A persistent update notice must not cover desktop or mobile mode controls.
+		for (const width of [1280, 390]) {
+			await second.setViewportSize({ width, height: 844 });
+			await second.locator('button[data-mode="read"]').click();
+			await expect(second.locator('.mdsh-preview')).toContainText('Second, état durable');
+			await second.locator('button[data-mode="source"]').click();
+			await expect(second.locator('.cm-content')).toHaveText('# Second, état durable');
+			await expect(reloadSecond).toBeVisible();
+			await testInfo.attach(`update-notice-${width}`, {
+				body: await second.screenshot(),
+				contentType: 'image/png'
+			});
+		}
 		await expect(first.locator('meta[name="pwa-test-release"]')).toHaveAttribute('content', '1');
 		await expect(second.locator('meta[name="pwa-test-release"]')).toHaveAttribute('content', '1');
 		await reloadFirst.click();

@@ -167,6 +167,24 @@ function launch(openFile = true) {
 		launched.exitedAt = new Date().toISOString();
 	});
 }
+
+async function deliverFixture() {
+	const second = spawn(binary, [fixture], {
+		stdio: ['ignore', log, log],
+		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) }
+	});
+	secondary = second;
+	const [exitCode, exitSignal] = await Promise.race([
+		once(second, 'exit'),
+		delay(10_000).then(() => {
+			throw new Error('Second instance did not exit');
+		})
+	]);
+	secondary = undefined;
+	assert.equal(exitCode, 0, 'Second instance must exit successfully');
+	assert.equal(exitSignal, null, 'Second instance must not be terminated by a signal');
+}
+
 function collectWindowsDiagnostics() {
 	if (process.platform !== 'win32' || !app?.pid) return;
 	results.windowsDiagnostics = {
@@ -226,6 +244,7 @@ async function connect(expectDocument = true) {
 		'native application ready',
 		45_000
 	);
+	await waitForNativeOpenDelivery();
 	if (!expectDocument) return;
 	await until(
 		() =>
@@ -262,8 +281,29 @@ async function reload() {
 	} finally {
 		await request(`/session/${session}/timeouts`, { script: timeouts.script });
 	}
+	await waitForNativeOpenDelivery();
 	passed('native reload restores the durable document');
 }
+
+async function waitForNativeOpenDelivery() {
+	// Restored drafts can render before argv ingestion. Only the product acknowledges the queue.
+	await until(
+		async () => {
+			const pending = await executeAsync(
+				`const done = arguments[arguments.length - 1];
+				window.__TAURI__.core.invoke('take_pending_open_paths', { excludePaths: [] }).then(
+					pending => done({ grants: pending.grants.length, rejected: pending.rejected.length, remaining: pending.remaining }),
+					error => done({ error: String(error) })
+				);`
+			);
+			assert.equal(pending.error, undefined, `Native delivery failed: ${JSON.stringify(pending)}`);
+			return pending.grants === 0 && pending.rejected === 0 && pending.remaining === 0;
+		},
+		'native open delivery acknowledged',
+		45_000
+	);
+}
+
 async function drafts() {
 	return executeAsync(
 		`const done = arguments[arguments.length - 1]; const req = indexedDB.open('mdsh'); req.onerror = () => done([]); req.onsuccess = () => { const db = req.result; const q = db.transaction('drafts').objectStore('drafts').getAll(); q.onsuccess = () => { db.close(); done(q.result); }; };`
@@ -352,21 +392,25 @@ async function purgeState() {
 			});
 		}
 		Promise.all([
-			rows('mdsh', 'drafts', true), rows('mdsh', 'trashed', true),
+			rows('mdsh', 'drafts'), rows('mdsh', 'trashed', true),
 			rows('mdsh-fs', 'handles', true), rows('mdsh-fs', 'handles')
-		]).then(([draftIds, trashIds, linkIds, links]) => done({ draftIds, trashIds, linkIds, links }),
+		]).then(([drafts, trashIds, linkIds, links]) => done({
+			draftIds: drafts.map(row => row.id),
+			documents: drafts.map(({ id, name, open }) => ({ id, name, open })),
+			trashIds, linkIds, links
+		}),
 			error => done({ error: String(error) }));`
 	);
 	assert.equal(state.error, undefined, `Purge state could not load: ${JSON.stringify(state)}`);
 	return state;
 }
 
-/** @param {string[]} names */
-async function trashLinkedDocuments(names) {
+/** @param {string[]} ids */
+async function trashLinkedDocuments(ids) {
 	const library = '[role="dialog"][aria-label="Bibliothèque de documents"]';
 	await clickText('aside button', 'Bibliothèque de documents (', true);
-	for (const name of names) {
-		await click(`${library} input[aria-label=${JSON.stringify(`Sélectionner ${name}`)}]`);
+	for (const id of ids) {
+		await click(`${library} [data-document-id=${JSON.stringify(id)}] input[type="checkbox"]`);
 	}
 	await clickText(`${library} button`, 'Supprimer la sélection');
 	await clickText('[aria-labelledby="prompt-modal-title"] button', 'Supprimer la sélection');
@@ -378,6 +422,12 @@ async function trashLinkedDocuments(names) {
 			),
 		'linked documents moved to trash'
 	);
+	const state = await purgeState();
+	for (const id of ids) {
+		assert.equal(state.draftIds.includes(id), false);
+		assert.ok(state.trashIds.includes(id));
+		assert.ok(state.linkIds.includes(id));
+	}
 	await click(`${library} header button`);
 	await clickText('aside summary', 'Corbeille (', true);
 	await clickText('aside details[open] button', 'Vider la corbeille');
@@ -457,20 +507,7 @@ try {
 		before.filter((/** @type {{ content: string }} */ d) => d.content.includes(title)).length,
 		1
 	);
-	const second = spawn(binary, [fixture], {
-		stdio: ['ignore', log, log],
-		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) }
-	});
-	secondary = second;
-	const [exitCode, exitSignal] = await Promise.race([
-		once(second, 'exit'),
-		delay(10_000).then(() => {
-			throw new Error('Second instance did not exit');
-		})
-	]);
-	secondary = undefined;
-	assert.equal(exitCode, 0, 'Second instance must exit successfully');
-	assert.equal(exitSignal, null, 'Second instance must not be terminated by a signal');
+	await deliverFixture();
 	await delay(500);
 	assert.equal(
 		(await drafts()).filter((/** @type {{ content: string }} */ d) => d.content.includes(title))
@@ -676,9 +713,10 @@ try {
 	);
 	assert.equal(seeded, true);
 	await reload();
-	await trashLinkedDocuments([linkedDraft.name]);
+	await trashLinkedDocuments([linkedDraft.id]);
 	const sharedState = await purgeState();
 	assert.equal(sharedState.draftIds.includes(linkedDraft.id), false);
+	assert.equal(sharedState.trashIds.includes(linkedDraft.id), false);
 	assert.equal(sharedState.linkIds.includes(linkedDraft.id), false);
 	for (const owner of sharedOwners) {
 		assert.ok(sharedState.draftIds.includes(owner.id));
@@ -686,9 +724,29 @@ try {
 	}
 	assert.ok((await nativeGrantPaths()).includes(link.path));
 	assert.deepEqual(readFileSync(fixture), diskBeforePurge);
+	results.trashPurge = { path: link.path, originalId: linkedDraft.id, sharedState };
 	passed('native trash purge keeps a path owned by closed documents');
 
-	await trashLinkedDocuments(sharedOwners.map((owner) => owner.name));
+	// Native open uses the surviving path owner and restores the disk filename.
+	await deliverFixture();
+	await until(
+		async () =>
+			(await drafts()).some(
+				(/** @type {{id: string, name: string, open: boolean}} */ row) =>
+					row.id === sharedOwners[0].id && row.name === basename(fixture) && row.open === true
+			),
+		'native reopen updates the retained owner name'
+	);
+	await waitForNativeOpenDelivery();
+	const reopenedState = await purgeState();
+	results.trashPurge = { ...results.trashPurge, reopenedState };
+	assert.deepEqual(reopenedState.draftIds, sharedState.draftIds);
+	assert.deepEqual(reopenedState.linkIds, sharedState.linkIds);
+	assert.equal(reopenedState.draftIds.includes(linkedDraft.id), false);
+	assert.deepEqual(readFileSync(fixture), diskBeforePurge);
+	passed('native reopen preserves the shared owner ID and restores the disk filename');
+
+	await trashLinkedDocuments(sharedOwners.map((owner) => owner.id));
 	const purgedState = await purgeState();
 	const purgedIds = [linkedDraft.id, ...sharedOwners.map((owner) => owner.id)];
 	for (const id of purgedIds) {
@@ -696,6 +754,14 @@ try {
 		assert.equal(purgedState.trashIds.includes(id), false);
 		assert.equal(purgedState.linkIds.includes(id), false);
 	}
+	assert.deepEqual(
+		purgedState.draftIds,
+		initialState.draftIds.filter((/** @type {string} */ id) => id !== linkedDraft.id)
+	);
+	assert.deepEqual(
+		purgedState.linkIds,
+		initialState.linkIds.filter((/** @type {string} */ id) => id !== linkedDraft.id)
+	);
 	const grantsAfterPurge = await nativeGrantPaths();
 	results.trashPurge = {
 		path: link.path,
@@ -703,6 +769,7 @@ try {
 		grantsBeforePurge,
 		grantsAfterPurge,
 		sharedState,
+		reopenedState,
 		purgedState,
 		diskSha256: createHash('sha256').update(diskBeforePurge).digest('hex')
 	};

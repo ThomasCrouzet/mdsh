@@ -1,6 +1,27 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { createFirstFile, resetAppState, writeSourceContent } from './helpers';
 
+const nativeScrollbarTest = test.extend({
+	// Headless Firefox hides all scrollbars with an agent stylesheet.
+	// Only native thumb drags need a headed browser, with Xvfb on Linux.
+	headless: [
+		async ({ browserName, headless }, use) => {
+			await use(browserName === 'firefox' ? false : headless);
+		},
+		{ scope: 'worker' }
+	],
+	launchOptions: [
+		async ({ launchOptions }, use) => {
+			await use({
+				...launchOptions,
+				ignoreDefaultArgs: ['--hide-scrollbars'],
+				firefoxUserPrefs: { ...launchOptions.firefoxUserPrefs, 'ui.useOverlayScrollbars': 0 }
+			});
+		},
+		{ scope: 'worker' }
+	]
+});
+
 const modes = [
 	{ mode: 'wysiwyg', scroller: '.mdsh-editor', content: '.ProseMirror' },
 	{ mode: 'source', scroller: '.mdsh-source-cm .cm-scroller', content: '.mdsh-source-cm' },
@@ -15,6 +36,7 @@ const labels = {
 		medium: 'Medium',
 		palette: 'Command palette',
 		pdfCommand: 'Width: PDF (A4)',
+		offlineReady: 'Ready offline',
 		help: /178 mm.*16 mm.*Fonts, page breaks and print settings can differ/
 	},
 	fr: {
@@ -24,6 +46,7 @@ const labels = {
 		medium: 'Moyenne',
 		palette: 'Palette de commandes',
 		pdfCommand: 'Largeur : PDF (A4)',
+		offlineReady: 'Prêt hors ligne',
 		help: /178 mm.*16 mm.*polices, les sauts de page et les réglages d'impression peuvent différer/
 	}
 } as const;
@@ -59,9 +82,17 @@ async function textWidth(content: Locator) {
 	});
 }
 
-async function expectPdfTextWidth(page: Page) {
+async function expectPdfTextWidth(page: Page, locale: keyof typeof labels = 'fr') {
+	await expect(page.locator('.mdsh-shell[aria-busy="false"]:not([inert])')).toBeVisible();
+	// The shorter ready label moves the mode buttons. Wait before a pointer click.
+	await expect(page.locator('#app-toolbar .mdsh-local-indicator')).toHaveText(
+		labels[locale].offlineReady,
+		{ timeout: 20_000 }
+	);
 	for (const mode of ['read', 'wysiwyg'] as const) {
-		await page.locator(`button[data-mode="${mode}"]`).click();
+		const button = page.locator(`button[data-mode="${mode}"]`);
+		await button.click();
+		await expect(button).toHaveAttribute('aria-checked', 'true');
 		const content = page.locator(mode === 'read' ? '.mdsh-preview' : '.ProseMirror');
 		await expect(content).toContainText('Width reference', { timeout: 20_000 });
 		// A4 is 210 mm wide. The print stylesheet sets two 16 mm margins.
@@ -200,22 +231,17 @@ async function dragNativeScrollbar(
 }
 
 test.use({
-	viewport: { width: 1440, height: 1000 },
-	// Headless Firefox injects an agent stylesheet that hides all scrollbars.
-	// Its native drag checks need a headed browser, with Xvfb on Linux.
-	headless: async ({ browserName }, use) => {
-		await use(browserName !== 'firefox');
-	},
-	launchOptions: {
-		ignoreDefaultArgs: ['--hide-scrollbars'],
-		firefoxUserPrefs: { 'ui.useOverlayScrollbars': 0 }
-	}
+	viewport: { width: 1440, height: 1000 }
 });
 
 test.describe('Editor width', () => {
 	test.setTimeout(60_000);
 
-	test.beforeEach(async ({ page }) => {
+	test.beforeEach(async ({ page, headless }, testInfo) => {
+		testInfo.annotations.push({
+			type: 'browser-mode',
+			description: headless ? 'headless' : 'headed'
+		});
 		await resetAppState(page);
 		await createFirstFile(page);
 	});
@@ -235,10 +261,10 @@ test.describe('Editor width', () => {
 					.click();
 			}
 			await selectWidth(page, 'PDF (A4)', locale);
-			await expectPdfTextWidth(page);
+			await expectPdfTextWidth(page, locale);
 
 			await page.setViewportSize({ width: 1680, height: 1000 });
-			await expectPdfTextWidth(page);
+			await expectPdfTextWidth(page, locale);
 			await page.setViewportSize({ width: 800, height: 1000 });
 			await page.reload();
 			const dialog = await openSettings(page, locale);
@@ -251,7 +277,7 @@ test.describe('Editor width', () => {
 			await expect(dialog.getByText(labels[locale].help)).toBeVisible();
 			await dialog.getByRole('button', { name: labels[locale].close, exact: true }).click();
 			await page.setViewportSize({ width: 1440, height: 1000 });
-			await expectPdfTextWidth(page);
+			await expectPdfTextWidth(page, locale);
 
 			await selectWidth(page, labels[locale].medium, locale);
 			await page.getByRole('button', { name: labels[locale].palette, exact: true }).click();
@@ -261,7 +287,7 @@ test.describe('Editor width', () => {
 			await expect(command).toHaveAttribute('title', labels[locale].help);
 			await command.click();
 			await page.reload();
-			await expectPdfTextWidth(page);
+			await expectPdfTextWidth(page, locale);
 		});
 	}
 
@@ -314,43 +340,43 @@ test.describe('Editor width', () => {
 
 	for (const { mode, scroller: selector, content } of modes) {
 		for (const zeroGutter of [false, true]) {
-			test(`keeps the ${mode} scrollbar reachable with ${zeroGutter ? 'zero' : 'native'} gutter`, async ({
-				page,
-				browserName
-			}, testInfo) => {
-				await writeSourceContent(
-					page,
-					'# Scroll reference\n\n' +
-						Array.from(
-							{ length: 100 },
-							(_, index) => `Paragraph ${index}. Text for the scrollbar test.`
-						).join('\n\n')
-				);
-				await page.locator(`button[data-mode="${mode}"]`).click();
-				await expect(page.locator(content)).toBeVisible({ timeout: 20_000 });
-				if (mode === 'read') await expect(page.locator('.mdsh-toc-col')).toBeVisible();
-				const scroller = page.locator(selector);
-				await expect
-					.poll(() => scroller.evaluate((element) => element.scrollHeight - element.clientHeight))
-					.toBeGreaterThan(1000);
-				if (zeroGutter) {
-					// Reproduce the zero reserved width of macOS overlay scrollbars on any host.
-					// The native case below also tests a real scrollbar drag.
-					await page.addStyleTag({
-						content: `${selector} { scrollbar-width: none !important; } ${selector}::-webkit-scrollbar { display: none !important; }`
-					});
+			const scrollbarTest = zeroGutter ? test : nativeScrollbarTest;
+			scrollbarTest(
+				`keeps the ${mode} scrollbar reachable with ${zeroGutter ? 'zero' : 'native'} gutter`,
+				async ({ page, browserName }, testInfo) => {
+					await writeSourceContent(
+						page,
+						'# Scroll reference\n\n' +
+							Array.from(
+								{ length: 100 },
+								(_, index) => `Paragraph ${index}. Text for the scrollbar test.`
+							).join('\n\n')
+					);
+					await page.locator(`button[data-mode="${mode}"]`).click();
+					await expect(page.locator(content)).toBeVisible({ timeout: 20_000 });
+					if (mode === 'read') await expect(page.locator('.mdsh-toc-col')).toBeVisible();
+					const scroller = page.locator(selector);
 					await expect
-						.poll(() =>
-							scroller.evaluate(
-								(element) => (element as HTMLElement).offsetWidth - element.clientWidth
+						.poll(() => scroller.evaluate((element) => element.scrollHeight - element.clientHeight))
+						.toBeGreaterThan(1000);
+					if (zeroGutter) {
+						// Reproduce the zero reserved width of macOS overlay scrollbars on any host.
+						// The native case below also tests a real scrollbar drag.
+						await page.addStyleTag({
+							content: `${selector} { scrollbar-width: none !important; } ${selector}::-webkit-scrollbar { display: none !important; }`
+						});
+						await expect
+							.poll(() =>
+								scroller.evaluate(
+									(element) => (element as HTMLElement).offsetWidth - element.clientWidth
+								)
 							)
-						)
-						.toBe(0);
-				} else {
-					// Keep a real browser scrollbar visible. A non-auto scrollbar-color
-					// disables WebKit scrollbar sizing, so only Firefox uses that property.
-					await page.addStyleTag({
-						content: `
+							.toBe(0);
+					} else {
+						// Keep a real browser scrollbar visible. A non-auto scrollbar-color
+						// disables WebKit scrollbar sizing, so only Firefox uses that property.
+						await page.addStyleTag({
+							content: `
 							${selector} {
 								overflow-y: scroll !important;
 								scrollbar-gutter: stable !important;
@@ -362,70 +388,71 @@ test.describe('Editor width', () => {
 							${selector}::-webkit-scrollbar-thumb { background: #555 !important; border: 0 !important; }
 							${selector}::-webkit-scrollbar-button { display: none !important; }
 						`
-					});
-				}
-				for (const preset of ['Pleine', 'Moyenne']) {
-					await selectWidth(page, preset);
-					await scroller.evaluate((element) => {
-						element.scrollTop = 0;
-					});
-					await expectScrollbarReachable(page, scroller);
-					const savedWidth = await page.evaluate(() => localStorage.getItem('mdsh:editor-width'));
-					if (zeroGutter) {
-						const rect = await scroller.boundingBox();
-						if (!rect) throw new Error('The scroll container has no bounds');
-						await page.mouse.move(rect.x + rect.width - 5, rect.y + 10);
-						await page.mouse.down();
-						await expect(page.locator('.resize-handle')).not.toHaveClass(/resizing/);
-						await page.mouse.move(rect.x + rect.width - 5, rect.y + rect.height * 0.7, {
-							steps: 12
 						});
-						await page.mouse.up();
-					} else {
-						await dragNativeScrollbar(page, scroller, preset, testInfo);
 					}
-					expect(await page.evaluate(() => localStorage.getItem('mdsh:editor-width'))).toBe(
-						savedWidth
-					);
-				}
+					for (const preset of ['Pleine', 'Moyenne']) {
+						await selectWidth(page, preset);
+						await scroller.evaluate((element) => {
+							element.scrollTop = 0;
+						});
+						await expectScrollbarReachable(page, scroller);
+						const savedWidth = await page.evaluate(() => localStorage.getItem('mdsh:editor-width'));
+						if (zeroGutter) {
+							const rect = await scroller.boundingBox();
+							if (!rect) throw new Error('The scroll container has no bounds');
+							await page.mouse.move(rect.x + rect.width - 5, rect.y + 10);
+							await page.mouse.down();
+							await expect(page.locator('.resize-handle')).not.toHaveClass(/resizing/);
+							await page.mouse.move(rect.x + rect.width - 5, rect.y + rect.height * 0.7, {
+								steps: 12
+							});
+							await page.mouse.up();
+						} else {
+							await dragNativeScrollbar(page, scroller, preset, testInfo);
+						}
+						expect(await page.evaluate(() => localStorage.getItem('mdsh:editor-width'))).toBe(
+							savedWidth
+						);
+					}
 
-				// The grip must still resize, save a custom width, and reset on double-click.
-				const grip = page.locator('.resize-handle');
-				const before = (await page.locator(content).boundingBox())?.width;
-				const bounds = await grip.boundingBox();
-				if (!bounds || before === undefined) throw new Error('The resize grip has no bounds');
-				const x = bounds.x + bounds.width / 2;
-				const y = bounds.y + bounds.height / 2;
-				await page.mouse.move(x, y);
-				await page.mouse.down();
-				await expect(grip).toHaveClass(/resizing/);
-				await page.mouse.move(x - 40, y, { steps: 4 });
-				await page.mouse.up();
-				await expect
-					.poll(async () => (await page.locator(content).boundingBox())?.width ?? 0)
-					.toBeLessThan(before - 60);
-				await page.reload();
-				await expect(page.locator(content)).toBeVisible({ timeout: 20_000 });
-				// Read mode adds its outline after rendering, which moves the grip.
-				if (mode === 'read') await expect(page.locator('.mdsh-toc-col')).toBeVisible();
-				await expect
-					.poll(async () => (await page.locator(content).boundingBox())?.width ?? 0)
-					.toBeLessThan(before - 60);
-				await grip.dblclick();
-				await expect
-					.poll(async () => (await page.locator(content).boundingBox())?.width ?? 0)
-					.toBeCloseTo(before, 0);
-				await selectWidth(page, 'Pleine');
-				await page.setViewportSize({ width: 1100, height: 900 });
-				await page.reload();
-				const dialog = await openSettings(page);
-				const group = dialog.getByRole('group', { name: labels.fr.group, exact: true });
-				await expect(group.getByRole('button', { name: 'Pleine', exact: true })).toHaveAttribute(
-					'aria-pressed',
-					'true'
-				);
-				await expect(group.locator('[aria-pressed="true"]')).toHaveCount(1);
-			});
+					// The grip must still resize, save a custom width, and reset on double-click.
+					const grip = page.locator('.resize-handle');
+					const before = (await page.locator(content).boundingBox())?.width;
+					const bounds = await grip.boundingBox();
+					if (!bounds || before === undefined) throw new Error('The resize grip has no bounds');
+					const x = bounds.x + bounds.width / 2;
+					const y = bounds.y + bounds.height / 2;
+					await page.mouse.move(x, y);
+					await page.mouse.down();
+					await expect(grip).toHaveClass(/resizing/);
+					await page.mouse.move(x - 40, y, { steps: 4 });
+					await page.mouse.up();
+					await expect
+						.poll(async () => (await page.locator(content).boundingBox())?.width ?? 0)
+						.toBeLessThan(before - 60);
+					await page.reload();
+					await expect(page.locator(content)).toBeVisible({ timeout: 20_000 });
+					// Read mode adds its outline after rendering, which moves the grip.
+					if (mode === 'read') await expect(page.locator('.mdsh-toc-col')).toBeVisible();
+					await expect
+						.poll(async () => (await page.locator(content).boundingBox())?.width ?? 0)
+						.toBeLessThan(before - 60);
+					await grip.dblclick();
+					await expect
+						.poll(async () => (await page.locator(content).boundingBox())?.width ?? 0)
+						.toBeCloseTo(before, 0);
+					await selectWidth(page, 'Pleine');
+					await page.setViewportSize({ width: 1100, height: 900 });
+					await page.reload();
+					const dialog = await openSettings(page);
+					const group = dialog.getByRole('group', { name: labels.fr.group, exact: true });
+					await expect(group.getByRole('button', { name: 'Pleine', exact: true })).toHaveAttribute(
+						'aria-pressed',
+						'true'
+					);
+					await expect(group.locator('[aria-pressed="true"]')).toHaveCount(1);
+				}
+			);
 		}
 	}
 });
