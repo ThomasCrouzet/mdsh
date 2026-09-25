@@ -1,4 +1,5 @@
 mod disk;
+mod printing;
 mod shell;
 
 use disk::{collect_argv_paths, collect_paths_from_directory, CapabilityStore, PendingOpenPaths};
@@ -84,6 +85,8 @@ pub fn run() {
             shell::desktop_ack_close_request,
             shell::desktop_complete_close,
             shell::desktop_smoke_request_close,
+            printing::desktop_print,
+            shell::desktop_smoke_key,
         ])
         .setup(move |app| {
             app.state::<CapabilityStore>()

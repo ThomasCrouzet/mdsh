@@ -465,6 +465,20 @@ img {
 		break-inside: avoid;
 		page-break-inside: avoid;
 	}
+	img {
+		/* A4 has 257 mm of height after the top and bottom margins. */
+		max-height: 245mm;
+		width: auto;
+		object-fit: contain;
+	}
+	/* WebKit can split a block image despite page-break-inside on the image. */
+	p:has(> img:only-child) {
+		display: inline-block;
+		width: 100%;
+		vertical-align: top;
+		break-inside: avoid;
+		page-break-inside: avoid;
+	}
 	h1,
 	h2,
 	h3,

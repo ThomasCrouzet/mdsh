@@ -15,6 +15,7 @@ import { isDesktop } from '$lib/desktop';
 import { t } from '$lib/i18n';
 import { notify } from '$lib/notify.svelte';
 import { offlineState } from './offline.svelte';
+import { reportWarning } from '$lib/report';
 
 async function ensureDraftsDurable(): Promise<void> {
 	const { filesStore } = await import('$lib/files.svelte');
@@ -76,7 +77,14 @@ export function registerPwaUpdates(): void {
 					// We poll every hour so the voluntary update flow can actually happen
 					// in a long session, without ever reloading mid-typing.
 					if (registration) {
-						setInterval(() => void registration.update(), 60 * 60 * 1000);
+						setInterval(
+							() => {
+								void registration
+									.update()
+									.catch((error: unknown) => reportWarning('check application update', error));
+							},
+							60 * 60 * 1000
+						);
 					}
 				}
 			});

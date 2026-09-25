@@ -1,18 +1,19 @@
 import { TIMERS } from '../config';
 import { boundedWait, waitForPrintImages } from './print';
+import { isMac } from '../platform';
 
-// WKWebView prints the main window. The Shadow DOM isolates document styles,
-// and the external stylesheet hides the app interface during printing.
+// Prepare print media before WKWebView calculates native page boundaries.
+// The shadow tree keeps the document styles separate from the application.
 export async function printOnDesktop(
 	html: string,
 	opts: { signal?: AbortSignal } = {}
-): Promise<void> {
+): Promise<boolean> {
 	if (document.getElementById('mdsh-native-print')) throw new Error('Printing is already active');
 	const parsed = new DOMParser().parseFromString(html, 'text/html');
 	const host = document.createElement('section');
 	host.id = 'mdsh-native-print';
 	host.setAttribute('aria-hidden', 'true');
-	const shadow = host.attachShadow({ mode: 'open' });
+	const root = host.attachShadow({ mode: 'open' });
 	const layout = document.createElement('style');
 	layout.textContent = `
 @media screen { #mdsh-native-print { position: fixed; left: -100000px; top: 0; width: 21cm; pointer-events: none; } }
@@ -22,6 +23,12 @@ export async function printOnDesktop(
 	#mdsh-native-print { display: block !important; position: static !important; width: auto !important; }
 }
 @page { size: A4; margin: 1.8cm 1.6cm 2.2cm; }
+`;
+	if (isMac())
+		layout.textContent += `
+html[data-mdsh-printing] body > :not(#mdsh-native-print) { display: none !important; }
+html[data-mdsh-printing], html[data-mdsh-printing] body { display: block !important; height: auto !important; overflow: visible !important; background: white !important; margin: 0 !important; }
+html[data-mdsh-printing] #mdsh-native-print { display: block !important; position: static !important; width: 178mm !important; margin: 0 auto !important; }
 `;
 	const originalTitle = document.title;
 	let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
@@ -34,7 +41,8 @@ export async function printOnDesktop(
 		opts.signal?.removeEventListener('abort', cleanup);
 		host.remove();
 		layout.remove();
-		document.title = originalTitle;
+		document.documentElement.removeAttribute('data-mdsh-printing');
+		if (document.title === parsed.title) document.title = originalTitle;
 	};
 	const checkCancelled = () => {
 		if (opts.signal?.aborted) throw new DOMException('Printing cancelled', 'AbortError');
@@ -65,22 +73,36 @@ export async function printOnDesktop(
 		sheet.textContent =
 			':host { all: initial; display: block; }\n' +
 			styles
-				.map((css) => css.replace(/(^|[}\n,])\s*(?::root|html|body)(?=\s*[{,])/g, '$1:host'))
+				.map((css) => {
+					const scoped = css.replace(/(^|[}\n,])\s*(?::root|html|body)(?=\s*[{,])/g, '$1:host');
+					return isMac() ? scoped.replace(/@media print\s*\{/g, '@media all {') : scoped;
+				})
 				.join('\n');
-		shadow.append(sheet);
+		root.append(sheet);
 		for (const child of Array.from(parsed.body.childNodes))
-			shadow.append(document.importNode(child, true));
+			root.append(document.importNode(child, true));
 		document.head.append(layout);
 		document.body.append(host);
 		opts.signal?.addEventListener('abort', cleanup, { once: true });
-		await waitForPrintImages(shadow, { signal: opts.signal });
+		await waitForPrintImages(root, { signal: opts.signal });
 		if (document.fonts) await boundedWait(document.fonts.ready, 10_000, opts.signal);
+		if (isMac()) document.documentElement.setAttribute('data-mdsh-printing', '');
 		await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 		checkCancelled();
-		document.title = parsed.title || originalTitle;
-		window.addEventListener('afterprint', cleanup, { once: true });
-		cleanupTimer = setTimeout(cleanup, TIMERS.printIframeCleanupMs);
-		window.print();
+		if (!isMac()) document.title = parsed.title || originalTitle;
+		if (isMac()) {
+			const { invoke } = await import('@tauri-apps/api/core');
+			try {
+				return await invoke<boolean>('desktop_print', { title: parsed.title || originalTitle });
+			} finally {
+				cleanup();
+			}
+		} else {
+			window.addEventListener('afterprint', cleanup, { once: true });
+			cleanupTimer = setTimeout(cleanup, TIMERS.printIframeCleanupMs);
+			window.print();
+			return true;
+		}
 	} catch (error) {
 		cleanup();
 		throw error;

@@ -54,7 +54,7 @@ export function renderMermaidPreview(
 
 	if (!browser) return null;
 
-	const token = makeToken(language, content);
+	const token = makeToken(language, content) + document.documentElement.getAttribute('data-theme');
 	lastTokens.set(applyPreview, token);
 
 	void renderToSvg(trimmed)

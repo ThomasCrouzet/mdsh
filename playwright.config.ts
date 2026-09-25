@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { testSource } from './scripts/test-source.mjs';
 
 const e2ePort = process.env.E2E_PORT ?? '4173';
 const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
@@ -17,8 +18,9 @@ export default defineConfig({
 	// Do not depend on asynchronous restoration of `mdsh:mode`.
 	retries: process.env.CI ? 2 : 0,
 	workers: process.env.CI ? 1 : undefined,
-	captureGitInfo: { commit: true },
+	captureGitInfo: { commit: true, diff: true },
 	metadata: {
+		...testSource(),
 		nodeVersion: process.version,
 		repeatCommand: 'npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"'
 	},
@@ -63,6 +65,8 @@ export default defineConfig({
 				'**/search-replace.spec.ts',
 				'**/bulk-delete.spec.ts',
 				'**/editor-width.spec.ts',
+				'**/image-layout.spec.ts',
+				'**/reading-lists.spec.ts',
 				'**/slash-commands.spec.ts',
 				'**/wiki-links.spec.ts'
 			]
@@ -81,6 +85,8 @@ export default defineConfig({
 				'**/search-replace.spec.ts',
 				'**/bulk-delete.spec.ts',
 				'**/editor-width.spec.ts',
+				'**/image-layout.spec.ts',
+				'**/reading-lists.spec.ts',
 				'**/slash-commands.spec.ts',
 				'**/wiki-links.spec.ts'
 			]

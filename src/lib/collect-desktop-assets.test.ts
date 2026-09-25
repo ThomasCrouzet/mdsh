@@ -43,6 +43,8 @@ describe('release asset collection', () => {
 		const files = collectDesktopAssets(input, output, identity);
 		expect(files).toHaveLength(10);
 		expect(files).not.toContain('internal.exe');
+		expect(files).toContain('mdsh_macOS_Apple-Silicon.dmg');
+		expect(files).toContain('mdsh_macOS_Intel.dmg');
 		for (const line of readFileSync(join(output, 'SHA256SUMS'), 'utf8').trim().split('\n')) {
 			const [hash, name] = line.split('  ');
 			expect(hash).toBe(

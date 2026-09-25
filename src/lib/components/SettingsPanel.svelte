@@ -499,6 +499,7 @@
 										readonly
 										value={keyboardStore.label(command.id) ?? t('settings.shortcutDisabled')}
 										aria-label={t('settings.shortcutFor', { command: t(command.label) })}
+										data-shortcut-capture
 										onkeydown={(event) => captureShortcut(event, command.id)}
 									/><button
 										class="p-1 underline"

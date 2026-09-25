@@ -31,6 +31,44 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
 
 ## Repeat the browser suite
 
+### Image layout and native export risks
+
+- Embedded image data can fill the source editor. Hide the payload with a keyboard-accessible
+  control. Editing, undo, mode changes, reload, and Markdown export must preserve the bytes.
+- A fixed image height can crop pixels when the PDF width guide or window becomes narrower.
+  Check wide and tall images, image resize handles, and the saved scale.
+- An image taller than the printable A4 area can cross a page boundary. Check its aspect ratio
+  and the actual PDF, including the first and last rows of pixels.
+- WebKit can display SVG while `createImageBitmap` rejects it. Use the native image decoder
+  as a fallback and retain the image limits and sanitization.
+- JavaScript `window.print()` can do nothing in WKWebView. The macOS test must use the product's
+  native print operation and save a real PDF. A WebDriver screen capture is not equivalent.
+- Native print cancellation, asset failure, repeated export, and a long-running dialog must
+  restore the editor without deleting the print content before the operation completes.
+- Replacing the macOS application menu can remove Hide, Services, Minimize, and Full Screen.
+  Native edit commands must reach the active editor, including Undo and Redo. Application
+  shortcuts must execute once and respect user overrides.
+- Installer renaming can cause collisions or incorrect checksums. Keep architecture checks
+  before collection and calculate checksums from the final published names.
+- Presentation separators must stay inside code fences until a matching closing fence.
+- An initial horizontal rule without a closing YAML marker must not hide source headings.
+- An hourly service worker update can fail offline. Editing must remain usable without an
+  unhandled rejection.
+- Selection ZIP export must keep the content snapshot taken when the command starts.
+- System theme changes must refresh diagram colors without replacing editor history.
+- Reading mode must restore list markers removed by the global CSS reset. Check nested
+  bullets, ordered-list start values, and task lists without duplicate markers.
+
+Run `npm run test:e2e -- image-layout.spec.ts` for image payload and layout checks.
+Run the native build command from `.github/workflows/desktop.yml`, then
+`node scripts/native-smoke.mjs`. On macOS, `native-test-results/native.pdf` comes from
+the same native print operation as the application. The test supplies a save destination
+instead of a print panel. PDFKit checks A4 pages, the final paragraph, and both colored
+image borders on one page. It writes page images and `native-pdf-inspection.json`.
+Native menu checks inspect shortcut bindings and execute the associated AppKit actions.
+Reports include the command, source SHA, working diff identity, binary hash, environment,
+fixture, and results.
+
 Use the Node version from `.node-version` and the committed lockfile:
 
 ```sh

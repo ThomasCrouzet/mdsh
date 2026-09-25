@@ -16,6 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { testSource } from './test-source.mjs';
 
 const binary = resolve(
 	process.env.NATIVE_BINARY ??
@@ -26,12 +27,20 @@ const endpoint = `http://127.0.0.1:${port}`;
 const output = resolve(process.env.NATIVE_TEST_OUTPUT ?? 'native-test-results');
 mkdirSync(output, { recursive: true });
 const temp = mkdtempSync(join(tmpdir(), 'mdsh-native-'));
+const nativePdfPath = join(temp, 'native.pdf');
 const title = `Native ${Date.now()}`;
 let fixture = join(temp, `${title} été.md`);
 const image = `data:image/png;base64,${readFileSync(resolve('static/pwa-192x192.png')).toString('base64')}`;
+const tallImage = Buffer.from(
+	'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="5000"><path fill="#00aa00" d="M0 0h600v5000H0z"/><path fill="#ff0000" d="M0 0h600v200H0z"/><path fill="#0000ff" d="M0 4800h600v200H0z"/></svg>'
+).toString('base64');
+const pdfTail =
+	process.platform === 'darwin'
+		? `\n\n![Tall image](data:image/svg+xml;base64,${tallImage})\n\n${Array.from({ length: 45 }, (_, index) => `Native PDF paragraph ${index + 1}.`).join('\n\n')}\n\nNATIVE_PDF_END\n`
+		: '';
 writeFileSync(
 	fixture,
-	`# ${title}\n\nTexte Unicode été.\n\n![Image](${image})\n\n$e^{i\\pi}+1=0$\n\n\`\`\`mermaid\ngraph LR\nA --> B\n\`\`\`\n`
+	`# ${title}\n\nTexte Unicode été.\n\n![Image](${image})\n\n$e^{i\\pi}+1=0$\n\n\`\`\`mermaid\ngraph LR\nA --> B\n\`\`\`\n${pdfTail}`
 );
 const log = openSync(join(output, 'application.log'), 'w');
 /** @type {import('node:child_process').ChildProcess | undefined} */
@@ -45,11 +54,15 @@ let currentProcess;
 const processes = [];
 /** @type {Record<string, unknown>} */
 const results = {
+	...testSource(),
 	platform: process.platform,
 	arch: process.arch,
 	binary,
+	pdfDestination: nativePdfPath,
+	binarySha256: createHash('sha256').update(readFileSync(binary)).digest('hex'),
 	source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
 	checks: [],
+	fixture: { title, markdown: readFileSync(fixture, 'utf8') },
 	processes
 };
 /** @param {string} name */
@@ -94,6 +107,15 @@ const execute = (script, args = []) =>
 /** @param {string} script @param {unknown[]} [args] */
 const executeAsync = (script, args = []) =>
 	request(`/session/${session}/execute/async`, { script, args });
+
+/** @param {string} key @param {boolean} [shift] */
+async function nativeShortcut(key, shift = false) {
+	const handled = await executeAsync(
+		`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_key', { key: arguments[0], shift: arguments[1] }).then(done, error => done({ error: String(error) }));`,
+		[key, shift]
+	);
+	assert.equal(handled, true, `Native shortcut ${shift ? 'Shift+' : ''}${key}`);
+}
 /** @param {boolean} printing */
 const diagramIsReadable = (printing) =>
 	execute(
@@ -149,7 +171,7 @@ async function click(selector) {
 function launch(openFile = true) {
 	app = spawn(binary, openFile ? [fixture] : [], {
 		stdio: ['ignore', log, log],
-		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) }
+		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port), MDSH_SMOKE_PDF: nativePdfPath }
 	});
 	const state = { startedAt: new Date().toISOString(), exitCode: null, signal: null };
 	currentProcess = state;
@@ -324,7 +346,9 @@ async function saveLinkedFile(label) {
 		(/** @type {{name: string}} */ item) => item.name === basename(fixture)
 	);
 	assert.ok(draft, `${label}: linked draft exists`);
-	await execute(`
+	if (process.platform === 'darwin') await nativeShortcut('s', true);
+	else
+		await execute(`
 		window.dispatchEvent(new KeyboardEvent('keydown', {
 			key: 'S', code: 'KeyS', metaKey: ${process.platform === 'darwin'},
 			ctrlKey: ${process.platform !== 'darwin'}, shiftKey: true, bubbles: true, cancelable: true
@@ -502,6 +526,60 @@ try {
 		'source text'
 	);
 	passed('native source editor');
+	if (process.platform === 'darwin') {
+		await execute(
+			`window.__historyEvents = []; document.addEventListener('beforeinput', event => { if (event.inputType.startsWith('history')) window.__historyEvents.push({ type: event.inputType, target: event.target.className, prevented: event.defaultPrevented }); });`
+		);
+		await execute(
+			`document.querySelector('.cm-content').focus(); document.execCommand('insertText', false, 'NATIVE_UNDO_PROBE');`
+		);
+		await until(
+			() =>
+				execute(
+					`return document.querySelector('.cm-content').textContent.includes('NATIVE_UNDO_PROBE')`
+				),
+			'typed native text'
+		);
+		await nativeShortcut('z');
+		await until(
+			() =>
+				execute(
+					`return !document.querySelector('.cm-content').textContent.includes('NATIVE_UNDO_PROBE')`
+				),
+			'native menu undo'
+		);
+		await nativeShortcut('z', true);
+		await until(
+			() =>
+				execute(
+					`return document.querySelector('.cm-content').textContent.includes('NATIVE_UNDO_PROBE')`
+				),
+			'native menu redo'
+		);
+		await nativeShortcut('z');
+		await nativeShortcut(',');
+		await until(
+			() => execute(`return !!document.querySelector('[role="dialog"]')`),
+			'native settings shortcut'
+		);
+		await click('[role="dialog"] button[aria-label="Fermer"]');
+		await nativeShortcut('n');
+		await until(
+			() =>
+				execute(`return document.querySelector('header input')?.value.startsWith('Sans titre')`),
+			'native new document'
+		);
+		await nativeShortcut('w');
+		await until(
+			() =>
+				execute(`return document.querySelector('header input')?.value.includes(arguments[0])`, [
+					title
+				]),
+			'native close returns to the previous document'
+		);
+		passed('macOS menu accelerators reach source undo redo and settings');
+		passed('macOS New and Close shortcuts run once and keep the window open');
+	}
 	const before = await drafts();
 	assert.equal(
 		before.filter((/** @type {{ content: string }} */ d) => d.content.includes(title)).length,
@@ -566,6 +644,43 @@ try {
 		45_000
 	);
 	passed('native WYSIWYG loads');
+	if (process.platform === 'darwin') {
+		await click('.milkdown .ProseMirror');
+		await execute(
+			`const editor = document.querySelector('.ProseMirror'); const range = document.createRange(); range.selectNodeContents(editor); range.collapse(false); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); document.execCommand('insertText', false, 'NATIVE_VISUAL_HISTORY');`
+		);
+		await until(
+			() =>
+				execute(
+					`return document.querySelector('.ProseMirror').textContent.includes('NATIVE_VISUAL_HISTORY')`
+				),
+			'native visual edit'
+		);
+		await nativeShortcut('z');
+		await until(
+			() =>
+				execute(
+					`return !document.querySelector('.ProseMirror').textContent.includes('NATIVE_VISUAL_HISTORY')`
+				),
+			'native visual undo'
+		);
+		await nativeShortcut('z', true);
+		await until(
+			() =>
+				execute(
+					`return document.querySelector('.ProseMirror').textContent.includes('NATIVE_VISUAL_HISTORY')`
+				),
+			'native visual redo'
+		);
+		await nativeShortcut('z');
+		assert.equal(
+			await execute(
+				`const event = new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true, cancelable: true }); return document.querySelector('.ProseMirror').dispatchEvent(event);`
+			),
+			true
+		);
+		passed('native visual Undo Redo and Control-only text navigation');
+	}
 	await click('button[data-mode="read"]');
 	await until(
 		() =>
@@ -580,45 +695,92 @@ try {
 	passed('native Mermaid labels and node colours');
 	const screenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
 	writeFileSync(join(output, 'read.png'), Buffer.from(screenshot, 'base64'));
-	// Keep the actual preparation steps. Replace only the final OS dialog call
-	// to let the driver produce the PDF automatically.
-	await execute(
-		'window.__nativePrintCalled = false; window.__nativeOriginalPrint = window.print; window.print = () => { window.__nativePrintCalled = true; };'
-	);
-	await click('button[aria-label="Exporter en PDF"]');
-	await until(
-		() => execute('return window.__nativePrintCalled === true'),
-		'native print preparation',
-		45_000
-	);
-	assert.equal(
+	if (process.platform === 'darwin') {
 		await execute(
-			'return document.getElementById("mdsh-native-print")?.shadowRoot?.querySelector("img")?.naturalWidth'
-		),
-		192
-	);
-	passed('native print uses top window with decoded image');
-	await until(() => diagramIsReadable(true), 'printable Mermaid labels and colours', 45_000);
-	passed('native print preserves Mermaid labels and colours');
-	// WKPDFConfiguration captures screen media, not print media.
-	// Enable the print stylesheet for this capture. Keep the product content.
-	await execute(
-		`const style = document.createElement('style'); style.id = 'native-smoke-capture-style'; style.textContent = 'body > :not(#mdsh-native-print){display:none!important} #mdsh-native-print{position:static!important;width:auto!important} html,body{height:auto!important;overflow:visible!important}'; document.head.append(style);`
-	);
-	const pdf = await request(`/session/${session}/print`, { background: true });
-	const bytes = Buffer.from(pdf, 'base64');
-	assert.equal(bytes.subarray(0, 5).toString(), '%PDF-');
-	assert.ok(bytes.length > 10_000);
-	const pdfStructure = bytes.toString('latin1');
-	assert.equal((pdfStructure.match(/\/Type\s*\/Page\b/g) ?? []).length, 1);
-	assert.ok((pdfStructure.match(/\/Subtype\s*\/Image\b/g) ?? []).length >= 1);
-	writeFileSync(join(output, 'native.pdf'), bytes);
-	passed('native WebView render capture contains the image');
-	// The replacement dialog does not emit afterprint. Complete its cycle,
-	// remove only the capture stylesheet, and return control to the editor.
-	await execute(
-		`document.getElementById('native-smoke-capture-style')?.remove(); window.print = window.__nativeOriginalPrint; delete window.__nativeOriginalPrint; window.dispatchEvent(new Event('afterprint'));`
-	);
+			`window.__printDiagnostics = []; const report = console.error; console.error = (...args) => { window.__printDiagnostics.push(args.map(String)); report(...args); }; const invoke = window.__TAURI_INTERNALS__.invoke; window.__TAURI_INTERNALS__.invoke = (command, ...args) => { const result = invoke(command, ...args); if (command === 'desktop_print') { window.__printDiagnostics.push({ command, args }); result.then(value => window.__printDiagnostics.push({ value }), error => window.__printDiagnostics.push({ error: String(error) })); } return result; };`
+		);
+		await execute(
+			`const messages = new Set(); new MutationObserver(() => { for (const alert of document.querySelectorAll('[role="alert"]')) { const message = alert.textContent.trim(); if (!messages.has(message)) { messages.add(message); window.__printDiagnostics.push({ alert: message }); } } }).observe(document.body, { childList: true, subtree: true });`
+		);
+		await execute(
+			`window.addEventListener('beforeprint', () => { const host = document.getElementById('mdsh-native-print'); const root = host?.shadowRoot ?? host; window.__printDiagnostics.push({ beforeprint: true, images: [...root.querySelectorAll('img')].map(image => ({ width: image.getBoundingClientRect().width, height: image.getBoundingClientRect().height, maxHeight: getComputedStyle(image).maxHeight, parentDisplay: getComputedStyle(image.parentElement).display, breakInside: getComputedStyle(image.parentElement).breakInside })) }); });`
+		);
+		await click('button[aria-label="Exporter en PDF"]');
+		await until(
+			() => existsSync(nativePdfPath) && statSync(nativePdfPath).size > 10_000,
+			'product native PDF export',
+			45_000
+		);
+		await until(
+			() => execute('return !document.getElementById("mdsh-native-print")'),
+			'native print operation completed',
+			45_000
+		);
+		const bytes = readFileSync(nativePdfPath);
+		writeFileSync(join(output, 'native.pdf'), bytes);
+		assert.equal(bytes.subarray(0, 5).toString(), '%PDF-');
+		assert.ok(bytes.length > 10_000);
+		assert.ok((bytes.toString('latin1').match(/\/Subtype\s*\/Image\b/g) ?? []).length >= 1);
+		results.pdfSha256 = createHash('sha256').update(bytes).digest('hex');
+		execFileSync('swift', [resolve('scripts/inspect-native-pdf.swift'), nativePdfPath, output], {
+			stdio: 'inherit',
+			timeout: 60_000
+		});
+		passed('product macOS print operation exports a PDF with the embedded image');
+		const firstExportTime = statSync(nativePdfPath).mtimeMs;
+		await nativeShortcut('p');
+		await until(
+			() => statSync(nativePdfPath).mtimeMs !== firstExportTime,
+			'repeated native PDF shortcut',
+			45_000
+		);
+		await until(
+			() => execute('return !document.getElementById("mdsh-native-print")'),
+			'repeated native PDF cleanup',
+			45_000
+		);
+		passed('native PDF shortcut can export again after completion');
+	} else {
+		// Keep the actual preparation steps. Replace only the final OS dialog call
+		// to let the driver produce the PDF automatically.
+		await execute(
+			'window.__nativePrintCalled = false; window.__nativeOriginalPrint = window.print; window.print = () => { window.__nativePrintCalled = true; };'
+		);
+		await click('button[aria-label="Exporter en PDF"]');
+		await until(
+			() => execute('return window.__nativePrintCalled === true'),
+			'native print preparation',
+			45_000
+		);
+		assert.equal(
+			await execute(
+				'return document.getElementById("mdsh-native-print")?.shadowRoot?.querySelector("img")?.naturalWidth'
+			),
+			192
+		);
+		passed('native print uses top window with decoded image');
+		await until(() => diagramIsReadable(true), 'printable Mermaid labels and colours', 45_000);
+		passed('native print preserves Mermaid labels and colours');
+		// WKPDFConfiguration captures screen media, not print media.
+		// Enable the print stylesheet for this capture. Keep the product content.
+		await execute(
+			`const style = document.createElement('style'); style.id = 'native-smoke-capture-style'; style.textContent = 'body > :not(#mdsh-native-print){display:none!important} #mdsh-native-print{position:static!important;width:auto!important} html,body{height:auto!important;overflow:visible!important}'; document.head.append(style);`
+		);
+		const pdf = await request(`/session/${session}/print`, { background: true });
+		const bytes = Buffer.from(pdf, 'base64');
+		assert.equal(bytes.subarray(0, 5).toString(), '%PDF-');
+		assert.ok(bytes.length > 10_000);
+		const pdfStructure = bytes.toString('latin1');
+		assert.equal((pdfStructure.match(/\/Type\s*\/Page\b/g) ?? []).length, 1);
+		assert.ok((pdfStructure.match(/\/Subtype\s*\/Image\b/g) ?? []).length >= 1);
+		writeFileSync(join(output, 'native.pdf'), bytes);
+		passed('native WebView render capture contains the image');
+		// The replacement dialog does not emit afterprint. Complete its cycle,
+		// remove only the capture stylesheet, and return control to the editor.
+		await execute(
+			`document.getElementById('native-smoke-capture-style')?.remove(); window.print = window.__nativeOriginalPrint; delete window.__nativeOriginalPrint; window.dispatchEvent(new Event('afterprint'));`
+		);
+	}
 	await until(
 		() =>
 			execute(
@@ -815,7 +977,7 @@ try {
 	if (session) {
 		try {
 			results.page = await execute(
-				'return { text: document.body.innerText, editors: [...document.querySelectorAll(".cm-content")].map(node => node.textContent), inputs: [...document.querySelectorAll("input")].map(node => ({name:node.getAttribute("aria-label"),value:node.value})) };'
+				'return { printDiagnostics: window.__printDiagnostics, printHost: !!document.getElementById("mdsh-native-print"), historyEvents: window.__historyEvents, text: document.body.innerText, editors: [...document.querySelectorAll(".cm-content")].map(node => node.textContent), inputs: [...document.querySelectorAll("input")].map(node => ({name:node.getAttribute("aria-label"),value:node.value})) };'
 			);
 		} catch {
 			/**

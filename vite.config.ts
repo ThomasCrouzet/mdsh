@@ -256,6 +256,8 @@ export default defineConfig(({ mode }) => {
 					// Mermaid stays outside the static entry/node graph. Documents without diagrams do not load it.
 					// This meets the roadmap isolation requirement.
 					manualChunks(id: string): string | undefined {
+						// The desktop bridge stays lazy and uses one offline resource.
+						if (id.includes('node_modules/@tauri-apps/api/')) return 'desktop-api';
 						// Share icon components across panels to limit precache requests.
 						if (id.includes('node_modules/@lucide/svelte/')) return 'icons';
 						if (id.includes('node_modules/marked/')) return 'render-core';

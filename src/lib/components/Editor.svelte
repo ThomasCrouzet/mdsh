@@ -22,6 +22,7 @@
 	import { ImageMarkdownRoundTrip } from '$lib/render/image-markdown';
 	import { editorStateCache } from '$lib/editor-state';
 	import { stripFrontmatter } from '$lib/frontmatter';
+	import { themeStore } from '$lib/ui/theme.svelte';
 
 	interface Props {
 		fileId: string;
@@ -41,18 +42,21 @@
 	let crepe: CrepeType | null = null;
 	let restoreMountedMarkdown: ((markdown: string) => string) | null = null;
 	let imageObserver: MutationObserver | null = null;
+	let imageResizeObserver: ResizeObserver | null = null;
 	let loadError = $state(false);
 	let retryVersion = $state(0);
 	let mountToken = 0;
 	let lastEditorMarkdown = '';
 	let updateExternalContent: ((markdown: string) => Promise<void>) | null = null;
 	let removeFlushListener: (() => void) | null = null;
+	let removeHistoryListener: (() => void) | null = null;
 	// §C1 - fileId associated with the currently mounted Crepe instance. Captured
 	// at mount to correctly route a late keystroke (flush or asynchronous
 	// `markdownUpdated`) to the right file even after a tab switch.
 	let mountedFileId: string | null = null;
 	let refreshMountedLocale: (() => void) | null = null;
 	let saveMountedPosition: (() => void) | null = null;
+	let refreshMountedDiagrams: (() => void) | null = null;
 
 	// Module cache: loaded on first call, reused afterwards.
 	// CSS import order is critical: Crepe defaults -> frame-dark -> our overrides.
@@ -104,7 +108,7 @@
 		loadError = false;
 		const [
 			{ Crepe },
-			{ editorViewCtx },
+			{ editorViewCtx, commandsCtx },
 			{ linkTooltipConfig: linkTooltipConfigCtx },
 			{ imageBlockConfig: imageBlockConfigCtx },
 			{ inlineImageConfig: inlineImageConfigCtx },
@@ -134,6 +138,12 @@
 					if (image.alt !== alt) image.alt = alt;
 					image.referrerPolicy = 'no-referrer';
 					image.crossOrigin = 'anonymous';
+					const block = image.closest<HTMLElement>('.milkdown-image-block');
+					if (!block || !image.naturalWidth) return;
+					const ratio = Number(image.dataset.height) / Number(image.dataset.origin) || 1;
+					const width = Math.min(image.naturalWidth, block.clientWidth) * ratio;
+					const value = `${width}px`;
+					if (image.style.width !== value) image.style.width = value;
 				});
 		};
 		const blockEditConfig = blockEditLabels();
@@ -168,10 +178,20 @@
 			}
 		};
 		const placeholderConfig = { text: t('editor.placeholder'), mode: 'block' as const };
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- nonreactive node-view callback registry
+		const previews = new Map<
+			Parameters<typeof renderMermaidPreview>[2],
+			{ language: string; content: string }
+		>();
 		const codeMirrorConfig = {
 			previewLabel: t('editor.previewLabel'),
 			previewLoading: t('editor.previewLoading'),
-			renderPreview: renderMermaidPreview
+			renderPreview: (...args: Parameters<typeof renderMermaidPreview>) => {
+				const [language, content, apply] = args;
+				if (language.toLowerCase() === 'mermaid') previews.set(apply, { language, content });
+				else previews.delete(apply);
+				return renderMermaidPreview(...args);
+			}
 		};
 		const instance = new Crepe({
 			root: container,
@@ -419,7 +439,29 @@
 			}
 		};
 		refreshMountedLocale();
+		refreshMountedDiagrams = () => {
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- temporary document scan
+			const liveCode = new Set<string>();
+			const view = instance.editor.action((ctx) => ctx.get(editorViewCtx));
+			view.state.doc.descendants((node) => {
+				if (node.type.name === 'code_block') liveCode.add(node.textContent);
+			});
+			for (const [apply, preview] of previews) {
+				if (!liveCode.has(preview.content)) previews.delete(apply);
+				else renderMermaidPreview(preview.language, preview.content, apply);
+			}
+		};
 		const proseMirror = container.querySelector<HTMLElement>('.ProseMirror');
+		const handleHistory = (event: InputEvent) => {
+			if (event.inputType !== 'historyUndo' && event.inputType !== 'historyRedo') return;
+			if ((event.target as HTMLElement)?.closest('input, textarea, .cm-editor')) return;
+			event.preventDefault();
+			instance.editor.action((ctx) =>
+				ctx.get(commandsCtx).call(event.inputType === 'historyUndo' ? 'Undo' : 'Redo')
+			);
+		};
+		proseMirror?.addEventListener('beforeinput', handleHistory);
+		removeHistoryListener = () => proseMirror?.removeEventListener('beforeinput', handleHistory);
 		proseMirror?.setAttribute('aria-label', t('editor.ariaLabel'));
 		instance.setReadonly(readonly);
 		saveMountedPosition = () => {
@@ -437,8 +479,10 @@
 			childList: true,
 			subtree: true,
 			attributes: true,
-			attributeFilter: ['src', 'alt']
+			attributeFilter: ['src', 'alt', 'data-height', 'data-origin']
 		});
+		imageResizeObserver = new ResizeObserver(applyImageAlternatives);
+		if (proseMirror) imageResizeObserver.observe(proseMirror);
 		applyImageAlternatives();
 		mountedFileId = idForMount;
 		await restoreEditorPosition(instance, idForMount, token);
@@ -466,11 +510,16 @@
 	}
 
 	async function unmount() {
+		refreshMountedDiagrams = null;
+		removeHistoryListener?.();
+		removeHistoryListener = null;
 		removeFlushListener?.();
 		removeFlushListener = null;
 		updateExternalContent = null;
 		imageObserver?.disconnect();
 		imageObserver = null;
+		imageResizeObserver?.disconnect();
+		imageResizeObserver = null;
 		if (crepe) {
 			const instance = crepe;
 			const id = mountedFileId;
@@ -516,6 +565,11 @@
 	$effect(() => {
 		void i18n.locale;
 		refreshMountedLocale?.();
+	});
+
+	$effect(() => {
+		void themeStore.effective;
+		refreshMountedDiagrams?.();
 	});
 
 	$effect(() => {

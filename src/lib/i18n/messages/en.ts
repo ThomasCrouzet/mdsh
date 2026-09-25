@@ -278,6 +278,9 @@ export const en = {
 
 	// desktopMenu
 	'desktopMenu.edit': 'Edit',
+	'desktopMenu.undo': 'Undo',
+	'desktopMenu.redo': 'Redo',
+	'desktopMenu.window': 'Window',
 	'desktopMenu.exportHtml': 'Export HTML',
 	'desktopMenu.exportMarkdown': 'Export Markdown',
 	'desktopMenu.exportPdf': 'Export PDF',
@@ -638,6 +641,8 @@ export const en = {
 		'Unable to load the source editor. Check your connection then try again.',
 	'source.loadErrorTitle': 'Unable to load the source editor.',
 	'source.retry': 'Retry',
+	'source.imageData': 'Image data',
+	'source.showImageData': 'Show image data',
 
 	// stats
 	'stats.notSaved': 'not saved',

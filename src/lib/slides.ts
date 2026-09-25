@@ -20,23 +20,18 @@ export function splitSlides(markdown: string): string[] {
 	// Tracks the "inside a fenced code block" state (``` or ~~~) so as NOT to
 	// split on a `---` located inside a fence (otherwise the block was scattered
 	// across several slides with orphan ```, and the content lost).
-	let inFence = false;
-	let fenceChar = '';
+	let marker = '';
 	for (const line of body.split('\n')) {
-		const fence = /^\s*(`{3,}|~{3,})/.exec(line);
+		const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
 		if (fence) {
-			const char = fence[1]![0]!; // ` or ~
-			if (!inFence) {
-				inFence = true;
-				fenceChar = char;
-			} else if (char === fenceChar) {
-				inFence = false;
-				fenceChar = '';
-			}
+			const next = fence[1]!;
+			if (!marker) marker = next;
+			else if (next[0] === marker[0] && next.length >= marker.length && line.trim() === next)
+				marker = '';
 			current.push(line);
 			continue;
 		}
-		if (!inFence && SLIDE_SEPARATOR.test(line)) {
+		if (!marker && SLIDE_SEPARATOR.test(line)) {
 			slides.push(current.join('\n').trim());
 			current = [];
 		} else {

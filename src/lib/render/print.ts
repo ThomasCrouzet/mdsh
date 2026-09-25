@@ -49,7 +49,7 @@ export async function boundedWait<T>(
 }
 
 export async function waitForPrintImages(
-	doc: Document | ShadowRoot,
+	doc: ParentNode,
 	opts: { timeoutMs?: number; signal?: AbortSignal | undefined } = {}
 ): Promise<void> {
 	if (opts.signal?.aborted) throw abortError();
@@ -244,7 +244,7 @@ export async function buildStandaloneHtmlDocument(
 export async function printInIframe(
 	html: string,
 	opts: { signal?: AbortSignal } = {}
-): Promise<void> {
+): Promise<boolean> {
 	if (!browser) throw new Error('printInIframe requires a browser environment');
 	if (opts.signal?.aborted) throw abortError();
 	if (isDesktop()) {
@@ -328,6 +328,7 @@ export async function printInIframe(
 
 		win.focus();
 		win.print();
+		return true;
 	} catch (err) {
 		cleanup();
 		throw err;

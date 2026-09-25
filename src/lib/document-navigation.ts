@@ -1,3 +1,5 @@
+import { stripFrontmatter } from './frontmatter';
+
 export interface DocumentHeading {
 	text: string;
 	level: number;
@@ -9,7 +11,7 @@ export function documentHeadings(markdown: string): DocumentHeading[] {
 	const lines = markdown.split('\n');
 	const headings: DocumentHeading[] = [];
 	let fence = '';
-	let yaml = lines[0]?.trim() === '---';
+	let yaml = stripFrontmatter(markdown).raw.length > 0;
 	for (let index = 0; index < lines.length; index++) {
 		const line = lines[index]!;
 		if (yaml) {

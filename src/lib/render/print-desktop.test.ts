@@ -2,16 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { printOnDesktop } from './print-desktop';
 
 const print = vi.fn();
+const completions: Array<(value: boolean) => void> = [];
+vi.mock('../platform', () => ({ isMac: () => true }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => print(...args) }));
 beforeEach(() => {
 	vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => {
 		fn(0);
 		return 1;
 	});
-	vi.spyOn(window, 'print').mockImplementation(print);
+	print.mockImplementation(() => new Promise<boolean>((resolve) => completions.push(resolve)));
 	document.title = 'Editor';
 });
-afterEach(() => {
-	window.dispatchEvent(new Event('afterprint'));
+afterEach(async () => {
+	for (const complete of completions.splice(0)) complete(true);
+	await Promise.resolve();
+	await Promise.resolve();
 	document.body.replaceChildren();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
@@ -25,9 +30,10 @@ describe('native print isolation', () => {
 				new Response('body { font: 12px Test; } @font-face { src:url(fonts/Test.woff2); }')
 		);
 		vi.stubGlobal('fetch', fetch);
-		await printOnDesktop(
+		void printOnDesktop(
 			'<link rel="stylesheet" href="http://localhost:5173/katex/katex.min.css"><body>Math</body>'
 		);
+		await vi.waitFor(() => expect(print).toHaveBeenCalledOnce());
 		expect(fetch).toHaveBeenCalledOnce();
 		expect(document.getElementById('mdsh-native-print')?.shadowRoot?.textContent).toContain(
 			'http://localhost:5173/katex/fonts/Test.woff2'
@@ -58,11 +64,13 @@ describe('native print isolation', () => {
 		expect(print).not.toHaveBeenCalled();
 	});
 	it('rejects simultaneous printing and permits another print after cleanup', async () => {
-		await printOnDesktop('<body>First</body>');
+		const first = printOnDesktop('<body>First</body>');
+		await vi.waitFor(() => expect(print).toHaveBeenCalledOnce());
 		await expect(printOnDesktop('<body>Second</body>')).rejects.toThrow('already active');
-		window.dispatchEvent(new Event('afterprint'));
-		await printOnDesktop('<body>Second</body>');
-		expect(print).toHaveBeenCalledTimes(2);
+		completions.shift()?.(true);
+		await first;
+		void printOnDesktop('<body>Second</body>');
+		await vi.waitFor(() => expect(print).toHaveBeenCalledTimes(2));
 	});
 	it('cleans up on printing failure or cancellation', async () => {
 		print.mockImplementationOnce(() => {
@@ -79,7 +87,8 @@ describe('native print isolation', () => {
 			printOnDesktop('<body>Text</body>', { signal: controller.signal })
 		).rejects.toMatchObject({ name: 'AbortError' });
 		const active = new AbortController();
-		await printOnDesktop('<body>Text</body>', { signal: active.signal });
+		void printOnDesktop('<body>Text</body>', { signal: active.signal });
+		await vi.waitFor(() => expect(print).toHaveBeenCalledTimes(2));
 		active.abort();
 		expect(document.getElementById('mdsh-native-print')).toBeNull();
 	});

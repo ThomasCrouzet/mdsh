@@ -116,6 +116,69 @@ pub fn request_close(app: &tauri::AppHandle) -> bool {
     true
 }
 
+#[tauri::command]
+pub async fn desktop_smoke_key(
+    window: tauri::WebviewWindow,
+    key: String,
+    shift: bool,
+) -> Result<bool, String> {
+    #[cfg(all(target_os = "macos", feature = "native-smoke"))]
+    {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        window
+            .with_webview(move |webview| {
+                use objc2::MainThreadMarker;
+                use objc2_app_kit::{NSApplication, NSEventModifierFlags};
+                let _ = webview;
+                let flags = NSEventModifierFlags::Command
+                    | if shift {
+                        NSEventModifierFlags::Shift
+                    } else {
+                        NSEventModifierFlags::empty()
+                    };
+                let application =
+                    NSApplication::sharedApplication(MainThreadMarker::new().unwrap());
+                let mut handled = false;
+                if let Some(menu) = application.mainMenu() {
+                    for item in menu.itemArray() {
+                        if let Some(submenu) = item.submenu() {
+                            for (index, entry) in submenu.itemArray().iter().enumerate() {
+                                if entry.keyEquivalent().to_string() == key
+                                    && entry.keyEquivalentModifierMask() == flags
+                                {
+                                    eprintln!(
+                                        "[mdsh-native-menu] title={} key={} modifiers={:?}",
+                                        entry.title(),
+                                        entry.keyEquivalent(),
+                                        entry.keyEquivalentModifierMask()
+                                    );
+                                    // Use the native action after checking its real shortcut binding.
+                                    submenu.performActionForItemAtIndex(index as isize);
+                                    handled = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if handled {
+                            break;
+                        }
+                    }
+                }
+                let _ = sender.send(handled);
+            })
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || receiver.recv())
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(all(target_os = "macos", feature = "native-smoke")))]
+    {
+        let _ = (window, key, shift);
+        Err("test command unavailable".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

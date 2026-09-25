@@ -12,7 +12,8 @@ export type ShortcutError = 'invalid' | 'reserved' | 'duplicate' | 'storage';
 
 export function isReservedShortcut(binding: ShortcutBinding, desktop: boolean): boolean {
 	// Keep editing shortcuts in the active component.
-	if (['a', 'c', 'v', 'x', 'z', 'y', 'b', 'i', 'u', 'q', 'h'].includes(binding.key)) return true;
+	if (['a', 'c', 'v', 'x', 'z', 'y', 'b', 'i', 'u', 'q', 'h', 'm'].includes(binding.key))
+		return true;
 	if (desktop) return false;
 	return ['n', 'o', 'p', 'r', 't', 'w', 'l', 'e', 'h', 'j', 'd', 's', 'g', 'k', 'm'].includes(
 		binding.key

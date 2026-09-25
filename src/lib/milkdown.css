@@ -60,6 +60,17 @@ milkdown-editor,
 	contain: layout style;
 }
 
+/* Crepe fixes the height at load time. Constrain width and preserve every pixel. */
+.milkdown .milkdown-image-block > .image-wrapper {
+	max-width: 100%;
+	min-width: 0;
+}
+.milkdown .milkdown-image-block > .image-wrapper img {
+	height: auto !important;
+	min-height: 0;
+	object-fit: contain;
+}
+
 @media (max-width: 640px) {
 	.milkdown .ProseMirror {
 		padding: 1.5rem 1.25rem 30vh;
