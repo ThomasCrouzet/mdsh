@@ -42,6 +42,20 @@
 	margin: 0.4em 0 0.9em;
 }
 
+/* Restore Markdown markers after the application CSS reset. */
+.mdsh-preview ul {
+	list-style: disc outside;
+}
+.mdsh-preview ol {
+	list-style: decimal outside;
+}
+.mdsh-preview :is(ul, ol) ul {
+	list-style-type: circle;
+}
+.mdsh-preview :is(ul, ol) :is(ul, ol) ul {
+	list-style-type: square;
+}
+
 .mdsh-preview li > p {
 	margin: 0.25em 0;
 }

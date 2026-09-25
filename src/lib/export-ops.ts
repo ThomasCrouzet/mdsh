@@ -142,10 +142,7 @@ export async function exportPDF(id: string, deps: ExportDeps): Promise<void> {
 	const dismiss = spinnerStore.show(t('export.preparingPdf'));
 	try {
 		const snapshot = { ...file };
-		const opened = await withMediaConsent(async (options) => {
-			await exportPDFService(snapshot, options);
-			return true;
-		});
+		const opened = await withMediaConsent((options) => exportPDFService(snapshot, options));
 		if (opened) notify.success(t('export.printDialogOpened'));
 	} catch (err) {
 		await reportMediaFailure(err, t('export.pdfFailed'));
@@ -163,7 +160,10 @@ export async function exportSelectionZip(
 	deps: ExportDeps
 ): Promise<void> {
 	if (selectedIds.size === 0) return;
-	const files = deps.getFiles().filter((f) => selectedIds.has(f.id));
+	const files = deps
+		.getFiles()
+		.filter((f) => selectedIds.has(f.id))
+		.map((file) => ({ ...file }));
 	if (files.length === 0) return;
 	const dismiss = spinnerStore.show(t('export.creatingZip'));
 	try {

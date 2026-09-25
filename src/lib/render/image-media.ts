@@ -187,11 +187,14 @@ async function readDimensions(
 ): Promise<{ width: number; height: number }> {
 	try {
 		if (typeof createImageBitmap === 'function') {
-			const bitmap = await createImageBitmap(blob);
-			const dimensions = { width: bitmap.width, height: bitmap.height };
-			bitmap.close();
-			if (dimensions.width > 0 && dimensions.height > 0) return dimensions;
-			throw new Error('The decoded image has no pixels');
+			// WebKit can display SVG while its bitmap decoder rejects that format.
+			const bitmap = await createImageBitmap(blob).catch(() => null);
+			if (bitmap) {
+				const dimensions = { width: bitmap.width, height: bitmap.height };
+				bitmap.close();
+				if (dimensions.width > 0 && dimensions.height > 0) return dimensions;
+				throw new Error('The decoded image has no pixels');
+			}
 		}
 		const image = new Image();
 		image.decoding = 'async';

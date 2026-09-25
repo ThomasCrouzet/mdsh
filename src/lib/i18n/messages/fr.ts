@@ -284,6 +284,9 @@ export const fr: Record<MessageKey, string> = {
 
 	// desktopMenu
 	'desktopMenu.edit': 'Édition',
+	'desktopMenu.undo': 'Annuler',
+	'desktopMenu.redo': 'Rétablir',
+	'desktopMenu.window': 'Fenêtre',
 	'desktopMenu.exportHtml': 'Exporter en HTML',
 	'desktopMenu.exportMarkdown': 'Exporter en Markdown',
 	'desktopMenu.exportPdf': 'Exporter en PDF',
@@ -648,6 +651,8 @@ export const fr: Record<MessageKey, string> = {
 		"Impossible de charger l'éditeur source. Vérifie ta connexion puis réessaie.",
 	'source.loadErrorTitle': "Impossible de charger l'éditeur source.",
 	'source.retry': 'Réessayer',
+	'source.imageData': 'Données de l’image',
+	'source.showImageData': 'Afficher les données de l’image',
 
 	// stats
 	'stats.notSaved': 'non enregistré',

@@ -11,6 +11,7 @@
 	import { splitSlides } from '$lib/slides';
 	import { reportError } from '$lib/report';
 	import { mermaidThemeFromDataTheme } from '$lib/theme';
+	import { themeStore } from '$lib/ui/theme.svelte';
 	import { ChevronLeft, ChevronRight, X } from '@lucide/svelte';
 
 	interface Props {
@@ -46,9 +47,7 @@
 			html = '';
 			return;
 		}
-		const mermaidTheme = mermaidThemeFromDataTheme(
-			document.documentElement.getAttribute('data-theme')
-		);
+		const mermaidTheme = mermaidThemeFromDataTheme(themeStore.effective);
 		let cancelled = false;
 		void import('$lib/render/markdown')
 			.then(({ renderMarkdown }) => renderMarkdown(md, { mermaidTheme, showFrontmatter: false }))

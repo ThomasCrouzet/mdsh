@@ -327,10 +327,13 @@
 	}
 
 	async function handleDesktopMenuAction(action: DesktopMenuAction) {
-		if (!canInteract) return;
+		if (!canInteract || modals.anyOpen || promptStore.open) return;
 		switch (action) {
 			case 'new':
 				handleNew();
+				break;
+			case 'close-file':
+				if (filesStore.activeId) filesStore.close(filesStore.activeId);
 				break;
 			case 'open':
 				await handleImport();

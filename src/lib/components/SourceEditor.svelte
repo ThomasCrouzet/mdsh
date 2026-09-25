@@ -56,6 +56,8 @@
 		history: typeof import('@codemirror/commands').history;
 		historyField: typeof import('@codemirror/commands').historyField;
 		historyKeymap: typeof import('@codemirror/commands').historyKeymap;
+		undo: typeof import('@codemirror/commands').undo;
+		redo: typeof import('@codemirror/commands').redo;
 		syntaxHighlighting: typeof import('@codemirror/language').syntaxHighlighting;
 		defaultHighlightStyle: typeof import('@codemirror/language').defaultHighlightStyle;
 		search: typeof import('@codemirror/search').search;
@@ -64,6 +66,7 @@
 		searchKeymap: typeof import('@codemirror/search').searchKeymap;
 		setSearchQuery: typeof import('@codemirror/search').setSearchQuery;
 		SearchQuery: typeof import('@codemirror/search').SearchQuery;
+		imageData: typeof import('../source-extensions').imageData;
 	};
 
 	// Factored-out typewriter extension: dispatched in rAF to avoid
@@ -106,6 +109,7 @@
 	function localeExtensions(cm: CMModule) {
 		return [
 			cm.EditorState.phrases.of(codeMirrorPhrases()),
+			cm.imageData(),
 			cm.EditorView.contentAttributes.of({ 'aria-label': t('editor.ariaLabel') })
 		];
 	}
@@ -142,13 +146,14 @@
 				const [state, viewMod, lang, cmds, language, searchMod] = await Promise.all([
 					import('@codemirror/state'),
 					import('@codemirror/view'),
-					import('@codemirror/lang-markdown'),
+					import('../source-extensions'),
 					import('@codemirror/commands'),
 					import('@codemirror/language'),
 					import('@codemirror/search')
 				]);
 				return {
 					EditorState: state.EditorState,
+					imageData: lang.imageData,
 					Transaction: state.Transaction,
 					Compartment: state.Compartment,
 					EditorView: viewMod.EditorView,
@@ -161,6 +166,8 @@
 					history: cmds.history,
 					historyField: cmds.historyField,
 					historyKeymap: cmds.historyKeymap,
+					undo: cmds.undo,
+					redo: cmds.redo,
 					syntaxHighlighting: language.syntaxHighlighting,
 					defaultHighlightStyle: language.HighlightStyle.define(
 						language.defaultHighlightStyle.specs.map((spec) => {
@@ -244,6 +251,15 @@
 				boxShadow: 'inset 1px 0 var(--color-accent-dim)'
 			},
 			'.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-fg)' },
+			'.mdsh-image-data': {
+				font: 'inherit',
+				color: 'var(--color-fg-muted)',
+				backgroundColor: 'var(--color-bg-2)',
+				border: '1px solid var(--color-border)',
+				borderRadius: '4px',
+				padding: '0 0.4em',
+				cursor: 'pointer'
+			},
 			'.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
 				backgroundColor: 'rgba(127,127,127,0.25)'
 			},
@@ -298,6 +314,12 @@
 		localeCompartmentRef = localeCompartment;
 		const extensions = [
 			cm.EditorView.domEventHandlers({
+				beforeinput: (event, currentView) => {
+					if (event.inputType !== 'historyUndo' && event.inputType !== 'historyRedo') return false;
+					event.preventDefault();
+					(event.inputType === 'historyUndo' ? cm.undo : cm.redo)(currentView);
+					return true;
+				},
 				focus: (_event, focusedView) => {
 					// Synchronize the native selection before immediate text input.
 					focusedView.focus();

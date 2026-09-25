@@ -57,6 +57,9 @@ Importing an exact copy of one linked document, with the same name and content, 
 
 The app embeds images that you add with the picker, clipboard, or drag and drop. Embedded images remain available after a reload and appear in PDF and standalone HTML exports. Older versions created temporary links that cannot be recovered after expiration. Import the image again from its original file.
 
+Source mode hides long image payloads behind **Image data**. Activate the control to show the original data.
+Copy and Markdown export retain all bytes. Visual images keep their proportions when you change the editor width.
+
 The app blocks remote images by default. Reading mode can load and embed them in the current document. This action contacts the image host and reveals your IP address. The request sends no cookies or referrer and rejects redirects. Each remote image can contain up to 2 MiB. One operation can fetch up to 8 MiB in total. The app sanitizes SVG files before it embeds them.
 
 To resolve a relative image path, select the applicable file or folder. The app then embeds the image to keep the document portable.
@@ -83,6 +86,10 @@ Replace mode also disconnects disk links. Imported content cannot reuse an old f
 
 PDF export renders content, embedded images, formulas, code blocks, and diagrams before it opens the print dialog. The app reports success only after preparation finishes. Select a PDF printer in the browser or system dialog. You can disable browser headers and footers in that dialog.
 
+On macOS Desktop, use the native print panel's **PDF** menu to save the document.
+The editor returns after the print operation finishes or you cancel it.
+Tall images fit within the A4 printable height without cropping.
+
 Select **PDF (A4)** under **Editor width** in Settings or through Commands. This
 preset uses the 178 mm text width of an A4 page with 16 mm side margins. It is a
 width guide. Fonts, page breaks, and print settings can differ from the editor.
@@ -99,6 +106,10 @@ Use Commands to create a document from a built-in or custom template, or save th
 
 The Commands menu shows all active shortcuts. In Settings, you can customize commands, detect conflicts, and restore defaults. The app saves web and Desktop profiles separately. Content-editing shortcuts have priority when the cursor is in the editor.
 
+macOS Desktop keeps the standard application and Window menus, including Hide, Services, Minimize, Full Screen, and Quit.
+Undo and Redo use the active editor's history. Control-only text-navigation shortcuts remain available.
+`Cmd+W` closes the current document tab. `Cmd+Q` quits after pending draft writes finish.
+
 In the sidebar, focus a draft and press Space to change its selection. Press Enter to open the draft.
 Focus another draft and press Shift+Space to select the range. The buttons expose their selection state to screen readers.
 
@@ -111,5 +122,8 @@ remain available.
 ## Desktop Beta app
 
 Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the Desktop prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The release also contains npm and Cargo SBOMs and a provenance attestation.
+
+Choose `mdsh_<version>_macOS_Apple-Silicon.dmg` for a Mac with an Apple M-series chip.
+Choose `mdsh_<version>_macOS_Intel.dmg` for an Intel Mac.
 
 The macOS version requires macOS 14 or later. Windows uses the Tauri installation mode to install WebView2 if it is absent. Linux packages use WebKitGTK. Native selections and file associations authorize each Markdown path. The app restores that access after restart, so `Cmd+Shift+S` or `Ctrl+Shift+S` saves the restored draft directly. Removing a disk link revokes access. Files first selected in an older version need one new native selection to enter the access registry.

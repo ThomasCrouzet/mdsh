@@ -9,6 +9,8 @@
 import { isDiskLinkingAvailable } from '$lib/disk-sync';
 import { keyboardStore } from './keyboard.svelte';
 import type { EditMode } from '$lib/types';
+import { isMac } from '$lib/platform';
+import { isDesktop } from '$lib/desktop';
 
 export interface ShortcutCallbacks {
 	// Files
@@ -64,6 +66,8 @@ export function buildKeydownHandler(cb: ShortcutCallbacks) {
 			return;
 		}
 
+		// Control-only keys on macOS belong to native text navigation.
+		if (isDesktop() && isMac() && !e.metaKey) return;
 		const command = keyboardStore.match(e);
 		if (!command) return;
 		const activeId = cb.getActiveId();

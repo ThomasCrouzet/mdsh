@@ -14,6 +14,7 @@ import {
 	isThemePref,
 	nextThemePref,
 	resolveTheme,
+	type EffectiveTheme,
 	type ThemePref
 } from '$lib/theme';
 
@@ -39,10 +40,15 @@ function applyTheme(pref: ThemePref): void {
 
 class ThemeStore {
 	pref = $state<ThemePref>('system');
+	effective = $state<EffectiveTheme>('dark');
+	private apply(): void {
+		this.effective = resolveTheme(this.pref, systemPrefersLight());
+		applyTheme(this.pref);
+	}
 	private mq: MediaQueryList | null = null;
 	private onSystemChange = () => {
 		// Re-applies only if we follow the system (otherwise the pref is absolute).
-		if (this.pref === 'system') applyTheme('system');
+		if (this.pref === 'system') this.apply();
 	};
 
 	/** Loads the persisted preference, subscribes to system tracking, applies. */
@@ -54,13 +60,13 @@ class ThemeStore {
 			this.mq = window.matchMedia('(prefers-color-scheme: light)');
 			this.mq.addEventListener('change', this.onSystemChange);
 		}
-		applyTheme(this.pref);
+		this.apply();
 	}
 
 	set(pref: ThemePref): void {
 		this.pref = pref;
 		writePreference(THEME_STORAGE_KEY, pref);
-		applyTheme(pref);
+		this.apply();
 	}
 
 	/** Single toggle: system → light → dark → system. */

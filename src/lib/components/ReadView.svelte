@@ -200,7 +200,7 @@
 		const f = fileId;
 		void retryVersion;
 		// Subscribe to theme pref so light/dark toggles re-run Mermaid.
-		void themeStore.pref;
+		void themeStore.effective;
 		void doRender(c, f);
 	});
 

@@ -9,6 +9,8 @@ import { isDesktop } from './desktop';
 import { reportError, reportWarning } from './report';
 import { t } from './i18n';
 import type { NativeDiskGrant } from './disk-tauri';
+import { isMac } from './platform';
+import { keyboardStore } from './ui/keyboard.svelte';
 
 export type DesktopMenuAction =
 	| 'new'
@@ -18,6 +20,7 @@ export type DesktopMenuAction =
 	| 'export-pdf'
 	| 'export-html'
 	| 'export-zip'
+	| 'close-file'
 	| 'settings';
 
 export interface DesktopMenuLabels {
@@ -51,13 +54,14 @@ export async function initDesktopShell(handlers: DesktopShellHandlers): Promise<
 
 	const unsubs: Array<() => void> = [];
 	let menuQueue = Promise.resolve();
+	let capturingShortcut = false;
 	const updateMenu = () => {
 		menuQueue = menuQueue
 			.catch(() => {})
 			.then(async () => {
 				const labels = handlers.getLabels?.() ?? handlers.labels;
 				if (!labels) throw new Error('Desktop menu labels are unavailable.');
-				await installAppMenu(handlers.onMenuAction, labels);
+				await installAppMenu(handlers.onMenuAction, labels, capturingShortcut);
 			});
 		return menuQueue;
 	};
@@ -71,7 +75,23 @@ export async function initDesktopShell(handlers: DesktopShellHandlers): Promise<
 		void updateMenu().catch((err: unknown) => reportWarning('update desktop menu locale', err));
 	};
 	window.addEventListener('mdsh:locale-change', onLocaleChange);
+	window.addEventListener('mdsh:shortcuts-change', onLocaleChange);
 	unsubs.push(() => window.removeEventListener('mdsh:locale-change', onLocaleChange));
+	unsubs.push(() => window.removeEventListener('mdsh:shortcuts-change', onLocaleChange));
+	const onFocusChange = () => {
+		const capturing = document.activeElement?.hasAttribute('data-shortcut-capture') ?? false;
+		if (capturing === capturingShortcut) return;
+		capturingShortcut = capturing;
+		void updateMenu().catch((err: unknown) =>
+			reportWarning('update desktop shortcut capture', err)
+		);
+	};
+	document.addEventListener('focusin', onFocusChange);
+	document.addEventListener('focusout', onFocusChange);
+	unsubs.push(() => {
+		document.removeEventListener('focusin', onFocusChange);
+		document.removeEventListener('focusout', onFocusChange);
+	});
 	unsubs.push(installExternalLinkHandler());
 
 	interface PendingGrant extends NativeDiskGrant {
@@ -160,18 +180,23 @@ export async function initDesktopShell(handlers: DesktopShellHandlers): Promise<
 
 async function installAppMenu(
 	onAction: DesktopShellHandlers['onMenuAction'],
-	labels: DesktopMenuLabels
+	labels: DesktopMenuLabels,
+	capturingShortcut: boolean
 ): Promise<void> {
 	const { Menu, MenuItem, PredefinedMenuItem, Submenu } = await import('@tauri-apps/api/menu');
 
-	// Do not set `accelerator` on custom items. `buildKeydownHandler` handles these
-	// shortcuts in the SPA. On Windows and Linux, native and webview handlers can
-	// both run New, Open, or Export. macOS usually consumes the shortcut in NSMenu.
-	// The command palette and toolbar tooltips show shortcuts on all platforms.
+	const mac = isMac();
+	// AppKit consumes menu shortcuts. Windows and Linux use the webview handler.
+	const accelerator = (id: DesktopMenuAction) => {
+		if (!mac || capturingShortcut) return {};
+		const binding = keyboardStore.binding(id === 'open' ? 'import' : id);
+		return binding ? { accelerator: `Cmd+${binding.shift ? 'Shift+' : ''}${binding.key}` } : {};
+	};
 	const item = async (id: DesktopMenuAction, text: string) =>
 		MenuItem.new({
 			id,
 			text,
+			...accelerator(id),
 			action: () => {
 				void Promise.resolve()
 					.then(() => onAction(id))
@@ -192,19 +217,41 @@ async function installAppMenu(
 			await item('export-pdf', labels.exportPdf),
 			await item('export-html', labels.exportHtml),
 			await item('export-zip', labels.exportZip),
+			...(mac
+				? []
+				: [
+						await PredefinedMenuItem.new({ item: 'Separator' }),
+						await item('settings', labels.settings)
+					]),
 			await PredefinedMenuItem.new({ item: 'Separator' }),
-			await item('settings', labels.settings),
-			await PredefinedMenuItem.new({ item: 'Separator' }),
-			await PredefinedMenuItem.new({ item: 'CloseWindow' }),
-			await PredefinedMenuItem.new({ item: 'Quit' })
+			...(mac
+				? [await item('close-file', t('palette.closeFile'))]
+				: [await PredefinedMenuItem.new({ item: 'CloseWindow' })]),
+			...(mac ? [] : [await PredefinedMenuItem.new({ item: 'Quit' })])
 		]
 	});
 
+	const historyItem = (redo: boolean) =>
+		MenuItem.new({
+			id: redo ? 'redo' : 'undo',
+			text: t(redo ? 'desktopMenu.redo' : 'desktopMenu.undo'),
+			...(mac && !capturingShortcut ? { accelerator: redo ? 'Cmd+Shift+Z' : 'Cmd+Z' } : {}),
+			action: () => {
+				const target = document.activeElement;
+				if (!target) return;
+				const event = new InputEvent('beforeinput', {
+					inputType: redo ? 'historyRedo' : 'historyUndo',
+					bubbles: true,
+					cancelable: true
+				});
+				if (target.dispatchEvent(event)) document.execCommand(redo ? 'redo' : 'undo');
+			}
+		});
 	const editMenu = await Submenu.new({
 		text: labels.edit,
 		items: [
-			await PredefinedMenuItem.new({ item: 'Undo' }),
-			await PredefinedMenuItem.new({ item: 'Redo' }),
+			await historyItem(false),
+			await historyItem(true),
 			await PredefinedMenuItem.new({ item: 'Separator' }),
 			await PredefinedMenuItem.new({ item: 'Cut' }),
 			await PredefinedMenuItem.new({ item: 'Copy' }),
@@ -213,10 +260,41 @@ async function installAppMenu(
 		]
 	});
 
-	const menu = await Menu.new({
-		items: [fileMenu, editMenu]
-	});
+	const menus = [fileMenu, editMenu];
+	let windowMenu;
+	if (mac) {
+		menus.unshift(
+			await Submenu.new({
+				text: 'mdsh',
+				items: [
+					await PredefinedMenuItem.new({ item: { About: { name: 'mdsh' } } }),
+					await PredefinedMenuItem.new({ item: 'Separator' }),
+					await item('settings', labels.settings),
+					await PredefinedMenuItem.new({ item: 'Separator' }),
+					await PredefinedMenuItem.new({ item: 'Services' }),
+					await PredefinedMenuItem.new({ item: 'Separator' }),
+					await PredefinedMenuItem.new({ item: 'Hide' }),
+					await PredefinedMenuItem.new({ item: 'HideOthers' }),
+					await PredefinedMenuItem.new({ item: 'ShowAll' }),
+					await PredefinedMenuItem.new({ item: 'Separator' }),
+					await PredefinedMenuItem.new({ item: 'Quit' })
+				]
+			})
+		);
+		windowMenu = await Submenu.new({
+			text: t('desktopMenu.window'),
+			items: [
+				await PredefinedMenuItem.new({ item: 'Minimize' }),
+				await PredefinedMenuItem.new({ item: 'Fullscreen' }),
+				await PredefinedMenuItem.new({ item: 'Separator' }),
+				await PredefinedMenuItem.new({ item: 'BringAllToFront' })
+			]
+		});
+		menus.push(windowMenu);
+	}
+	const menu = await Menu.new({ items: menus });
 	const previous = await menu.setAsAppMenu();
+	await windowMenu?.setAsWindowsMenuForNSApp();
 	await previous?.close();
 }
 

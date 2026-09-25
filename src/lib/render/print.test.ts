@@ -240,7 +240,7 @@ describe('printInIframe', () => {
 			}
 		});
 		// The operation must resolve when fonts.ready fails.
-		await expect(printInIframe('<html><body>x</body></html>')).resolves.toBeUndefined();
+		await expect(printInIframe('<html><body>x</body></html>')).resolves.toBe(true);
 		expect(printSpy).toHaveBeenCalledOnce();
 	});
 

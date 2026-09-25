@@ -126,8 +126,11 @@ export async function exportHTML(
  * exactly the rendered Markdown content, without generated branding, title,
  * filename or front matter.
  */
-export async function exportPDF(file: FileItem, options: MediaExportOptions = {}): Promise<void> {
-	if (typeof document === 'undefined') return;
+export async function exportPDF(
+	file: FileItem,
+	options: MediaExportOptions = {}
+): Promise<boolean> {
+	if (typeof document === 'undefined') return false;
 	const [
 		{ renderMarkdownDetailed },
 		{ buildPrintDocument, printInIframe },
@@ -154,7 +157,7 @@ export async function exportPDF(file: FileItem, options: MediaExportOptions = {}
 		source: file.content,
 		lang: i18n.locale
 	});
-	await printInIframe(html);
+	return printInIframe(html);
 }
 
 /**
