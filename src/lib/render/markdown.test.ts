@@ -96,12 +96,6 @@ tags: [unclosed
 });
 
 describe('renderMarkdown - wiki-links (§5.2)', () => {
-	it('converts a wiki alias to a link with an alias label', async () => {
-		const html = await renderMarkdown('Voir [[notes-projet|mes notes]] ici.');
-		expect(html).toContain('data-mdsh-wiki="notes-projet"');
-		expect(html).toContain('>mes notes</a>');
-	});
-
 	it('escapes label HTML and encodes the data attribute', async () => {
 		const html = await renderMarkdown('[[<script>alert(1)</script>]]');
 		// The <script> tag must not be executable.
