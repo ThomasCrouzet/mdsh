@@ -25,7 +25,7 @@ test.describe('Embedded image editing and layout', () => {
 		await expect(source).toContainText('More text.');
 		await page.keyboard.press('ControlOrMeta+z');
 		await expect(source).not.toContainText('More text.');
-		await page.keyboard.press('ControlOrMeta+Shift+z');
+		await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+y');
 		await expect(source).toContainText('More text.');
 		await page.locator('button[data-mode="read"]').click();
 		await expect(page.locator('.mdsh-preview img')).toHaveAttribute(

@@ -11,9 +11,7 @@ export function isMac(): boolean {
 	// navigator.platform: "MacIntel" on Intel/M-series, "iPhone"/"iPad" for iOS.
 	// On recent iPads, some browsers return "MacIntel" - we treat iPad as Mac (cmd shortcuts).
 	const platform = nav.platform || '';
-	if (platform.toUpperCase().indexOf('MAC') !== -1) return true;
-	if (platform.toUpperCase().indexOf('IPHONE') !== -1) return true;
-	if (platform.toUpperCase().indexOf('IPAD') !== -1) return true;
+	if (platform) return /Mac|iPhone|iPad|iPod/i.test(platform);
 	// userAgent fallback (older versions).
 	return /Mac|iPhone|iPad|iPod/.test(nav.userAgent);
 }

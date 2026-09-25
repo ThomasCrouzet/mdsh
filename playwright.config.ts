@@ -67,6 +67,7 @@ export default defineConfig({
 				'**/editor-width.spec.ts',
 				'**/image-layout.spec.ts',
 				'**/reading-lists.spec.ts',
+				'**/keyboard-platform.spec.ts',
 				'**/slash-commands.spec.ts',
 				'**/wiki-links.spec.ts'
 			]
@@ -87,6 +88,7 @@ export default defineConfig({
 				'**/editor-width.spec.ts',
 				'**/image-layout.spec.ts',
 				'**/reading-lists.spec.ts',
+				'**/keyboard-platform.spec.ts',
 				'**/slash-commands.spec.ts',
 				'**/wiki-links.spec.ts'
 			]

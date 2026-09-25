@@ -58,6 +58,8 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
 - System theme changes must refresh diagram colors without replacing editor history.
 - Reading mode must restore list markers removed by the global CSS reset. Check nested
   bullets, ordered-list start values, and task lists without duplicate markers.
+- A Safari-compatible user agent can report a Linux keyboard platform. Prefer the platform
+  for shortcut labels and keep native Control-only handling inside Desktop.
 
 Run `npm run test:e2e -- image-layout.spec.ts` for image payload and layout checks.
 Run the native build command from `.github/workflows/desktop.yml`, then
