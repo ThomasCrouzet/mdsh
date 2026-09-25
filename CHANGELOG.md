@@ -5,6 +5,15 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.8.1](https://github.com/ThomasCrouzet/mdsh/compare/v1.8.0...v1.8.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* repair PDF export and editor workflows ([b49a577](https://github.com/ThomasCrouzet/mdsh/commit/b49a5778d3178af6304e3917e2aaeba619cff955))
+* respect browser keyboard platforms ([9f682b5](https://github.com/ThomasCrouzet/mdsh/commit/9f682b58789e34eb5062a465dd79a14c7bd2c171))
+* restore PDF export and editor consistency ([8c0090a](https://github.com/ThomasCrouzet/mdsh/commit/8c0090addc97f93fad06d5d7deefba6967c1fafb))
+
 ## [1.8.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.7.0...v1.8.0) (2026-09-24)
 
 
