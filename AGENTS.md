@@ -14,12 +14,16 @@ Keep this Markdown PWA offline, private, and on the client. Do not add a require
 - Keep translation catalogs and their keys. Preserve licenses, external quotations, and generated files.
 - Do not use U+2014 or U+2013 in controlled content. Do not add automated attribution.
 
-## Tests
+## Testing policy
 
 - Never write unit tests after you write code.
-- Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
-- If you must test a system in isolation, first write down all the ways it could fail, then write the code.
-- Keep an isolated test only when it detects a concrete failure that the E2E suite does not detect. Do not test library behavior, type contracts, or mocked call sequences alone.
+- Highly prefer E2E tests as the sole testing mechanism.
+- Use E2E tests to verify complex features through observable results.
+- At the end of each E2E run, produce a verifiable and repeatable artifact.
+- Record the command, source revision, environment, fixtures, and results with the artifact.
+- If isolation is necessary, first document all identified failure modes. Then write the tests and implementation.
+- Keep an isolated test only for a concrete failure that E2E tests cannot detect.
+- Do not add tests for coverage percentages, type contracts, dependency behavior, or mocked call sequences alone.
 - Use `docs/TESTING.md` for the retained failure risks, browser commands, and report artifacts.
 
 ## Commands
