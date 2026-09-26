@@ -52,6 +52,7 @@ class WorkspaceStore {
 			updatedAt: Date.now()
 		};
 		try {
+			await filesStore.flushPendingAwait();
 			// $state.snapshot: Dexie clones via structuredClone, the runes proxy
 			// would trigger `DataCloneError` (the proxy's getter functions are not
 			// cloneable). `ws` here is a bare object (not yet in the `$state`), but
@@ -76,6 +77,12 @@ class WorkspaceStore {
 	 * restore all fields and the previous position, then notify the user.
 	 */
 	async update(id: string): Promise<void> {
+		try {
+			await filesStore.flushPendingAwait();
+		} catch (err) {
+			reportPersistenceError(err, 'save');
+			return;
+		}
 		const ws = this.workspaces.find((w) => w.id === id);
 		if (!ws) return;
 		// Capture the prior state for a faithful rollback on failure.

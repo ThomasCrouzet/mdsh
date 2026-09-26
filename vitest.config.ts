@@ -6,6 +6,8 @@ export default defineConfig({
 	// The Svelte plugin transforms .svelte components for unit tests with @testing-library/svelte.
 	plugins: [svelte()],
 	test: {
+		// Keep local checks and Git hooks within one worker on shared machines.
+		maxWorkers: process.env.CI ? undefined : 1,
 		environment: 'jsdom',
 		// Give jsdom a non-opaque URL. The default `about:blank` makes `localStorage` unavailable.
 		// Theme, locale, editor width, and UI preference stores need it in tests.

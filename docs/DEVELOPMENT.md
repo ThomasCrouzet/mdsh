@@ -23,6 +23,8 @@ npm run preview:pages
 `npm run preview:pages` checks the `/mdsh/` base path.
 Run the browser and native commands from [TESTING.md](TESTING.md) for changed workflows.
 Do not run two builds in the same working directory at the same time.
+On a shared machine, use `npm test -- --maxWorkers=1`, Playwright `--workers=1`,
+and `CARGO_BUILD_JOBS=2`. Run the heavy checks in sequence.
 
 ## Desktop development
 
@@ -114,7 +116,7 @@ Use dynamic imports for Markdown, KaTeX, Mermaid, highlighting, ZIP, and YAML.
 Keep Tauri API imports behind the Desktop boundary.
 
 `npm run size` checks public chunks, transitive mode graphs, and the PWA precache.
-Its graph artifact is `build/_app/.vite/bundle-graph.json`.
+Its graph artifact is `.svelte-kit/output/client/.vite/bundle-graph.json`.
 Do not add all mode totals: the graphs share modules.
 The large Mermaid ELK chunk is excluded because the application uses the Dagre layout.
 

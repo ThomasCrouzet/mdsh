@@ -17,17 +17,33 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { testSource } from './test-source.mjs';
+import { nativeDiskRaces } from './native-disk-races.mjs';
+import { nativeExportCancellation } from './native-export-cancellation.mjs';
 
 const binary = resolve(
 	process.env.NATIVE_BINARY ??
 		`src-tauri/target/debug/mdsh${process.platform === 'win32' ? '.exe' : ''}`
 );
+const binarySha256 = (() => {
+	const bytes = readFileSync(binary);
+	assert.ok(
+		bytes.includes(Buffer.from('[mdsh-native-startup]')),
+		'Build with --features native-smoke before running this workflow'
+	);
+	assert.ok(
+		bytes.includes(Buffer.from('io.github.thomascrouzet.mdsh.smoke')),
+		'Use tauri.smoke.conf.json to isolate native test data'
+	);
+	return createHash('sha256').update(bytes).digest('hex');
+})();
 const port = Number(process.env.TAURI_WEBDRIVER_PORT ?? 4457);
 const endpoint = `http://127.0.0.1:${port}`;
 const output = resolve(process.env.NATIVE_TEST_OUTPUT ?? 'native-test-results');
 mkdirSync(output, { recursive: true });
 const temp = mkdtempSync(join(tmpdir(), 'mdsh-native-'));
 const nativePdfPath = join(temp, 'native.pdf');
+const diskGate = join(temp, 'disk-gate');
+const panelMarker = join(temp, 'print-panel');
 const title = `Native ${Date.now()}`;
 let fixture = join(temp, `${title} été.md`);
 const image = `data:image/png;base64,${readFileSync(resolve('static/pwa-192x192.png')).toString('base64')}`;
@@ -59,7 +75,7 @@ const results = {
 	arch: process.arch,
 	binary,
 	pdfDestination: nativePdfPath,
-	binarySha256: createHash('sha256').update(readFileSync(binary)).digest('hex'),
+	binarySha256,
 	source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
 	checks: [],
 	fixture: { title, markdown: readFileSync(fixture, 'utf8') },
@@ -179,7 +195,13 @@ async function click(selector) {
 function launch(openFile = true) {
 	app = spawn(binary, openFile ? [fixture] : [], {
 		stdio: ['ignore', log, log],
-		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port), MDSH_SMOKE_PDF: nativePdfPath }
+		env: {
+			...process.env,
+			TAURI_WEBDRIVER_PORT: String(port),
+			MDSH_SMOKE_PDF: nativePdfPath,
+			MDSH_SMOKE_DISK_GATE: diskGate,
+			MDSH_SMOKE_PRINT_PANEL: panelMarker
+		}
 	});
 	const state = { startedAt: new Date().toISOString(), exitCode: null, signal: null };
 	currentProcess = state;
@@ -704,6 +726,17 @@ try {
 	const screenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
 	writeFileSync(join(output, 'read.png'), Buffer.from(screenshot, 'base64'));
 	if (process.platform === 'darwin') {
+		results.exportCancellation = await nativeExportCancellation({
+			execute,
+			executeAsync,
+			click,
+			drafts,
+			until,
+			panelMarker
+		});
+		passed('native export panels cancel without clearing edits');
+	}
+	if (process.platform === 'darwin') {
 		await execute(
 			`window.__printDiagnostics = []; const report = console.error; console.error = (...args) => { window.__printDiagnostics.push(args.map(String)); report(...args); }; const invoke = window.__TAURI_INTERNALS__.invoke; window.__TAURI_INTERNALS__.invoke = (command, ...args) => { const result = invoke(command, ...args); if (command === 'desktop_print') { window.__printDiagnostics.push({ command, args }); result.then(value => window.__printDiagnostics.push({ value }), error => window.__printDiagnostics.push({ error: String(error) })); } return result; };`
 		);
@@ -730,10 +763,18 @@ try {
 		assert.ok(bytes.length > 10_000);
 		assert.ok((bytes.toString('latin1').match(/\/Subtype\s*\/Image\b/g) ?? []).length >= 1);
 		results.pdfSha256 = createHash('sha256').update(bytes).digest('hex');
-		execFileSync('swift', [resolve('scripts/inspect-native-pdf.swift'), nativePdfPath, output], {
+		const inspector = join(temp, 'pdf-inspector');
+		execFileSync('swiftc', ['-O', resolve('scripts/inspect-native-pdf.swift'), '-o', inspector], {
 			stdio: 'inherit',
 			timeout: 60_000
 		});
+		const inspect = (directory) => {
+			mkdirSync(directory, { recursive: true });
+			writeFileSync(join(directory, 'native.pdf'), readFileSync(nativePdfPath));
+			execFileSync(inspector, [nativePdfPath, directory], { stdio: 'inherit', timeout: 30_000 });
+			return JSON.parse(readFileSync(join(directory, 'native-pdf-inspection.json'), 'utf8'));
+		};
+		results.pdfInspections = [inspect(output)];
 		passed('product macOS print operation exports a PDF with the embedded image');
 		const firstExportTime = statSync(nativePdfPath).mtimeMs;
 		await nativeShortcut('p');
@@ -747,6 +788,7 @@ try {
 			'repeated native PDF cleanup',
 			45_000
 		);
+		results.pdfInspections.push(inspect(join(output, 'repeated-pdf')));
 		passed('native PDF shortcut can export again after completion');
 	} else {
 		// Keep the actual preparation steps. Replace only the final OS dialog call
@@ -842,6 +884,17 @@ try {
 	passed('immediate native WYSIWYG close waits for durable save and relaunch');
 	assert.ok(readFileSync(fixture, 'utf8').includes(title));
 
+	results.diskRaces = await nativeDiskRaces({
+		execute,
+		executeAsync,
+		until,
+		fixture,
+		gate: diskGate,
+		output,
+		deliverFixture
+	});
+	await waitForNativeOpenDelivery();
+	passed('native replacement rename substitution and revocation races reject stale writes');
 	const diskBeforePurge = readFileSync(fixture);
 	const linkedDraft = (await drafts()).find(
 		(/** @type {{name: string}} */ item) => item.name === basename(fixture)

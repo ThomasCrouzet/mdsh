@@ -96,6 +96,7 @@ export const fr: Record<MessageKey, string> = {
 		'Impossible de renommer « {name} » sur le disque. Le nom du fichier reste inchangé.',
 	'disk.renameUnlinked':
 		'Ce navigateur ne peut pas renommer le fichier sur le disque. Enregistrez le brouillon renommé dans un nouveau fichier. Le fichier original reste sur le disque.',
+	'export.cancel': 'Annuler l’export',
 	// backup
 	'settings.restoreUnchangedSuffix': ' {n} élément(s) inchangé(s) conservé(s).',
 	'source.cmFind': 'Rechercher',

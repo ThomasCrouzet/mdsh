@@ -6,7 +6,7 @@ import { isMac } from '../platform';
 // The shadow tree keeps the document styles separate from the application.
 export async function printOnDesktop(
 	html: string,
-	opts: { signal?: AbortSignal } = {}
+	opts: { signal?: AbortSignal; onDialog?: () => void } = {}
 ): Promise<boolean> {
 	if (document.getElementById('mdsh-native-print')) throw new Error('Printing is already active');
 	const parsed = new DOMParser().parseFromString(html, 'text/html');
@@ -90,6 +90,9 @@ html[data-mdsh-printing] #mdsh-native-print { display: block !important; positio
 		await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 		checkCancelled();
 		if (!isMac()) document.title = parsed.title || originalTitle;
+		// The native dialog owns cancellation from this point until its callback.
+		opts.signal?.removeEventListener('abort', cleanup);
+		opts.onDialog?.();
 		if (isMac()) {
 			const { invoke } = await import('@tauri-apps/api/core');
 			try {

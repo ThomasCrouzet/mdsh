@@ -31,6 +31,85 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
 
 ## Repeat the browser suite
 
+### Durability and resource pressure risks
+
+- A process kill before the 400 ms timer can lose the in-memory revision. An
+  unload event is not a durability barrier. Record the last committed revision
+  separately from the text that existed only in the editor.
+- A kill during an IndexedDB transaction must retain the previous committed
+  data. A completed backup or workspace barrier must survive a process restart.
+- Concurrent saves must retain both branches, including the closed conflict
+  copy. A failed conflict write must not replace the original draft.
+- Large libraries can fill storage through drafts, history, and trash. Record
+  both logical bytes and the browser storage estimate. A quota error must keep
+  the save status in error and roll back the whole backup replacement.
+- An export can stop at consent, media fetch, image decoding, stylesheet loading,
+  or the native dialog. Cancellation must remove progress UI and print DOM,
+  preserve edits and the dirty indicator, and permit the next export.
+- An external process can replace, rename, or substitute a selected disk path
+  while a save is staged. Native permission revocation must serialize with file
+  writes. Check actual filesystem contents and retain each result.
+- PDF inspection can exceed its deadline through per-pixel AppKit allocations.
+  Keep all page images and pixel assertions, with a measured inspection budget.
+
+These workflows use real browser processes, IndexedDB, and the native WebView.
+Test-only gates select interruption points. They do not report simulated
+filesystem or quota errors as native evidence.
+
+### Durability and resource pressure evidence
+
+Run the focused browser workflows with one worker:
+
+```sh
+npm run test:e2e -- abrupt-exit.spec.ts storage-pressure.spec.ts export-cancellation.spec.ts --project=chromium --workers=1
+```
+
+| Workflow | Observable result and artifact |
+| --- | --- |
+| `abrupt-exit.spec.ts` | SIGKILL before debounce, during a live transaction, and after backup, workspace, and conflict writes. The same profile reopens. `abrupt-exit.json` records process IDs, signals, before/after rows, lost memory-only text, and recoverable history. The backup case also retains its downloaded JSON. |
+| `storage-pressure.spec.ts` | A seeded xorshift32 corpus has 300 drafts of 32 KiB, 9,000 history rows of about 2 KiB, and 100 trash entries. `storage-pressure.json` records timestamps, table counts, logical bytes, SHA-256 values, and Chromium usage/quota measurements. A real quota override rejects a save and replacement restore. Retry succeeds when quota returns. |
+| `export-cancellation.spec.ts` | Cancel consent, a held image response, image decoding, CSS, fonts, and browser print preparation. Each case keeps the draft and dirty marker, removes progress within two seconds, and downloads a subsequent HTML export. |
+
+The crash workflow delays only the save timer or holds a real IndexedDB
+transaction at a known point. The transaction and conflict cases request a
+flush first. SIGKILL itself does not run an unload handler.
+On Unix, it kills the owned process group, including Chromium's storage and
+rendering processes. Temporary-profile cleanup has bounded filesystem retries.
+It tests browser-process loss, not device power loss or deletion of a profile.
+The quota workflow waits 32 seconds for Chromium's bucket-space cache before
+each constrained write. This avoids filling the host disk. The decoder workflow
+holds the real bitmap operation until cancellation, then releases it to check
+that a late result cannot trigger a download.
+
+For native evidence, build and run in sequence:
+
+```sh
+CARGO_BUILD_JOBS=2 BASE_PATH='' npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
+node scripts/native-smoke.mjs
+```
+
+`disk-races.json` records actual file replacement, external rename, native rename,
+symlink substitution on Unix, and permission revocation before a pending write.
+Test-only gates wait at most 15 seconds and are absent from normal builds.
+On macOS, the runner cancels the actual Markdown, ZIP, HTML, and print panels
+through AppKit. The result includes editor content and dirty state. A later
+native print operation must produce a complete PDF.
+
+The macOS runner compiles the PDF inspector once with `swiftc -O` (60 second
+compile limit). It inspects two separate product exports. Each inspection has
+a 20 second internal budget and a 30 second process deadline on both Apple
+Silicon and Intel CI runners. The inspector renders every page to a 595 by 842
+RGBA bitmap, counts both colored image bands, and checks A4 dimensions and the
+final paragraph. It retains both PDFs, all PNG pages, extracted text, per-page
+timings, and `native-pdf-inspection.json`, including under `repeated-pdf/`.
+The parent `results.json` records source, environment, binary hash, and command.
+
+Browser consent checks replace two isolated tests that asserted mocked export
+calls. Native panel checks replace the old assumption that a frontend abort can
+remove print content while an AppKit panel remains open. Isolated printer-error
+and invalid-stylesheet checks remain because these workflows do not cause those
+failures through the operating system.
+
 ### Image layout and native export risks
 
 - Embedded image data can fill the source editor. Hide the payload with a keyboard-accessible
@@ -60,6 +139,10 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
   bullets, ordered-list start values, and task lists without duplicate markers.
 - A Safari-compatible user agent can report a Linux keyboard platform. Prefer the platform
   for shortcut labels and keep native Control-only handling inside Desktop.
+- The offline status label can change between pointer movement and a click.
+  Keep the mode buttons at the same position through service worker activation.
+  `toolbar-stability.spec.ts` holds real registration, then checks geometry and
+  one pointer click in Chromium and Firefox.
 
 Run `npm run test:e2e -- image-layout.spec.ts` for image payload and layout checks.
 Run the native build command from `.github/workflows/desktop.yml`, then

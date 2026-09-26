@@ -1,4 +1,7 @@
 import { applyRemoteImagePolicy, sanitizeHtml } from './sanitize-html';
+import { abortable, checkAborted } from '../abort';
+import { MAX_IMAGE_BYTES } from '../config';
+export { MAX_IMAGE_BYTES } from '../config';
 
 const IMAGE_MIME_TYPES = new Set([
 	'image/avif',
@@ -9,7 +12,6 @@ const IMAGE_MIME_TYPES = new Set([
 	'image/webp'
 ]);
 
-export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 export const MAX_MEDIA_TOTAL_BYTES = 8 * 1024 * 1024;
 export const MAX_IMAGE_DIMENSION = 8192;
 export const MAX_IMAGE_PIXELS = 32_000_000;
@@ -316,7 +318,8 @@ function errorReason(error: unknown): MediaIssueReason {
 
 export async function fetchAndEmbedImage(
 	source: string,
-	remainingBytes = MAX_MEDIA_TOTAL_BYTES
+	remainingBytes = MAX_MEDIA_TOTAL_BYTES,
+	signal?: AbortSignal
 ): Promise<EmbeddedImage> {
 	const url = new URL(source, window.location.href);
 	if (url.username || url.password) throw new Error('Image URLs cannot include credentials');
@@ -325,6 +328,9 @@ export async function fetchAndEmbedImage(
 		throw new Error('Image URL protocol is not allowed');
 	}
 	const controller = new AbortController();
+	checkAborted(signal);
+	const abort = () => controller.abort();
+	signal?.addEventListener('abort', abort, { once: true });
 	const timeout = setTimeout(() => controller.abort(), MEDIA_FETCH_TIMEOUT_MS);
 	try {
 		const response = await fetch(url.href, {
@@ -364,9 +370,10 @@ export async function fetchAndEmbedImage(
 		const type =
 			response.headers.get('content-type')?.split(';', 1)[0]?.trim() || extensionMime(name) || '';
 		const file = new File(chunks, name, { type });
-		return embedImageBlob(file);
+		return await abortable(embedImageBlob(file), controller.signal);
 	} finally {
 		clearTimeout(timeout);
+		signal?.removeEventListener('abort', abort);
 	}
 }
 
@@ -397,7 +404,7 @@ function collectMediaReferences(root: DocumentFragment): MediaReference[] {
 
 export async function prepareHtmlMedia(
 	html: string,
-	opts: { allowNetwork: boolean; maxTotalBytes?: number }
+	opts: { allowNetwork: boolean; maxTotalBytes?: number; signal?: AbortSignal | undefined }
 ): Promise<PreparedMedia> {
 	if (typeof document === 'undefined') return { html, issues: [], embedded: 0 };
 	const template = document.createElement('template');
@@ -426,6 +433,7 @@ export async function prepareHtmlMedia(
 	}
 
 	for (const reference of collectMediaReferences(template.content)) {
+		checkAborted(opts.signal);
 		const source = reference.source.trim();
 		if (source.startsWith('#')) {
 			if (reference.node.tagName.toLowerCase() === 'img') {
@@ -435,7 +443,7 @@ export async function prepareHtmlMedia(
 		}
 		if (/^data:/i.test(source)) {
 			try {
-				const result = await validateDataImage(source);
+				const result = await abortable(validateDataImage(source), opts.signal);
 				totalBytes += result.bytes;
 				if (totalBytes > (opts.maxTotalBytes ?? MAX_MEDIA_TOTAL_BYTES)) {
 					throw new ImageFileError('too-large', 'The export media total exceeds its limit');
@@ -449,6 +457,7 @@ export async function prepareHtmlMedia(
 					);
 				}
 			} catch (error) {
+				checkAborted(opts.signal);
 				issues.push({
 					source: reference.node.getAttribute('alt') || source.slice(0, 80),
 					reason: errorReason(error)
@@ -465,7 +474,7 @@ export async function prepareHtmlMedia(
 			const remaining = (opts.maxTotalBytes ?? MAX_MEDIA_TOTAL_BYTES) - totalBytes;
 			if (remaining <= 0)
 				throw new ImageFileError('too-large', 'The export media limit is reached');
-			const result = await fetchAndEmbedImage(source, remaining);
+			const result = await fetchAndEmbedImage(source, remaining, opts.signal);
 			totalBytes += result.bytes;
 			embedded++;
 			reference.node.setAttribute(reference.attribute, result.dataUri);
@@ -475,6 +484,7 @@ export async function prepareHtmlMedia(
 			reference.node.removeAttribute('data-mdsh-media-src');
 			reference.node.classList.remove('mdsh-remote-image-blocked');
 		} catch (error) {
+			checkAborted(opts.signal);
 			issues.push({ source, reason: errorReason(error) });
 			if (/^blob:/i.test(source)) {
 				reference.node.setAttribute('data-mdsh-media-src', source);
@@ -488,7 +498,7 @@ export async function prepareHtmlMedia(
 
 export async function prepareHtmlMediaOrThrow(
 	html: string,
-	opts: { allowNetwork: boolean; maxTotalBytes?: number }
+	opts: { allowNetwork: boolean; maxTotalBytes?: number; signal?: AbortSignal | undefined }
 ): Promise<string> {
 	const prepared = await prepareHtmlMedia(html, opts);
 	if (prepared.issues.length > 0) throw new MediaPreparationError(prepared.issues);

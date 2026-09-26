@@ -74,6 +74,17 @@ Settings shows whether the browser granted persistent storage. It also shows the
 
 The status bar identifies local draft saves. A linked disk file requires the explicit **Save to disk** action. The backup reminder opens Settings. You can dismiss the reminder for a week.
 
+If the status says **Not saved locally**, keep the editor open. Free storage and
+select **Retry save**. The latest text stays in memory until that save succeeds.
+Backup export and workspace saves stop if pending drafts cannot be saved.
+An abrupt browser or system exit can lose text that has not reached IndexedDB.
+Version history can contain a newer recovery point, but it is not an external backup.
+
+Each document keeps at most 30 regular history versions for 30 days. The app
+usually adds a version at intervals of at least five minutes. Conflict copies
+are separate closed documents, so normal history pruning does not delete them.
+Trash also retains documents for 30 days. Closing tabs does not free this space.
+
 Select **Check a backup** to validate a JSON file or decrypt and validate an encrypted backup without changing your library. A restore first shows the backup date and document counts, then asks whether to merge or replace. In a browser, wait for the download to finish before you rely on an exported file.
 
 A backup contains open and closed documents, workspaces, and custom templates. It excludes trash, version history, browser file handles, and Desktop path permissions. The format accepts up to 3,000 documents, 300 workspaces, 16 MiB per document, and 64 MiB in total. The app checks these limits before it reports a successful download. You cannot recover an encrypted backup without its passphrase.
@@ -89,6 +100,11 @@ PDF export renders content, embedded images, formulas, code blocks, and diagrams
 On macOS Desktop, use the native print panel's **PDF** menu to save the document.
 The editor returns after the print operation finishes or you cancel it.
 Tall images fit within the A4 printable height without cropping.
+
+During HTML or PDF preparation, select **Cancel export** in the progress message
+to stop waiting for media or styles. In a native save or print panel, use its
+**Cancel** button. Cancellation keeps the draft and its unexported-change marker.
+You can edit the document and start another export.
 
 Select **PDF (A4)** under **Editor width** in Settings or through Commands. This
 preset uses the 178 mm text width of an A4 page with 16 mm side margins. It is a

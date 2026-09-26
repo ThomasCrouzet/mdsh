@@ -1,4 +1,6 @@
 mod disk;
+#[cfg(feature = "native-smoke")]
+mod disk_gate;
 mod printing;
 mod shell;
 
@@ -87,6 +89,7 @@ pub fn run() {
             shell::desktop_smoke_request_close,
             printing::desktop_print,
             shell::desktop_smoke_key,
+            shell::desktop_smoke_cancel_dialog,
         ])
         .setup(move |app| {
             app.state::<CapabilityStore>()

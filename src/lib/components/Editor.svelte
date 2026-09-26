@@ -13,12 +13,6 @@
 	import { i18n, t } from '$lib/i18n';
 	import { blockEditLabels, toolbarLabels } from '$lib/editor-labels';
 	import { notify } from '$lib/notify.svelte';
-	import {
-		editorImageSource,
-		embedImageFile,
-		ImageFileError,
-		MAX_IMAGE_BYTES
-	} from '$lib/render/image-media';
 	import { ImageMarkdownRoundTrip } from '$lib/render/image-markdown';
 	import { editorStateCache } from '$lib/editor-state';
 	import { stripFrontmatter } from '$lib/frontmatter';
@@ -113,7 +107,8 @@
 			{ imageBlockConfig: imageBlockConfigCtx },
 			{ inlineImageConfig: inlineImageConfigCtx },
 			{ codeBlockConfig: codeBlockConfigCtx },
-			{ wikiLinkPlugins }
+			{ wikiLinkPlugins },
+			{ editorImageSource, embedImageFile, ImageFileError, MAX_IMAGE_BYTES }
 		] = await Promise.all([
 			loadCrepeModule(),
 			import('@milkdown/kit/core'),
@@ -121,7 +116,8 @@
 			import('@milkdown/kit/component/image-block'),
 			import('@milkdown/kit/component/image-inline'),
 			import('@milkdown/kit/component/code-block'),
-			import('$lib/milkdown-wiki-links')
+			import('$lib/milkdown-wiki-links'),
+			import('$lib/render/image-media')
 		]);
 		if (token !== mountToken) return;
 		// Keep YAML outside the Markdown editor so it cannot become headings or links.

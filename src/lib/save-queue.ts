@@ -426,9 +426,8 @@ export class SaveQueue {
 
 	/**
 	 * §A2.8 - Immediate flush: clears the timers and writes all pending rows.
-	 * Called on `pagehide` / `beforeunload`. Fire-and-forget (no `await`) - the
-	 * IDB transactions are preserved by Chrome/Firefox even if the page unloads
-	 * just after.
+	 * Called on `pagehide` / `beforeunload`. This is best effort. A process kill
+	 * can stop the transaction; only a completed awaited barrier proves a save.
 	 */
 	flush(getRow: (id: string) => DraftRow | null, retryFailed = true): void {
 		const ids = new Set([

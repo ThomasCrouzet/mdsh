@@ -42,3 +42,11 @@ demo script writes `docs/demo.gif` at 960 by 600 pixels. Capture evidence, sourc
 frames, build hashes, and encoding settings stay in `test-results/capture-*`.
 Inspect the images and GIF before committing them. Browser and system font
 versions can affect raster output.
+
+| File in `docs/screenshots/` | Scenario |
+| --- | --- |
+| `mode-wysiwyg.webp` | Visual editor, heading, math, code, and checklist. |
+| `mode-wysiwyg-light.webp` | Visual editor in the light theme. |
+| `mode-source.webp` | Source editor with syntax colors and line numbers. |
+| `mode-read.webp` | Reading mode, outline, formulas, and backlinks. |
+| `palette.webp` | Command palette and shortcut labels. |

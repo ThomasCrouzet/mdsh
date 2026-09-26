@@ -86,10 +86,5 @@ describe('native print isolation', () => {
 		await expect(
 			printOnDesktop('<body>Text</body>', { signal: controller.signal })
 		).rejects.toMatchObject({ name: 'AbortError' });
-		const active = new AbortController();
-		void printOnDesktop('<body>Text</body>', { signal: active.signal });
-		await vi.waitFor(() => expect(print).toHaveBeenCalledTimes(2));
-		active.abort();
-		expect(document.getElementById('mdsh-native-print')).toBeNull();
 	});
 });

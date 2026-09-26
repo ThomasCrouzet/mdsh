@@ -87,7 +87,14 @@ cycles. Repeating the same merge does not duplicate an unchanged linked notebook
 
 The 400 ms save debounce is an optimization, not proof that content is durable. `SaveQueue` serializes writes per document and records a rejected IndexedDB revision as a durability failure. `flushAwait()` retries failed rows and rejects while any in-memory revision is not represented in IndexedDB. Backup export, restore, and workspace replacement stop at that barrier. The UI reports the error without converting it into a successful save.
 
+Workspace creation and update also wait for pending drafts before writing their
+tab references. A workspace must not report a successful save while its current
+text exists only in memory.
+
 Visibility, page-hide, and before-unload events trigger an immediate flush to reduce the residual recovery point. They cannot guarantee execution after a browser or operating-system kill. External backup remains the recovery mechanism for loss of the browser profile.
+The abrupt-exit workflow kills Chromium with SIGKILL and reopens the same profile
+at the debounce, transaction, backup, workspace, and conflict stages. Its artifact
+lists committed content, conflict copies, and revisions available in history.
 
 ## Native file access uses session capabilities
 
@@ -97,6 +104,17 @@ The disk-link record keeps the last written content revision across restarts. A 
 
 Native writes stage data in the target directory and synchronize it. They then compare a SHA-256 revision immediately before replacement. The operation preserves permissions and uses the platform replacement function. It detects external edits with unchanged size and timestamp. A staging failure keeps the original file.
 
+The final check also validates the canonical path, including for a forced save.
+Write, rename, and permission revocation share the Rust capability lock. An
+operation that acquires this lock before revocation can complete; subsequent
+operations with the revoked token fail.
+
+External writers do not share this lock. A noncooperating process can still
+change the file or a parent directory after the final path and revision check
+and before the filesystem operation. The same limit applies between the hard
+link and unlink steps of rename. These operations are not a filesystem-wide
+compare-and-swap. The native race artifact records the tested interruption points.
+
 ## Native macOS printing
 
 The frontend prepares sanitized content in a separate shadow tree and waits for images and fonts.
@@ -104,6 +122,10 @@ On macOS, it applies print styles before WKWebView calculates page boundaries.
 Rust starts a WKWebView print operation as an asynchronous native sheet.
 Its completion callback releases the prepared content after printing or cancellation.
 There is no cleanup deadline while the macOS print panel remains open.
+
+HTML and PDF preparation accept a cancellation signal through rendering, media,
+styles, fonts, and print preparation. The progress action stops that work. Once
+the native panel opens, it owns cancellation and its callback owns DOM cleanup.
 
 The native smoke build saves through this same print operation.
 PDFKit checks pagination, content, and image border pixels in the resulting file.

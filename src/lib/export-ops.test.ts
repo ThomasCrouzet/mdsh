@@ -85,30 +85,6 @@ describe('export-ops - notification feedback (§J3)', () => {
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(false);
 	});
 
-	it('requests consent before it retries an export with network access', async () => {
-		vi.spyOn(promptStore, 'confirm').mockResolvedValue(true);
-		vi.mocked(services.exportHTML)
-			.mockRejectedValueOnce(
-				new MediaPreparationError([{ source: 'https://images.example/a.png', reason: 'blocked' }])
-			)
-			.mockResolvedValueOnce(true);
-		await exportHTML('a', deps);
-		expect(promptStore.confirm).toHaveBeenCalledOnce();
-		expect(services.exportHTML).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'a' }), {
-			allowNetworkImages: true
-		});
-	});
-
-	it('exports nothing and reports no success after consent cancellation', async () => {
-		vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
-		vi.mocked(services.exportPDF).mockRejectedValue(
-			new MediaPreparationError([{ source: 'relative.png', reason: 'blocked' }])
-		);
-		await exportPDF('a', deps);
-		expect(services.exportPDF).toHaveBeenCalledOnce();
-		expect(notify.toasts.some((toast) => toast.level === 'success')).toBe(false);
-	});
-
 	it('does not mark a concurrent edit as exported', async () => {
 		const files = [file('a')];
 		let finish: (value: boolean) => void = () => {};

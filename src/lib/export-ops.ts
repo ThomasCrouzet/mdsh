@@ -21,15 +21,19 @@ import { reportError } from './report';
 import type { FileItem } from './types';
 import { promptStore } from './prompt.svelte';
 import type { MediaExportOptions } from './services/export';
+import { checkAborted } from './abort';
 
 async function withMediaConsent<T>(
-	operation: (options?: MediaExportOptions) => Promise<T>
+	operation: (options?: MediaExportOptions) => Promise<T>,
+	options: MediaExportOptions = {}
 ): Promise<T | null> {
 	try {
-		return await operation();
+		return await operation(options);
 	} catch (error) {
+		checkAborted(options.signal);
 		const { MediaPreparationError } = await import('./render/image-media');
 		if (!(error instanceof MediaPreparationError) || !error.needsNetworkConsent) throw error;
+		checkAborted(options.signal);
 		const allowed = await promptStore.confirm({
 			title: t('export.remoteImagesTitle'),
 			message: t('export.remoteImagesPrompt', {
@@ -38,7 +42,8 @@ async function withMediaConsent<T>(
 			confirmLabel: t('export.remoteImagesConfirm')
 		});
 		if (!allowed) return null;
-		return operation({ allowNetworkImages: true });
+		checkAborted(options.signal);
+		return operation({ ...options, allowNetworkImages: true });
 	}
 }
 
@@ -119,14 +124,18 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 export async function exportHTML(id: string, deps: ExportDeps): Promise<void> {
 	const file = deps.getFiles().find((f) => f.id === id);
 	if (!file || !browser) return;
-	const dismiss = spinnerStore.show(t('export.preparingHtml'));
+	const controller = new AbortController();
+	const dismiss = spinnerStore.show(t('export.preparingHtml'), () => controller.abort());
 	try {
 		const snapshot = { ...file };
-		const ok = await withMediaConsent((options) => exportHTMLService(snapshot, options));
+		const ok = await withMediaConsent((options) => exportHTMLService(snapshot, options), {
+			signal: controller.signal,
+			onDialog: () => dismiss.disableCancel?.()
+		});
 		if (!ok) return; // desktop dialog cancelled
 		notify.success(t('export.htmlExported'));
 	} catch (err) {
-		await reportMediaFailure(err, t('export.htmlFailed'));
+		if (!controller.signal.aborted) await reportMediaFailure(err, t('export.htmlFailed'));
 	} finally {
 		dismiss();
 	}
@@ -139,13 +148,17 @@ export async function exportHTML(id: string, deps: ExportDeps): Promise<void> {
 export async function exportPDF(id: string, deps: ExportDeps): Promise<void> {
 	const file = deps.getFiles().find((f) => f.id === id);
 	if (!file || !browser) return;
-	const dismiss = spinnerStore.show(t('export.preparingPdf'));
+	const controller = new AbortController();
+	const dismiss = spinnerStore.show(t('export.preparingPdf'), () => controller.abort());
 	try {
 		const snapshot = { ...file };
-		const opened = await withMediaConsent((options) => exportPDFService(snapshot, options));
+		const opened = await withMediaConsent((options) => exportPDFService(snapshot, options), {
+			signal: controller.signal,
+			onDialog: () => dismiss.disableCancel?.()
+		});
 		if (opened) notify.success(t('export.printDialogOpened'));
 	} catch (err) {
-		await reportMediaFailure(err, t('export.pdfFailed'));
+		if (!controller.signal.aborted) await reportMediaFailure(err, t('export.pdfFailed'));
 	} finally {
 		dismiss();
 	}

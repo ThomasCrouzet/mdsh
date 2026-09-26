@@ -27,6 +27,8 @@ export const READING = {
 	wpm: 220
 } as const;
 
+export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
 export const IMPORT_LIMITS = {
 	maxFileBytes: 16 * 1024 * 1024,
 	maxBatchBytes: 64 * 1024 * 1024,
