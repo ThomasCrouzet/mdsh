@@ -5,6 +5,14 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [1.8.2](https://github.com/ThomasCrouzet/mdsh/compare/v1.8.1...v1.8.2) (2026-09-26)
+
+
+### Bug Fixes
+
+* enforce durable saves and cancellable exports ([edf9e0f](https://github.com/ThomasCrouzet/mdsh/commit/edf9e0f5d480ede0385f65704ac1191222c55a94))
+* keep toolbar controls stable during offline setup ([811b65c](https://github.com/ThomasCrouzet/mdsh/commit/811b65c2af4b649b8c51b15fa322463a98f2e419))
+
 ## [1.8.1](https://github.com/ThomasCrouzet/mdsh/compare/v1.8.0...v1.8.1) (2026-09-25)
 
 
