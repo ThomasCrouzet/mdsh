@@ -28,7 +28,7 @@ for (const stage of ['debounce', 'transaction', 'backup', 'workspace', 'conflict
 					`--user-data-dir=${profile}`,
 					'about:blank'
 				],
-				{ stdio: 'ignore' }
+				{ stdio: 'ignore', detached: process.platform !== 'win32' }
 			);
 			launches.push({ pid: child.pid });
 			let port = '';
@@ -46,7 +46,9 @@ for (const stage of ['debounce', 'transaction', 'backup', 'workspace', 'conflict
 		const kill = async () => {
 			if (!child || child.exitCode !== null || child.signalCode !== null) return;
 			const exited = once(child, 'exit');
-			child.kill('SIGKILL');
+			// Include Chromium utility processes. They also write into this owned profile.
+			if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+			else child.kill('SIGKILL');
 			const [, signal] = await exited;
 			launches.at(-1)!.signal = signal;
 			expect(signal).toBe('SIGKILL');
@@ -149,7 +151,6 @@ for (const stage of ['debounce', 'transaction', 'backup', 'workspace', 'conflict
 					true
 				);
 			}
-			await restarted.close();
 		} finally {
 			await kill();
 			const artifact = info.outputPath('abrupt-exit.json');
@@ -158,6 +159,7 @@ for (const stage of ['debounce', 'transaction', 'backup', 'workspace', 'conflict
 				JSON.stringify(
 					{
 						stage,
+						termination: process.platform === 'win32' ? 'process' : 'process-group',
 						launches,
 						fixture: { baseline, revision },
 						before,
@@ -172,7 +174,7 @@ for (const stage of ['debounce', 'transaction', 'backup', 'workspace', 'conflict
 				)
 			);
 			await info.attach('abrupt-exit.json', { path: artifact, contentType: 'application/json' });
-			await rm(profile, { recursive: true, force: true });
+			await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 		}
 	});
 }

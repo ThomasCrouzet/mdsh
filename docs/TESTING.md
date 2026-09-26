@@ -73,6 +73,8 @@ npm run test:e2e -- abrupt-exit.spec.ts storage-pressure.spec.ts export-cancella
 The crash workflow delays only the save timer or holds a real IndexedDB
 transaction at a known point. The transaction and conflict cases request a
 flush first. SIGKILL itself does not run an unload handler.
+On Unix, it kills the owned process group, including Chromium's storage and
+rendering processes. Temporary-profile cleanup has bounded filesystem retries.
 It tests browser-process loss, not device power loss or deletion of a profile.
 The quota workflow waits 32 seconds for Chromium's bucket-space cache before
 each constrained write. This avoids filling the host disk. The decoder workflow
