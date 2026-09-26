@@ -137,6 +137,10 @@ failures through the operating system.
   bullets, ordered-list start values, and task lists without duplicate markers.
 - A Safari-compatible user agent can report a Linux keyboard platform. Prefer the platform
   for shortcut labels and keep native Control-only handling inside Desktop.
+- The offline status label can change between pointer movement and a click.
+  Keep the mode buttons at the same position through service worker activation.
+  `toolbar-stability.spec.ts` holds real registration, then checks geometry and
+  one pointer click in Chromium and Firefox.
 
 Run `npm run test:e2e -- image-layout.spec.ts` for image payload and layout checks.
 Run the native build command from `.github/workflows/desktop.yml`, then

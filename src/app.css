@@ -308,6 +308,8 @@ body.typewriter-mode .mdsh-editor {
 
 .mdsh-local-indicator {
 	display: none;
+	/* Keep the mode buttons fixed when offline preparation completes. */
+	flex: 0 0 14rem;
 	align-items: center;
 	gap: 0.45rem;
 	padding-inline: 0.6rem;
@@ -319,6 +321,7 @@ body.typewriter-mode .mdsh-editor {
 
 .mdsh-local-indicator::before {
 	content: '';
+	flex-shrink: 0;
 	width: 5px;
 	height: 5px;
 	background: var(--color-accent);

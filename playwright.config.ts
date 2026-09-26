@@ -68,6 +68,7 @@ export default defineConfig({
 				'**/image-layout.spec.ts',
 				'**/reading-lists.spec.ts',
 				'**/keyboard-platform.spec.ts',
+				'**/toolbar-stability.spec.ts',
 				'**/slash-commands.spec.ts',
 				'**/wiki-links.spec.ts'
 			]
