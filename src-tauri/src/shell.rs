@@ -179,6 +179,57 @@ pub async fn desktop_smoke_key(
     }
 }
 
+#[tauri::command]
+pub async fn desktop_smoke_cancel_dialog(window: tauri::WebviewWindow) -> Result<bool, String> {
+    #[cfg(all(target_os = "macos", feature = "native-smoke"))]
+    {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        window
+            .with_webview(move |_| {
+                use objc2::MainThreadMarker;
+                use objc2_app_kit::{NSApplication, NSButton, NSView};
+                use objc2::runtime::NSObjectProtocol;
+                fn cancel(view: &NSView) -> bool {
+                    if let Some(button) = view.downcast_ref::<NSButton>() {
+                        if ["Cancel", "Annuler"].contains(&button.title().to_string().as_str()) {
+                            // The retained panel owns this button on the AppKit thread.
+                            unsafe { button.performClick(None) };
+                            return true;
+                        }
+                    }
+                    view.subviews().iter().any(|child| cancel(&child))
+                }
+                let app = NSApplication::sharedApplication(MainThreadMarker::new().unwrap());
+                let mut windows = app.windows().to_vec();
+                windows.extend(app.modalWindow());
+                windows.extend(app.keyWindow());
+                let cancelled = windows.iter().any(|window| {
+                    if window.respondsToSelector(objc2::sel!(cancel:)) {
+                        // AppKit save panels can render their buttons in another process.
+                        unsafe { let _: () = objc2::msg_send![&**window, cancel: std::ptr::null::<objc2::runtime::AnyObject>()]; }
+                        return true;
+                    }
+                    window
+                        .attachedSheet()
+                        .or_else(|| window.isVisible().then(|| window.clone()))
+                        .and_then(|sheet| sheet.contentView())
+                        .is_some_and(|view| cancel(&view))
+                });
+                let _ = sender.send(cancelled);
+            })
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || receiver.recv())
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(all(target_os = "macos", feature = "native-smoke")))]
+    {
+        let _ = window;
+        Err("test command unavailable".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

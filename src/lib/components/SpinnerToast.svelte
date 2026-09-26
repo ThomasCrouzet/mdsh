@@ -3,6 +3,7 @@
 	// Distinct from the existing Toast (undo-close 5 s) - this one closes only
 	// when the store decides (`dismiss()` in the caller's finally).
 	import { spinnerStore } from '$lib/spinner.svelte';
+	import { t } from '$lib/i18n';
 </script>
 
 {#if spinnerStore.visible}
@@ -17,6 +18,9 @@
 		>
 			<span class="spinner" aria-hidden="true"></span>
 			<span>{spinnerStore.message}</span>
+			{#if spinnerStore.cancel}
+				<button class="underline" onclick={spinnerStore.cancel}>{t('export.cancel')}</button>
+			{/if}
 		</div>
 	</div>
 {/if}

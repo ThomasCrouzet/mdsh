@@ -16,9 +16,12 @@
 
 import type { FileItem } from '$lib/types';
 import { stripMdExtension, untitledBasename, untitledFilename } from '$lib/file-utils';
+import { abortable, checkAborted } from '../abort';
 
 export interface MediaExportOptions {
 	allowNetworkImages?: boolean;
+	signal?: AbortSignal;
+	onDialog?: () => void;
 }
 
 /**
@@ -97,21 +100,37 @@ export async function exportHTML(
 		{ buildStandaloneHtmlDocument },
 		{ prepareHtmlMediaOrThrow },
 		{ i18n }
-	] = await Promise.all([
-		import('../render/markdown'),
-		import('../render/print'),
-		import('../render/image-media'),
-		import('$lib/i18n')
-	]);
+	] = await abortable(
+		Promise.all([
+			import('../render/markdown'),
+			import('../render/print'),
+			import('../render/image-media'),
+			import('$lib/i18n')
+		]),
+		options.signal
+	);
 	const fallback = stripMdExtension(file.name);
-	const { html: renderedHtml, title } = await renderMarkdownDetailed(file.content, {
-		allowRemoteImages: options.allowNetworkImages === true
-	});
+	checkAborted(options.signal);
+	const { html: renderedHtml, title } = await abortable(
+		renderMarkdownDetailed(file.content, {
+			allowRemoteImages: options.allowNetworkImages === true
+		}),
+		options.signal
+	);
 	const bodyHtml = await prepareHtmlMediaOrThrow(renderedHtml, {
-		allowNetwork: options.allowNetworkImages === true
+		allowNetwork: options.allowNetworkImages === true,
+		signal: options.signal
 	});
 	const docTitle = title || fallback;
-	const html = await buildStandaloneHtmlDocument(docTitle, bodyHtml, file.content, i18n.locale);
+	const html = await buildStandaloneHtmlDocument(
+		docTitle,
+		bodyHtml,
+		file.content,
+		i18n.locale,
+		options.signal
+	);
+	checkAborted(options.signal);
+	options.onDialog?.();
 	const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
 	// Same sanitization as markdown/ZIP exports - path-like names break download.
 	return triggerDownload(blob, sanitizeFilename(fallback + '.html'));
@@ -136,19 +155,27 @@ export async function exportPDF(
 		{ buildPrintDocument, printInIframe },
 		{ prepareHtmlMediaOrThrow },
 		{ i18n }
-	] = await Promise.all([
-		import('../render/markdown'),
-		import('../render/print'),
-		import('../render/image-media'),
-		import('$lib/i18n')
-	]);
+	] = await abortable(
+		Promise.all([
+			import('../render/markdown'),
+			import('../render/print'),
+			import('../render/image-media'),
+			import('$lib/i18n')
+		]),
+		options.signal
+	);
 	const fallback = stripMdExtension(file.name);
-	const { html: renderedHtml, title } = await renderMarkdownDetailed(file.content, {
-		showFrontmatter: false,
-		allowRemoteImages: options.allowNetworkImages === true
-	});
+	checkAborted(options.signal);
+	const { html: renderedHtml, title } = await abortable(
+		renderMarkdownDetailed(file.content, {
+			showFrontmatter: false,
+			allowRemoteImages: options.allowNetworkImages === true
+		}),
+		options.signal
+	);
 	const bodyHtml = await prepareHtmlMediaOrThrow(renderedHtml, {
-		allowNetwork: options.allowNetworkImages === true
+		allowNetwork: options.allowNetworkImages === true,
+		signal: options.signal
 	});
 	const docTitle = title || fallback;
 	const html = buildPrintDocument({
@@ -157,7 +184,7 @@ export async function exportPDF(
 		source: file.content,
 		lang: i18n.locale
 	});
-	return printInIframe(html);
+	return printInIframe(html, options);
 }
 
 /**

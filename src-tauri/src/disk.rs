@@ -270,6 +270,8 @@ impl CapabilityStore {
         expected: Option<&str>,
         force: bool,
     ) -> Result<DiskStat, String> {
+        #[cfg(feature = "native-smoke")]
+        crate::disk_gate::wait(&self.resolve(token, true)?, "before-write")?;
         let state = self.0.lock().map_err(|_| "capability store unavailable")?;
         let path = Self::resolve_in(&state, token, true)?;
         atomic_write(&path, contents, expected, force)
@@ -295,6 +297,11 @@ impl CapabilityStore {
             .ok_or("disk target has no parent")?
             .join(name);
         ensure_read_allowed(&target)?;
+        #[cfg(feature = "native-smoke")]
+        crate::disk_gate::wait(&source, "rename")?;
+        if path_key(&source)? != source || path_key(&target)? != target {
+            return Err("disk path changed since it was approved".into());
+        }
         ensure_expected_revision(&source, expected, false)?;
         let stat = stat_path(&source)?.ok_or("disk file is missing")?;
         if source != target {
@@ -545,6 +552,7 @@ fn atomic_write(
 ) -> Result<DiskStat, String> {
     ensure_write_allowed(path)?;
     reject_symlink(path)?;
+    let approved = path_key(path)?;
     let temp = temporary_path(path)?;
     let result = (|| {
         let mut options = OpenOptions::new();
@@ -566,6 +574,12 @@ fn atomic_write(
         // Windows requires the replacement file to be closed.
         drop(file);
         // Check the revision immediately before replacement.
+        #[cfg(feature = "native-smoke")]
+        crate::disk_gate::wait(path, "staged")?;
+        // A forced overwrite bypasses revision checks, not path approval.
+        if path_key(path)? != approved {
+            return Err("disk path changed since it was approved".into());
+        }
         ensure_expected_revision(path, expected_revision, force)?;
         replace_file(&temp, path)?;
         disk_stat_from_metadata(&metadata, revision_for_bytes(contents))

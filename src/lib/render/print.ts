@@ -11,6 +11,7 @@ import { hasMath } from './markdown';
 import { t } from '$lib/i18n';
 import { DEFAULT_LOCALE } from '$lib/i18n/locale';
 import { isDesktop } from '../desktop';
+import { checkAborted } from '../abort';
 
 export class PrintImageError extends Error {
 	constructor(public readonly sources: readonly string[]) {
@@ -151,7 +152,7 @@ function fontMimeType(path: string): string {
 }
 
 /** Replaces every local KaTeX font reference with an embedded data URL. */
-async function inlineKatexFonts(css: string): Promise<string> {
+async function inlineKatexFonts(css: string, signal?: AbortSignal): Promise<string> {
 	const matches = [...css.matchAll(/url\((['"]?)(fonts\/[^)'"\s]+)\1\)/g)];
 	const replacements = new Map<string, string>();
 
@@ -160,7 +161,7 @@ async function inlineKatexFonts(css: string): Promise<string> {
 			const path = match[2];
 			if (!path) throw new Error('KaTeX font reference is missing a path');
 			if (replacements.has(path)) return;
-			const response = await fetch(assetUrl(`/katex/${path}`));
+			const response = await fetch(assetUrl(`/katex/${path}`), { signal: signal ?? null });
 			if (!response.ok) throw new Error(`Font /katex/${path}: HTTP ${response.status}`);
 			const bytes = new Uint8Array(await response.arrayBuffer());
 			replacements.set(path, `data:${fontMimeType(path)};base64,${bytesToBase64(bytes)}`);
@@ -175,8 +176,8 @@ async function inlineKatexFonts(css: string): Promise<string> {
 }
 
 /** Fetches the text of a stylesheet served by the app (for inlining). */
-async function fetchCssText(path: string): Promise<string> {
-	const res = await fetch(assetUrl(path));
+async function fetchCssText(path: string, signal?: AbortSignal): Promise<string> {
+	const res = await fetch(assetUrl(path), { signal: signal ?? null });
 	if (!res.ok) throw new Error(`CSS ${path} : HTTP ${res.status}`);
 	return res.text();
 }
@@ -223,14 +224,16 @@ export async function buildStandaloneHtmlDocument(
 	title: string,
 	bodyHtml: string,
 	source?: string,
-	lang?: string
+	lang?: string,
+	signal?: AbortSignal
 ): Promise<string> {
 	const needsKatex = source ? hasMath(source) : /class="math-block"|class="katex/.test(bodyHtml);
-	const styles: string[] = [await fetchCssText('/print/print.css')];
+	const styles: string[] = [await fetchCssText('/print/print.css', signal)];
 	if (needsKatex) {
-		const katexCss = await fetchCssText('/katex/katex.min.css');
-		styles.push(await inlineKatexFonts(katexCss));
+		const katexCss = await fetchCssText('/katex/katex.min.css', signal);
+		styles.push(await inlineKatexFonts(katexCss, signal));
 	}
+	checkAborted(signal);
 	return renderStandaloneDoc(title, bodyHtml, styles, lang);
 }
 
@@ -243,7 +246,7 @@ export async function buildStandaloneHtmlDocument(
  */
 export async function printInIframe(
 	html: string,
-	opts: { signal?: AbortSignal } = {}
+	opts: { signal?: AbortSignal; onDialog?: () => void } = {}
 ): Promise<boolean> {
 	if (!browser) throw new Error('printInIframe requires a browser environment');
 	if (opts.signal?.aborted) throw abortError();
@@ -273,26 +276,54 @@ export async function printInIframe(
 		doc.write(html);
 		doc.close();
 
+		// A written iframe can report complete before its stylesheets are ready.
+		// Do not open a partially styled print while a local asset is still loading.
+		await Promise.all(
+			Array.from(doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')).map(
+				async (link) => {
+					if (link.sheet) return;
+					let loaded!: () => void;
+					let failed!: () => void;
+					const ready = new Promise<void>((resolve, reject) => {
+						loaded = resolve;
+						failed = () => reject(new Error('Print stylesheet failed to load'));
+						link.addEventListener('load', loaded, { once: true });
+						link.addEventListener('error', failed, { once: true });
+					});
+					try {
+						await boundedWait(ready, 10_000, opts.signal);
+					} finally {
+						link.removeEventListener('load', loaded);
+						link.removeEventListener('error', failed);
+					}
+				}
+			)
+		);
+
 		// Wait for the document to be "complete" - combines the two signals
 		// (readyState + iframe load) with a timeout safety net.
-		await new Promise<void>((resolve) => {
-			let settled = false;
-			let timer: ReturnType<typeof setTimeout> | null = null;
-			const done = () => {
-				if (settled) return;
-				settled = true;
-				if (timer) clearTimeout(timer);
-				resolve();
-			};
-			if (iframe.contentDocument?.readyState === 'complete') {
-				requestAnimationFrame(done);
-				return;
-			}
-			iframe.addEventListener('load', done, { once: true });
-			// Safety net: some browsers do not re-fire `load` after
-			// `document.write()`; we unblock after 3 s no matter what.
-			timer = setTimeout(done, TIMERS.printIframeLoadMs);
-		});
+		await boundedWait(
+			new Promise<void>((resolve) => {
+				let settled = false;
+				let timer: ReturnType<typeof setTimeout> | null = null;
+				const done = () => {
+					if (settled) return;
+					settled = true;
+					if (timer) clearTimeout(timer);
+					resolve();
+				};
+				if (iframe.contentDocument?.readyState === 'complete') {
+					requestAnimationFrame(done);
+					return;
+				}
+				iframe.addEventListener('load', done, { once: true });
+				// Safety net: some browsers do not re-fire `load` after
+				// `document.write()`; we unblock after 3 s no matter what.
+				timer = setTimeout(done, TIMERS.printIframeLoadMs);
+			}),
+			TIMERS.printIframeLoadMs + 100,
+			opts.signal
+		);
 
 		// Wait for the webfonts to load (KaTeX mostly).
 		const idoc = iframe.contentDocument;
@@ -327,6 +358,7 @@ export async function printInIframe(
 		setTimeout(removeOnce, TIMERS.printIframeCleanupMs);
 
 		win.focus();
+		opts.onDialog?.();
 		win.print();
 		return true;
 	} catch (err) {

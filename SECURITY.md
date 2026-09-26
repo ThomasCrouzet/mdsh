@@ -39,6 +39,11 @@ Native file operations reject relative paths, parent traversal, unsupported exte
 
 These boundaries reduce the impact of a WebView compromise but do not make an already compromised local operating-system account safe. Desktop installers remain unsigned beta artifacts until platform signing and notarization are available. There is no auto-update channel.
 
+Path and revision checks do not lock out external processes. A noncooperating
+writer can change an entry after the final check. See the remaining race window
+and native evidence in [Architecture](ARCHITECTURE.md#native-file-access-uses-session-capabilities)
+and [Testing](docs/TESTING.md).
+
 ## Durability and backup limits
 
 IndexedDB writes are debounced by 400 ms and flushed when the page becomes hidden, on page hide, and before relevant navigation. A rejected write makes the durability barrier fail closed and blocks backup, restore, and workspace replacement. A browser or device kill can still lose edits within the debounce window, and IndexedDB can be removed with browser profile data.

@@ -15,10 +15,11 @@
 class SpinnerStore {
 	visible = $state(false);
 	message = $state('');
+	cancel = $state<(() => void) | undefined>();
 	// Tokens whose 200 ms delay has expired (so actually displayed) and that are
 	// not yet finished. Non-reactive internal bookkeeping - the observable state
 	// is `visible` / `message`.
-	private displayed = new Map<symbol, string>();
+	private displayed = new Map<symbol, { message: string; cancel?: (() => void) | undefined }>();
 
 	/**
 	 * Schedules the spinner display after 200 ms. If the export finishes before
@@ -26,28 +27,38 @@ class SpinnerStore {
 	 * Otherwise, the toast stays displayed until ALL ongoing exports have called
 	 * their `dismiss()`.
 	 */
-	show(message: string): () => void {
+	show(message: string, cancel?: () => void) {
 		const token = Symbol('spinner');
+		const entry = { message, cancel };
 		const timer = setTimeout(() => {
-			this.displayed.set(token, message);
+			this.displayed.set(token, entry);
 			this.refresh();
 		}, 200);
-		return () => {
+		const dismiss = () => {
 			clearTimeout(timer);
 			this.displayed.delete(token);
 			this.refresh();
 		};
+		return Object.assign(dismiss, {
+			disableCancel: () => {
+				entry.cancel = undefined;
+				this.refresh();
+			}
+		});
 	}
 
 	/** Recomputes the visible/message state from the exports still displayed. */
 	private refresh(): void {
 		if (this.displayed.size === 0) {
 			this.visible = false;
+			this.cancel = undefined;
 			return;
 		}
 		// Message of the most recently displayed export (Map insertion order).
 		const messages = [...this.displayed.values()];
-		this.message = messages[messages.length - 1]!;
+		const latest = messages[messages.length - 1]!;
+		this.message = latest.message;
+		this.cancel = latest.cancel;
 		this.visible = true;
 	}
 }

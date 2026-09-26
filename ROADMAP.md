@@ -9,6 +9,22 @@
 - **`--legacy-peer-deps`** - still required for Milkdown peer resolution (see `.npmrc`). Re-evaluate when Milkdown peers allow a clean install.
 - **Community announcement** - maintain one [announcement draft](docs/outreach/announcement.md) and the [directory entries](docs/outreach/list-submissions.md).
 
+## Maintenance proposals
+
+Use one issue with a reproducible failure before adding a new test or change.
+The retired issue drafts are listed in the [archive manifest](archive/README.md).
+
+- Check keyboard focus and shortcut conflicts on physical devices and with
+  assistive technology. Browser automation does not replace this review.
+- Retain small, synthetic plaintext and encrypted backup fixtures across format
+  changes. Record their schema and compatibility checks in [Testing](docs/TESTING.md).
+- Use browser downloads to check new filename edge cases. Keep valid Unicode
+  names and reject empty selections. Add an isolated test only for a documented
+  failure that the browser suite cannot detect.
+
+Storage health wording and offline export checks are current maintenance
+procedures in the user guide and test guide, rather than separate task drafts.
+
 ## Proposals that need user validation
 
 The retired [1.6.0 product review](archive/2026-09-25/PRODUCT_REVIEW.md) contains the original evidence and estimates.

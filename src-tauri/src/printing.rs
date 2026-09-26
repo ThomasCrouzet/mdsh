@@ -103,7 +103,10 @@ mod macos {
         info.setVerticallyCentered(false);
 
         #[cfg(feature = "native-smoke")]
-        let destination = std::env::var("MDSH_SMOKE_PDF").ok();
+        let destination = std::env::var("MDSH_SMOKE_PDF").ok().filter(|_| {
+            !std::env::var_os("MDSH_SMOKE_PRINT_PANEL")
+                .is_some_and(|path| std::path::Path::new(&path).exists())
+        });
         #[cfg(feature = "native-smoke")]
         if let Some(path) = &destination {
             use objc2_app_kit::{NSPrintJobSavingURL, NSPrintSaveJob};

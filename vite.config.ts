@@ -256,6 +256,9 @@ export default defineConfig(({ mode }) => {
 					// Mermaid stays outside the static entry/node graph. Documents without diagrams do not load it.
 					// This meets the roadmap isolation requirement.
 					manualChunks(id: string): string | undefined {
+						// These dependency-free helpers share one small offline resource.
+						if (id.endsWith('/src/lib/config.ts') || id.endsWith('/src/lib/abort.ts'))
+							return 'operation-utils';
 						// The desktop bridge stays lazy and uses one offline resource.
 						if (id.includes('node_modules/@tauri-apps/api/')) return 'desktop-api';
 						// Share icon components across panels to limit precache requests.

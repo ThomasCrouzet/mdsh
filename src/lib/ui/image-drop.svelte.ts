@@ -9,7 +9,7 @@ import { isMarkdownFile } from '$lib/file-utils';
 import { t } from '$lib/i18n';
 import { notify } from '$lib/notify.svelte';
 import { reportWarning } from '$lib/report';
-import { embedImageFile, ImageFileError, MAX_IMAGE_BYTES } from '$lib/render/image-media';
+import { MAX_IMAGE_BYTES } from '$lib/config';
 
 // §B5.1 - Guard limit for dropped images: beyond it, we skip the file
 // (with a console warn). A 2 MB image in base64 makes ~2.7 MB of
@@ -57,6 +57,14 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 	}
 	const active = store.active;
 	if (!active) return;
+	// Image decoding is needed only after a drop, not at application startup.
+	const media = await import('$lib/render/image-media').catch((error: unknown) => {
+		reportWarning('load image decoder', error);
+		notify.error(t('imageDrop.unreadable', { n: images.length }));
+		return null;
+	});
+	if (!media) return;
+	const { embedImageFile, ImageFileError } = media;
 
 	const blocks: string[] = [];
 	const tooLarge: string[] = [];

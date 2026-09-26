@@ -17,3 +17,28 @@ Verify the originals with:
 ```sh
 shasum -a 256 archive/2026-09-25/PRODUCT_REVIEW.md archive/2026-09-25/announcement-draft.md
 ```
+
+## Documents removed on 2026-09-26
+
+Git retains these originals at revision `ef03dfe7bdab0cf807e8794cd5632a963638f6c1`.
+The issue drafts duplicated maintenance work and used obsolete test or visual
+rules. Remaining proposals are in [ROADMAP.md](../ROADMAP.md). Screenshot
+instructions and the asset list are in [BRANDING.md](../docs/BRANDING.md).
+The five improvement priorities are now repeatable workflows in
+[Testing](../docs/TESTING.md#durability-and-resource-pressure-evidence). Each run
+retains its own results; this manifest is not a test report.
+
+| Original path | SHA-256 |
+| --- | --- |
+| `.github/ISSUE_DRAFTS/01-keyboard-audit.md` | `7fd7ade23b8f77c89f7652c410e220e721c2e9382df8cd4c1a4e6a7066235016` |
+| `.github/ISSUE_DRAFTS/02-empty-export-names.md` | `1aeea03d45441bc9d4aa47d5a25677c9ec106b759f949f33dd8d01c10d89c071` |
+| `.github/ISSUE_DRAFTS/03-storage-health-copy.md` | `4c6bdeffb06ca505f66e97c7930554e596f12434460da7e8539e686f1324c00e` |
+| `.github/ISSUE_DRAFTS/04-focus-visible-review.md` | `92e35b7563bda74c66113fd48de3baa2478d5240b24461c59055b5da43980dcb` |
+| `.github/ISSUE_DRAFTS/05-backup-fixture-docs.md` | `5d695c2a87c647537e3c39a41a10012f0702218ab9dba53e828c583952fd7c14` |
+| `.github/ISSUE_DRAFTS/06-offline-export-smoke.md` | `ac9f78845eafdfdf6a84cf30ddf52b0f2e26aae72458ccc9f07f42fd438f0eed` |
+| `docs/screenshots/README.md` | `43f6c15ce46803d73c47a324ccafff71ec6378ed88e05f8ea7a29cbb33f5033d` |
+| `IMPROVEMENTS.md` | `4582ac75f55ae2b5bad7e2ff22b0d4d542e4a41b8eaeb64ced4e492cab64130b` |
+
+Read an original with `git show <revision>:<original-path>`. Pipe that command to
+`shasum -a 256` to check its identity. The paths and full revision above also work
+with the repository's GitHub file history.
