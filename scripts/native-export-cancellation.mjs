@@ -14,11 +14,11 @@ export async function nativeExportCancellation({
 		const view = await execute(`return {
 		id: document.querySelector('aside button[data-file-id][aria-current="true"]')?.getAttribute('data-file-id'),
 		name: document.querySelector('header input')?.value,
-		dirty: document.querySelector('aside button[data-file-id][aria-current="true"]')?.getAttribute('aria-label'),
-		content: document.querySelector('.cm-content')?.textContent
+		dirty: document.querySelector('aside button[data-file-id][aria-current="true"]')?.getAttribute('aria-label')
 	};`);
 		const draft = (await drafts()).find((row) => row.id === view.id);
 		assert.ok(draft, 'The active export draft must exist in IndexedDB');
+		// CodeMirror renders only visible lines. Compare the complete saved text.
 		return { ...view, durableContent: draft.content };
 	};
 	const evidence = [];
@@ -27,7 +27,14 @@ export async function nativeExportCancellation({
 		() => execute('return !!document.querySelector(".cm-content")'),
 		'source before export cancellation'
 	);
+	await execute(`document.querySelector('.cm-content').focus();
+		document.execCommand('insertText', false, 'NATIVE_CANCEL_EDIT\\n\\n');`);
+	await until(
+		async () => (await snapshot()).durableContent.includes('NATIVE_CANCEL_EDIT'),
+		'edited export fixture saved locally'
+	);
 	const before = await snapshot();
+	assert.match(before.dirty, /non exportées/, 'The export fixture must have unexported changes');
 	for (const command of ['export-md', 'export-all', 'export-html', 'export-pdf']) {
 		writeFileSync(panelMarker, 'show native panel');
 		try {
