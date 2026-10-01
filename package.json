@@ -108,7 +108,7 @@
 		"@codemirror/view": "^6.43.12",
 		"@lucide/svelte": "1.47.0",
 		"@milkdown/crepe": "^7.22.1",
-		"@milkdown/kit": "^7.21.3",
+		"@milkdown/kit": "^7.22.2",
 		"@tauri-apps/api": "2.11.1",
 		"@tauri-apps/plugin-dialog": "2.7.3",
 		"dexie": "^4.4.6",
