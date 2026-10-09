@@ -115,6 +115,11 @@ Rendering libraries and editor engines must stay outside the startup graph.
 Use dynamic imports for Markdown, KaTeX, Mermaid, highlighting, ZIP, and YAML.
 Keep Tauri API imports behind the Desktop boundary.
 
+Keep the KaTeX override linked to the direct dependency through `$katex`.
+This shares one parser version across Milkdown, Mermaid, and Markdown rendering.
+Regenerate the bundled CSS and fonts after a KaTeX update.
+The visual editor loads its Milkdown plugin imports through one deferred module.
+
 `npm run size` checks public chunks, transitive mode graphs, and the PWA precache.
 Its graph artifact is `.svelte-kit/output/client/.vite/bundle-graph.json`.
 Do not add all mode totals: the graphs share modules.

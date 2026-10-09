@@ -31,6 +31,29 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
 
 ## Repeat the browser suite
 
+### Heading navigation and editing controls
+
+- The table of contents must remain available in Source, Edit, and Read modes.
+  Check H1 through H6, duplicate headings, source line navigation, and live edits.
+  Code examples and front matter must not create entries.
+  Empty documents, narrow windows, and focus mode must not reserve a column.
+- Heading level indicators must follow the pointer and caret without changing document content or exported files.
+- The link editor must keep a text contrast ratio of at least 4.5 in the light theme.
+- A Markdown image without a title must open in Edit mode after a reload.
+  Normalize absent parser titles before Milkdown validates image attributes.
+  Preserve the source image, caption, and export bytes.
+- Shortcut help must distinguish editing commands from configurable application commands.
+  A changed binding must survive reload and execute its action once.
+
+Run the heading, outline, link, and shortcut workflows with:
+
+```sh
+npm run test:e2e -- toc-modes.spec.ts heading-level.spec.ts link-theme.spec.ts keyboard-settings.spec.ts
+```
+
+The browser report retains screenshots, fixtures, and measured link contrast.
+Its source metadata identifies the commit and working diff.
+
 ### Durability and resource pressure risks
 
 - A process kill before the 400 ms timer can lose the in-memory revision. An

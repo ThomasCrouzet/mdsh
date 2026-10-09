@@ -15,6 +15,7 @@
 	import { focusTrap } from '$lib/a11y/focusTrap';
 	import { coreCommands } from '$lib/ui/commands';
 	import { keyboardStore, type ShortcutError } from '$lib/ui/keyboard.svelte';
+	import { formatKbd, isMac } from '$lib/platform';
 	import { isDesktop } from '$lib/desktop';
 	import { EDITOR, IMPORT_LIMITS } from '$lib/config';
 	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '$lib/render/print-geometry';
@@ -188,6 +189,171 @@
 			margin: PRINT_PAGE.marginInlineMm
 		})
 	);
+
+	const writingShortcuts = $derived([
+		{
+			id: 'bold',
+			label: t('editor.bold'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘B')]
+		},
+		{
+			id: 'italic',
+			label: t('editor.italic'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘I')]
+		},
+		{
+			id: 'inline-code',
+			label: t('settings.shortcutInlineCode'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘E')]
+		},
+		{
+			id: 'strikethrough',
+			label: t('editor.strikethrough'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘⌥X')]
+		},
+		{
+			id: 'paragraph',
+			label: t('settings.shortcutParagraph'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘⌥0')]
+		},
+		...Array.from({ length: 6 }, (_, index) => ({
+			id: `heading-${index + 1}`,
+			label: t('editor.heading', { n: index + 1 }),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd(`⌘⌥${index + 1}`)]
+		})),
+		{
+			id: 'blockquote',
+			label: t('editor.quote'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘⇧B')]
+		},
+		{
+			id: 'code-block',
+			label: t('settings.shortcutCodeBlock'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘⌥C')]
+		},
+		{
+			id: 'hard-break',
+			label: t('settings.shortcutHardBreak'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⇧Enter')]
+		},
+		{
+			id: 'bullet-list',
+			label: t('editor.bulletList'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘⌥8')]
+		},
+		{
+			id: 'ordered-list',
+			label: t('editor.orderedList'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘⌥7')]
+		},
+		{
+			id: 'new-list-item',
+			label: t('settings.shortcutNewListItem'),
+			context: t('settings.shortcutEditListContext'),
+			shortcuts: ['Enter']
+		},
+		{
+			id: 'indent-list-item',
+			label: t('settings.shortcutIndentListItem'),
+			context: t('settings.shortcutEditListContext'),
+			shortcuts: ['Tab', formatKbd('⌘]')]
+		},
+		{
+			id: 'outdent-list-item',
+			label: t('settings.shortcutOutdentListItem'),
+			context: t('settings.shortcutEditListContext'),
+			shortcuts: [formatKbd('⇧Tab'), formatKbd('⌘[')]
+		},
+		{
+			id: 'next-table-cell',
+			label: t('settings.shortcutNextTableCell'),
+			context: t('settings.shortcutEditTableContext'),
+			shortcuts: ['Tab', formatKbd('⌘]')]
+		},
+		{
+			id: 'previous-table-cell',
+			label: t('settings.shortcutPreviousTableCell'),
+			context: t('settings.shortcutEditTableContext'),
+			shortcuts: [formatKbd('⇧Tab'), formatKbd('⌘[')]
+		},
+		{
+			id: 'exit-table',
+			label: t('settings.shortcutExitTable'),
+			context: t('settings.shortcutEditTableContext'),
+			shortcuts: ['Enter', formatKbd('⌘Enter')]
+		},
+		{
+			id: 'indent-selection',
+			label: t('settings.shortcutIndentSelection'),
+			context: t('settings.shortcutSourceMode'),
+			shortcuts: ['Tab']
+		},
+		{
+			id: 'outdent-selection',
+			label: t('settings.shortcutOutdentSelection'),
+			context: t('settings.shortcutSourceMode'),
+			shortcuts: [formatKbd('⇧Tab')]
+		},
+		{
+			id: 'move-line-up',
+			label: t('settings.shortcutMoveLineUp'),
+			context: t('settings.shortcutSourceMode'),
+			shortcuts: [formatKbd('⌥↑')]
+		},
+		{
+			id: 'move-line-down',
+			label: t('settings.shortcutMoveLineDown'),
+			context: t('settings.shortcutSourceMode'),
+			shortcuts: [formatKbd('⌥↓')]
+		},
+		{
+			id: 'copy-line-up',
+			label: t('settings.shortcutCopyLineUp'),
+			context: t('settings.shortcutSourceMode'),
+			shortcuts: [formatKbd('⇧⌥↑')]
+		},
+		{
+			id: 'copy-line-down',
+			label: t('settings.shortcutCopyLineDown'),
+			context: t('settings.shortcutSourceMode'),
+			shortcuts: [formatKbd('⇧⌥↓')]
+		},
+		{
+			id: 'go-to-line',
+			label: t('source.cmGoToLine'),
+			context: t('settings.shortcutSourceMode'),
+			shortcuts: [formatKbd('⌘⌥G')]
+		},
+		{
+			id: 'select-next-occurrence',
+			label: t('settings.shortcutSelectNextOccurrence'),
+			context: t('settings.shortcutSourceMode'),
+			shortcuts: [formatKbd('⌘D')]
+		},
+		{
+			id: 'undo',
+			label: t('desktopMenu.undo'),
+			context: t('settings.shortcutEditAndSourceModes'),
+			shortcuts: [formatKbd('⌘Z')]
+		},
+		{
+			id: 'redo',
+			label: t('desktopMenu.redo'),
+			context: t('settings.shortcutEditAndSourceModes'),
+			shortcuts: [formatKbd(isMac() ? '⌘⇧Z' : '⌘Y')]
+		}
+	]);
 
 	async function handleExportBackup(): Promise<void> {
 		try {
@@ -478,39 +644,74 @@
 
 				<details class="mb-5 rounded border border-border p-3 text-sm">
 					<summary class="cursor-pointer">{t('settings.shortcuts')}</summary>
-					<p class="my-2 text-xs text-fg-muted">
-						{t(isDesktop() ? 'settings.shortcutsDesktop' : 'settings.shortcutsWeb')}
-					</p>
-					<p class="my-2 text-xs text-fg-muted">{t('settings.shortcutInstructions')}</p>
-					<p class="my-2 text-xs text-fg-muted">{t('settings.fileNavigation')}</p>
-					<p class="my-2 text-xs text-accent" role="status">{shortcutFeedback}</p>
-					<button
-						class="mb-2 rounded border border-border px-2 py-1 text-xs"
-						onclick={() => showShortcutResult(keyboardStore.reset())}
-						>{t('settings.shortcutReset')}</button
+					<section class="mt-3" aria-labelledby="writing-shortcuts-title">
+						<h4 id="writing-shortcuts-title" class="text-xs font-semibold text-fg">
+							{t('settings.writingShortcuts')}
+						</h4>
+						<p class="my-2 text-xs text-fg-muted">{t('settings.writingShortcutsHelp')}</p>
+						<dl class="space-y-2 text-xs">
+							{#each writingShortcuts as shortcut (shortcut.id)}
+								<div
+									class="flex flex-wrap items-center justify-between gap-2"
+									data-writing-shortcut={shortcut.id}
+								>
+									<dt>{shortcut.label}</dt>
+									<dd class="flex items-center gap-2">
+										<span class="text-fg-muted">{shortcut.context}</span>
+										{#each shortcut.shortcuts as binding (binding)}
+											<kbd
+												class="min-w-20 rounded border border-border bg-bg px-2 py-1 text-center"
+											>
+												{binding}
+											</kbd>
+										{/each}
+									</dd>
+								</div>
+							{/each}
+						</dl>
+					</section>
+
+					<section
+						class="mt-4 border-t border-border pt-3"
+						aria-labelledby="application-shortcuts-title"
 					>
-					<dl class="space-y-2 text-xs">
-						{#each coreCommands as command (command.id)}
-							<div class="flex flex-wrap items-center justify-between gap-2">
-								<dt>{t(command.label)}</dt>
-								<dd class="flex items-center gap-1">
-									<input
-										class="w-28 rounded border border-border bg-bg px-2 py-1"
-										readonly
-										value={keyboardStore.label(command.id) ?? t('settings.shortcutDisabled')}
-										aria-label={t('settings.shortcutFor', { command: t(command.label) })}
-										data-shortcut-capture
-										onkeydown={(event) => captureShortcut(event, command.id)}
-									/><button
-										class="p-1 underline"
-										onclick={() => showShortcutResult(keyboardStore.set(command.id, null))}
-										aria-label={t('settings.disableShortcutFor', { command: t(command.label) })}
-										>{t('settings.shortcutDisable')}</button
-									>
-								</dd>
-							</div>
-						{/each}
-					</dl>
+						<h4 id="application-shortcuts-title" class="text-xs font-semibold text-fg">
+							{t('settings.applicationShortcuts')}
+						</h4>
+						<p class="my-2 text-xs text-fg-muted">
+							{t(isDesktop() ? 'settings.shortcutsDesktop' : 'settings.shortcutsWeb')}
+						</p>
+						<p class="my-2 text-xs text-fg-muted">{t('settings.shortcutInstructions')}</p>
+						<p class="my-2 text-xs text-fg-muted">{t('settings.fileNavigation')}</p>
+						<p class="my-2 text-xs text-accent" role="status">{shortcutFeedback}</p>
+						<button
+							class="mb-2 rounded border border-border px-2 py-1 text-xs"
+							onclick={() => showShortcutResult(keyboardStore.reset())}
+							>{t('settings.shortcutReset')}</button
+						>
+						<dl class="space-y-2 text-xs">
+							{#each coreCommands as command (command.id)}
+								<div class="flex flex-wrap items-center justify-between gap-2">
+									<dt>{t(command.label)}</dt>
+									<dd class="flex items-center gap-1">
+										<input
+											class="w-28 rounded border border-border bg-bg px-2 py-1"
+											readonly
+											value={keyboardStore.label(command.id) ?? t('settings.shortcutDisabled')}
+											aria-label={t('settings.shortcutFor', { command: t(command.label) })}
+											data-shortcut-capture
+											onkeydown={(event) => captureShortcut(event, command.id)}
+										/><button
+											class="p-1 underline"
+											onclick={() => showShortcutResult(keyboardStore.set(command.id, null))}
+											aria-label={t('settings.disableShortcutFor', { command: t(command.label) })}
+											>{t('settings.shortcutDisable')}</button
+										>
+									</dd>
+								</div>
+							{/each}
+						</dl>
+					</section>
 				</details>
 
 				<!-- Display: toggles -->
