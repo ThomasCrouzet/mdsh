@@ -15,6 +15,23 @@ interface ImageState {
 	ratio: number;
 }
 
+/**
+ * Milkdown image schemas require string titles. Markdown parsers use null when
+ * an image has no title, so normalize both inline and block image nodes.
+ */
+export function normalizeImageTitlesForMilkdown(root: unknown): void {
+	const pending = [root];
+	while (pending.length > 0) {
+		const value = pending.pop();
+		if (!value || typeof value !== 'object') continue;
+		const node = value as Record<string, unknown>;
+		if ((node.type === 'image' || node.type === 'image-block') && node.title == null) {
+			node.title = '';
+		}
+		if (Array.isArray(node.children)) pending.push(...node.children);
+	}
+}
+
 function unescapeMarkdown(value: string): string {
 	return value.replace(/\\([\\\][()'"])/g, '$1');
 }

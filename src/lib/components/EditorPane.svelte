@@ -64,7 +64,6 @@
 		tocEmpty,
 		tocVisible,
 		focusMode,
-		articleRef,
 		onSourceEditorRef,
 		onArticleRef,
 		onTocEmpty,
@@ -87,6 +86,7 @@
 	// surface the ref up to +page.svelte via onSourceEditorRef.
 	let sourceEditorEl = $state<SourceEditor | null>(null);
 	let contentRoot = $state<HTMLDivElement | null>(null);
+	let sourceLine = $state(1);
 	function closeTool() {
 		onCloseTool();
 		requestAnimationFrame(() =>
@@ -125,6 +125,7 @@
 						fileId={activeFile.id}
 						content={activeFile.content}
 						onChange={onEditorChange}
+						onCursorLine={(line) => (sourceLine = line)}
 					/>
 				{/key}
 			{:else if mode === 'read'}
@@ -178,25 +179,20 @@
 	</div>
 </div>
 
-<!-- TOC column: mounted only in read mode + enabled + non-empty
-     + outside focus mode. The component reports emptiness via `onTocEmpty`;
-     we then remove the column (otherwise the 220 px stay reserved).
-     Lazy-loaded (cf. modals.loadToc) - chunk separate from the page chunk. -->
-{#if mode === 'read' && tocVisible && activeFile && !focusMode && !tocEmpty}
-	<aside class="mdsh-toc-col">
+<!-- Keep one lazy TOC instance while headings appear or disappear. -->
+{#if tocVisible && activeFile && !focusMode}
+	<aside class="mdsh-toc-col" class:toc-empty={tocEmpty}>
 		{#await modals.loadToc() then Toc}
-			<Toc target={articleRef} onEmpty={onTocEmpty} />
+			<Toc
+				container={contentRoot}
+				content={activeFile.content}
+				{mode}
+				{sourceLine}
+				onLine={(line) => sourceEditorEl?.goToLine(line)}
+				onEmpty={onTocEmpty}
+			/>
 		{/await}
 	</aside>
-{:else if mode === 'read' && tocVisible && activeFile && !focusMode}
-	<!-- Toc mounted off-screen while it discovers the 1st heading.
-	     Without this, `tocEmpty` stays true initially and the column
-	     never reappears. -->
-	<div class="sr-only">
-		{#await modals.loadToc() then Toc}
-			<Toc target={articleRef} onEmpty={onTocEmpty} />
-		{/await}
-	</div>
 {/if}
 
 <style>
@@ -256,7 +252,7 @@
 	}
 
 	/* ============================================================================
-	   Table of contents - fixed right column in read mode (desktop >= 1024 px).
+	   Table of contents - fixed right column in all modes (desktop >= 1024 px).
 	   On mobile, collapse the column and give all available width to the text.
 	   ============================================================================ */
 	.mdsh-toc-col {
@@ -265,6 +261,9 @@
 		min-height: 0;
 		overflow: hidden;
 		background: color-mix(in oklab, var(--color-bg-1) 56%, transparent);
+	}
+	.mdsh-toc-col.toc-empty {
+		display: none;
 	}
 	@media (max-width: 1023px) {
 		.mdsh-toc-col {

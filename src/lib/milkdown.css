@@ -12,6 +12,7 @@
 milkdown-editor,
 .milkdown {
 	--crepe-color-background: var(--color-bg);
+	--crepe-color-on-background: var(--color-fg);
 	--crepe-color-surface: var(--color-bg-1);
 	--crepe-color-surface-low: var(--color-bg);
 	--crepe-color-on-surface: var(--color-fg);
@@ -60,6 +61,51 @@ milkdown-editor,
 	contain: layout style;
 }
 
+/* Keep heading levels visible while users inspect or edit a heading. */
+.milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
+	position: relative;
+}
+.milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6)::after {
+	position: absolute;
+	inset-block-start: 0.5rem;
+	inset-inline-end: calc(100% + 0.5rem);
+	padding: 0.15rem 0.35rem;
+	border: 1px solid var(--color-border-strong);
+	border-radius: var(--radius-sm);
+	background: var(--color-bg-2);
+	color: var(--color-fg);
+	font-family: var(--font-sans);
+	font-size: 0.625rem;
+	font-weight: 650;
+	letter-spacing: 0.04em;
+	line-height: 1.4;
+	opacity: 0;
+	pointer-events: none;
+	white-space: nowrap;
+}
+.milkdown .ProseMirror h1::after {
+	content: 'H1';
+}
+.milkdown .ProseMirror h2::after {
+	content: 'H2';
+}
+.milkdown .ProseMirror h3::after {
+	content: 'H3';
+}
+.milkdown .ProseMirror h4::after {
+	content: 'H4';
+}
+.milkdown .ProseMirror h5::after {
+	content: 'H5';
+}
+.milkdown .ProseMirror h6::after {
+	content: 'H6';
+}
+.milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6):hover::after,
+.milkdown .ProseMirror .mdsh-heading-level-active::after {
+	opacity: 1;
+}
+
 /* Crepe fixes the height at load time. Constrain width and preserve every pixel. */
 .milkdown .milkdown-image-block > .image-wrapper {
 	max-width: 100%;
@@ -75,6 +121,11 @@ milkdown-editor,
 	.milkdown .ProseMirror {
 		padding: 1.5rem 1.25rem 30vh;
 		font-size: 17px;
+	}
+	.milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6)::after {
+		inset-block-start: -1rem;
+		inset-inline-start: 0;
+		inset-inline-end: auto;
 	}
 }
 

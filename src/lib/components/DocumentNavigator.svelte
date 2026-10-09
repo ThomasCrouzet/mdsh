@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { t } from '$lib/i18n';
-	import { documentHeadings, documentMatches } from '$lib/document-navigation';
+	import {
+		documentHeadings,
+		documentMatches,
+		focusDocumentHeading,
+		renderedDocumentHeadings,
+		type DocumentHeading
+	} from '$lib/document-navigation';
 	import { X, ArrowUp, ArrowDown } from '@lucide/svelte';
 	let {
 		kind,
@@ -26,7 +32,7 @@
 	let ranges: Range[] = [];
 	let lastSearch = '';
 	let selectionRequested = false;
-	let headings = $state<{ text: string; level: number; line: number; element?: HTMLElement }[]>([]);
+	let headings = $state<DocumentHeading[]>([]);
 	const target = () =>
 		container?.querySelector<HTMLElement>(mode === 'read' ? '.mdsh-preview' : '.ProseMirror') ??
 		null;
@@ -80,14 +86,7 @@
 				headings =
 					selectedMode === 'source'
 						? documentHeadings(text)
-						: Array.from(documentRoot?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6') ?? [])
-								.slice(0, 300)
-								.map((element) => ({
-									text: element.textContent ?? '',
-									level: Number(element.tagName.slice(1)),
-									line: 0,
-									element
-								}));
+						: renderedDocumentHeadings(documentRoot);
 			} else {
 				const changedQuery = search !== lastSearch;
 				lastSearch = search;
@@ -121,18 +120,7 @@
 	});
 	function jump(heading: (typeof headings)[number]) {
 		if (mode === 'source') onLine(heading.line);
-		else if (heading.element) {
-			heading.element.scrollIntoView({ block: 'start' });
-			if (mode === 'wysiwyg') {
-				target()?.focus({ preventScroll: true });
-				const selection = window.getSelection();
-				const range = document.createRange();
-				range.selectNodeContents(heading.element);
-				range.collapse(true);
-				selection?.removeAllRanges();
-				selection?.addRange(range);
-			}
-		}
+		else focusDocumentHeading(heading, mode === 'wysiwyg');
 		onClose();
 	}
 </script>

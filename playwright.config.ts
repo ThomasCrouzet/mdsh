@@ -69,6 +69,10 @@ export default defineConfig({
 				'**/reading-lists.spec.ts',
 				'**/keyboard-platform.spec.ts',
 				'**/toolbar-stability.spec.ts',
+				'**/toc-modes.spec.ts',
+				'**/heading-level.spec.ts',
+				'**/link-theme.spec.ts',
+				'**/keyboard-settings.spec.ts',
 				'**/slash-commands.spec.ts',
 				'**/wiki-links.spec.ts'
 			]
@@ -90,6 +94,10 @@ export default defineConfig({
 				'**/image-layout.spec.ts',
 				'**/reading-lists.spec.ts',
 				'**/keyboard-platform.spec.ts',
+				'**/toc-modes.spec.ts',
+				'**/heading-level.spec.ts',
+				'**/link-theme.spec.ts',
+				'**/keyboard-settings.spec.ts',
 				'**/slash-commands.spec.ts',
 				'**/wiki-links.spec.ts'
 			]

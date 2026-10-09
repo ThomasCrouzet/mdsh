@@ -1,145 +1,98 @@
 <script lang="ts">
-	// Floating table of contents - extracts h1/h2/h3 from the rendered DOM and
-	// highlights the active section via IntersectionObserver. Smooth-scroll
-	// on click. Rebuilt when the `target` changes (mode switch) or when
-	// its content mutates (read re-render after an edit).
-	//
-	// v1 limitation: active only in read mode. WYSIWYG mode
-	// (Milkdown / ProseMirror) constantly rewrites the DOM during editing,
-	// which would make the TOC noisy and costly - deferred to a v2.
-	import { onDestroy } from 'svelte';
-	// §B5.2 - Reuses the slugify shared with render/markdown.ts to
-	// guarantee that the ids generated here match those of the wiki-links /
-	// internal anchors. Before: a similar regex was duplicated (potential drift).
-	import { slugify } from '$lib/wiki-links';
+	import {
+		documentHeadings,
+		focusDocumentHeading,
+		renderedDocumentHeadings,
+		type DocumentHeading
+	} from '$lib/document-navigation';
+	import type { EditMode } from '$lib/types';
 	import { t } from '$lib/i18n';
 
-	interface TocItem {
-		id: string;
-		text: string;
-		level: 1 | 2 | 3;
-	}
+	let {
+		container,
+		content,
+		mode,
+		sourceLine,
+		onLine,
+		onEmpty
+	}: {
+		container: HTMLElement | null;
+		content: string;
+		mode: EditMode;
+		sourceLine: number;
+		onLine: (line: number) => void;
+		onEmpty: (empty: boolean) => void;
+	} = $props();
 
-	interface Props {
-		/** Container in which to look for headings (article preview or .ProseMirror). */
-		target: HTMLElement | null;
-		/** Notifies the parent that the TOC is empty (nothing to show). */
-		onEmpty?: (empty: boolean) => void;
-	}
-
-	let { target, onEmpty }: Props = $props();
-
-	let items = $state<TocItem[]>([]);
-	let activeId = $state<string | null>(null);
-	let observer: IntersectionObserver | null = null;
-	let mut: MutationObserver | null = null;
-	// Debounce of the rebuilds: MutationObserver fires on every keystroke
-	// when the read rendering is regenerated; we coalesce over 120 ms to
-	// avoid thrashing the DOM (re-querySelectorAll + re-observe on every tick).
-	let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
-
-	function buildToc() {
-		if (!target) {
-			if (items.length !== 0) items = [];
-			activeId = null;
-			onEmpty?.(true);
-			return;
-		}
-		const headings = Array.from(target.querySelectorAll<HTMLElement>('h1, h2, h3'));
-		// Local non-reactive Set (used only to deduplicate the ids
-		// during the slugification pass) - no need for a SvelteSet here.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const used = new Set<string>();
-		const next: TocItem[] = headings.map((h) => {
-			// `slugify` (imported from $lib/wiki-links, §B5.2) may return '' if the
-			// heading is purely non-ASCII: we keep a 'section' fallback to
-			// preserve the original id ('section', 'section-2', …).
-			const base = slugify(h.textContent ?? '').slice(0, 60) || 'section';
-			let id = h.id;
-			if (!id) {
-				id = base;
-				let suffix = 2;
-				while (used.has(id)) {
-					id = `${base}-${suffix++}`;
-				}
-				h.id = id;
-			}
-			used.add(id);
-			return {
-				id,
-				text: h.textContent ?? '',
-				// charAt(1) is preferred over [1]: returns '' if out of bounds (short tagName)
-				// rather than undefined, which lets parseInt fall through to NaN -> || 1.
-				level: (parseInt(h.tagName.charAt(1), 10) || 1) as 1 | 2 | 3
-			};
-		});
-		items = next;
-		onEmpty?.(next.length === 0);
-		setupObserver(headings);
-	}
-
-	function setupObserver(headings: HTMLElement[]) {
-		observer?.disconnect();
-		observer = null;
-		if (headings.length === 0) {
-			activeId = null;
-			return;
-		}
-		// Negative rootMargin at the bottom: "active" = the section whose
-		// title is in the top 30 % of the viewport. Standard MDN scroll-spy
-		// pattern, prevents the last visible title from stealing the active
-		// state at the end of a long document.
-		observer = new IntersectionObserver(
-			(entries) => {
-				const visible = entries.filter((e) => e.isIntersecting);
-				if (visible.length > 0) {
-					visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-					// invariant: visible.length > 0 guarantees visible[0] is defined.
-					activeId = (visible[0]!.target as HTMLElement).id;
-				}
-			},
-			{ rootMargin: '0px 0px -70% 0px', threshold: 0 }
-		);
-		headings.forEach((h) => observer!.observe(h));
-	}
-
-	function scheduleRebuild() {
-		if (rebuildTimer) clearTimeout(rebuildTimer);
-		rebuildTimer = setTimeout(() => {
-			rebuildTimer = null;
-			buildToc();
-		}, 120);
-	}
+	let items = $state<DocumentHeading[]>([]);
+	let activeIndex = $state(-1);
+	let previousMode: EditMode | undefined;
+	let previousRoot: HTMLElement | null = null;
 
 	$effect(() => {
-		const t = target;
-		// Immediate rebuild on mount / target change.
-		buildToc();
-		mut?.disconnect();
-		mut = null;
-		if (t) {
-			mut = new MutationObserver(() => scheduleRebuild());
-			mut.observe(t, { childList: true, subtree: true, characterData: true });
+		if (mode === 'source') {
+			activeIndex = items.findLastIndex((item) => item.line <= sourceLine);
 		}
-		return () => {
-			mut?.disconnect();
-			mut = null;
-			if (rebuildTimer) {
-				clearTimeout(rebuildTimer);
-				rebuildTimer = null;
+	});
+
+	$effect(() => {
+		const root = container;
+		const text = content;
+		const selectedMode = mode;
+		let timer: ReturnType<typeof setTimeout>;
+		let intersection: IntersectionObserver | null = null;
+		if (selectedMode !== previousMode || root !== previousRoot) {
+			items = [];
+			activeIndex = -1;
+			onEmpty(true);
+			previousMode = selectedMode;
+			previousRoot = root;
+		}
+		const update = () => {
+			items =
+				selectedMode === 'source'
+					? documentHeadings(text)
+					: renderedDocumentHeadings(
+							root?.querySelector<HTMLElement>(
+								selectedMode === 'read' ? '.mdsh-preview' : '.ProseMirror'
+							) ?? null
+						);
+			onEmpty(items.length === 0);
+			intersection?.disconnect();
+			if (selectedMode !== 'source' && root) {
+				intersection = new IntersectionObserver(
+					(entries) => {
+						const visible = entries
+							.filter((entry) => entry.isIntersecting)
+							.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+						if (visible[0])
+							activeIndex = items.findIndex((item) => item.element === visible[0]!.target);
+					},
+					{ root, rootMargin: '0px 0px -70% 0px', threshold: 0 }
+				);
+				for (const item of items) if (item.element) intersection.observe(item.element);
 			}
+		};
+		const schedule = () => {
+			clearTimeout(timer);
+			timer = setTimeout(update, 120);
+		};
+		const observer = new MutationObserver(schedule);
+		if (root && selectedMode !== 'source') {
+			observer.observe(root, { childList: true, subtree: true, characterData: true });
+		}
+		schedule();
+		return () => {
+			clearTimeout(timer);
+			intersection?.disconnect();
+			observer.disconnect();
 		};
 	});
 
-	onDestroy(() => {
-		observer?.disconnect();
-		mut?.disconnect();
-		if (rebuildTimer) clearTimeout(rebuildTimer);
-	});
-
-	function jump(id: string) {
-		const el = target?.querySelector<HTMLElement>('#' + CSS.escape(id));
-		el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	function jump(item: DocumentHeading, index: number) {
+		activeIndex = index;
+		if (mode === 'source') onLine(item.line);
+		else focusDocumentHeading(item, mode === 'wysiwyg');
 	}
 </script>
 
@@ -147,15 +100,18 @@
 	<nav class="mdsh-toc" aria-label={t('toc.ariaLabel')}>
 		<div class="mdsh-toc-title" aria-hidden="true">{t('toc.title')}</div>
 		<ol>
-			{#each items as item (item.id)}
-				<li class="lvl-{item.level}" class:active={item.id === activeId}>
+			{#each items as item, index (index)}
+				<li
+					style:--heading-indent={`${8 + (item.level - 1) * 10}px`}
+					class:active={index === activeIndex}
+				>
 					<button
 						type="button"
-						onclick={() => jump(item.id)}
-						title={item.text}
-						aria-current={item.id === activeId ? 'location' : undefined}
+						onclick={() => jump(item, index)}
+						title={item.text || t('toolbar.untitled')}
+						aria-current={index === activeIndex ? 'location' : undefined}
 					>
-						{item.text}
+						{item.text || t('toolbar.untitled')}
 					</button>
 				</li>
 			{/each}
@@ -165,9 +121,8 @@
 
 <style>
 	.mdsh-toc {
-		position: sticky;
-		top: 1rem;
-		max-height: calc(100dvh - 2rem);
+		height: 100%;
+		max-height: 100%;
 		overflow-y: auto;
 		padding: 0.75rem 0.75rem 1rem;
 		font-size: 12px;
@@ -196,7 +151,7 @@
 		text-align: left;
 		background: transparent;
 		border: none;
-		padding: 2px 0 2px 8px;
+		padding: 2px 0 2px var(--heading-indent);
 		color: inherit;
 		cursor: pointer;
 		border-left: 2px solid transparent;
@@ -207,13 +162,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font: inherit;
-	}
-	.mdsh-toc li.lvl-2 button {
-		padding-left: 18px;
-	}
-	.mdsh-toc li.lvl-3 button {
-		padding-left: 28px;
-		font-size: 11px;
 	}
 	.mdsh-toc li button:hover {
 		color: var(--color-fg);

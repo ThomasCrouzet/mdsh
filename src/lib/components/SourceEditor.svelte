@@ -10,9 +10,10 @@
 		content: string;
 		readonly?: boolean;
 		onChange: (markdown: string) => void;
+		onCursorLine?: (line: number) => void;
 	}
 
-	let { fileId, content, readonly = false, onChange }: Props = $props();
+	let { fileId, content, readonly = false, onChange, onCursorLine }: Props = $props();
 	export function getFileId(): string {
 		return fileId;
 	}
@@ -345,6 +346,9 @@
 			cm.EditorView.editable.of(!readonly),
 			cm.EditorState.readOnly.of(readonly),
 			cm.EditorView.updateListener.of((update) => {
+				if (update.selectionSet || update.docChanged) {
+					onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
+				}
 				if (update.docChanged) {
 					const v = update.state.doc.toString();
 					if (v !== lastEmitted) {
@@ -386,6 +390,7 @@
 				: {})
 		});
 		activeCM = cm;
+		onCursorLine?.(view.state.doc.lineAt(view.state.selection.main.head).number);
 		lastEmitted = content;
 		if (savedPosition?.scrollTop) {
 			const mountedView = view;

@@ -4,6 +4,34 @@ export interface DocumentHeading {
 	text: string;
 	level: number;
 	line: number;
+	element?: HTMLElement;
+}
+
+/** Reads visible headings without adding identifiers to editable content. */
+export function renderedDocumentHeadings(root: HTMLElement | null): DocumentHeading[] {
+	return Array.from(root?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6') ?? [])
+		.slice(0, 300)
+		.map((element) => ({
+			text: element.textContent ?? '',
+			level: Number(element.tagName.slice(1)),
+			line: 0,
+			element
+		}));
+}
+
+/** Moves the viewport and, in Edit mode, the caret to a heading. */
+export function focusDocumentHeading(heading: DocumentHeading, editable: boolean): void {
+	const element = heading.element;
+	if (!element) return;
+	element.scrollIntoView({ block: 'start' });
+	if (!editable) return;
+	element.closest<HTMLElement>('.ProseMirror')?.focus({ preventScroll: true });
+	const selection = window.getSelection();
+	const range = document.createRange();
+	range.selectNodeContents(element);
+	range.collapse(true);
+	selection?.removeAllRanges();
+	selection?.addRange(range);
 }
 
 /** Reads source headings without treating YAML or code examples as headings. */

@@ -13,7 +13,10 @@
 	import { i18n, t } from '$lib/i18n';
 	import { blockEditLabels, toolbarLabels } from '$lib/editor-labels';
 	import { notify } from '$lib/notify.svelte';
-	import { ImageMarkdownRoundTrip } from '$lib/render/image-markdown';
+	import {
+		ImageMarkdownRoundTrip,
+		normalizeImageTitlesForMilkdown
+	} from '$lib/render/image-markdown';
 	import { editorStateCache } from '$lib/editor-state';
 	import { stripFrontmatter } from '$lib/frontmatter';
 	import { themeStore } from '$lib/ui/theme.svelte';
@@ -78,10 +81,7 @@
 		const position = editorStateCache.getPosition(id, 'wysiwyg');
 		if (!position) return;
 		try {
-			const [{ editorViewCtx }, { TextSelection }] = await Promise.all([
-				import('@milkdown/kit/core'),
-				import('@milkdown/kit/prose/state')
-			]);
+			const { editorViewCtx, TextSelection } = await import('$lib/milkdown-editor-plugins');
 			if (token !== mountToken) return;
 			const editorView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
 			const maxPosition = editorView.state.doc.content.size;
@@ -102,21 +102,25 @@
 		loadError = false;
 		const [
 			{ Crepe },
-			{ editorViewCtx, commandsCtx },
-			{ linkTooltipConfig: linkTooltipConfigCtx },
-			{ imageBlockConfig: imageBlockConfigCtx },
-			{ inlineImageConfig: inlineImageConfigCtx },
-			{ codeBlockConfig: codeBlockConfigCtx },
-			{ wikiLinkPlugins },
+			{
+				editorViewCtx,
+				commandsCtx,
+				Plugin,
+				Decoration,
+				DecorationSet,
+				prosePlugin,
+				remarkPlugin,
+				linkTooltipConfig: linkTooltipConfigCtx,
+				imageBlockConfig: imageBlockConfigCtx,
+				inlineImageConfig: inlineImageConfigCtx,
+				codeBlockConfig: codeBlockConfigCtx,
+				wikiLinkPlugins,
+				replaceAll
+			},
 			{ editorImageSource, embedImageFile, ImageFileError, MAX_IMAGE_BYTES }
 		] = await Promise.all([
 			loadCrepeModule(),
-			import('@milkdown/kit/core'),
-			import('@milkdown/kit/component/link-tooltip'),
-			import('@milkdown/kit/component/image-block'),
-			import('@milkdown/kit/component/image-inline'),
-			import('@milkdown/kit/component/code-block'),
-			import('$lib/milkdown-wiki-links'),
+			import('$lib/milkdown-editor-plugins'),
 			import('$lib/render/image-media')
 		]);
 		if (token !== mountToken) return;
@@ -189,6 +193,33 @@
 				return renderMermaidPreview(...args);
 			}
 		};
+		const headingLevelPlugin = prosePlugin(
+			() =>
+				new Plugin({
+					props: {
+						decorations(state) {
+							const head = state.selection.$head;
+							for (let depth = head.depth; depth > 0; depth--) {
+								const node = head.node(depth);
+								if (node.type.name !== 'heading') continue;
+								const level = node.attrs.level;
+								if (typeof level !== 'number' || level < 1 || level > 6) break;
+								const position = head.before(depth);
+								return DecorationSet.create(state.doc, [
+									Decoration.node(position, position + node.nodeSize, {
+										class: 'mdsh-heading-level-active'
+									})
+								]);
+							}
+							return DecorationSet.empty;
+						}
+					}
+				})
+		);
+		const imageTitlePlugin = remarkPlugin(
+			'mdshNormalizeImageTitles',
+			() => () => normalizeImageTitlesForMilkdown
+		);
 		const instance = new Crepe({
 			root: container,
 			defaultValue: roundTrip.editorMarkdown,
@@ -220,6 +251,8 @@
 			}
 		});
 		instance.editor.use(wikiLinkPlugins);
+		instance.editor.use(imageTitlePlugin);
+		instance.editor.use(headingLevelPlugin);
 		instance.on((listener) => {
 			listener.markdownUpdated((_ctx, md) => {
 				const portableMarkdown = restoreMarkdown(md);
@@ -494,7 +527,6 @@
 			window.removeEventListener('mdsh:flush-editor', flushCurrentContent);
 		updateExternalContent = async (markdown: string) => {
 			if (markdown === lastEditorMarkdown) return;
-			const { replaceAll } = await import('@milkdown/kit/utils');
 			if (token !== mountToken || markdown !== content || idForMount !== fileId) return;
 			frontmatter = stripFrontmatter(markdown);
 			roundTrip = new ImageMarkdownRoundTrip(frontmatter.content);

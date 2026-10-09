@@ -19,6 +19,11 @@ and unused disk permissions, but does not delete files from disk.
 
 **Document outline** in Actions works in all three modes and on small screens. Source mode includes headings outside code and front matter. Reading and WYSIWYG modes use the visible headings. Find in document keeps the current mode. In source mode, the search panel also supports replacement.
 
+On wide screens, the table of contents stays beside the document in all three modes.
+It includes heading levels H1 through H6 and changes as you edit.
+Select a heading to move to that section. In Source and Edit modes, this also moves the caret.
+The column stays hidden in focus mode and when the document has no headings.
+
 Source mode keeps a separate undo history for each recently used draft. A change of draft cannot undo content from another draft.
 The current browser session keeps editor positions for up to 32 recently used drafts. Reloading clears undo history, but keeps these positions.
 
@@ -119,6 +124,11 @@ The standalone HTML file embeds its styles, images, and required KaTeX fonts. Yo
 Use Commands to create a document from a built-in or custom template, or save the current document as a template. Settings contains **Manage templates** for editing and deleting custom templates. The `{{date}}` variable uses the local calendar date. Built-in template labels follow the interface language.
 
 ## Keyboard shortcuts
+
+Open **Settings**, then **Keyboard shortcuts**, to view writing shortcuts and customize application shortcuts.
+The writing section identifies the modes that support each shortcut.
+In Edit mode, point to a heading or put the caret inside it to show its level, H1 through H6.
+The level indicator does not change the document or its exports.
 
 The Commands menu shows all active shortcuts. In Settings, you can customize commands, detect conflicts, and restore defaults. The app saves web and Desktop profiles separately. Content-editing shortcuts have priority when the cursor is in the editor.
 
