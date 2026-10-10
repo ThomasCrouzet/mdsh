@@ -2,6 +2,7 @@ mod disk;
 #[cfg(feature = "native-smoke")]
 mod disk_gate;
 mod printing;
+mod projects;
 mod shell;
 
 use disk::{collect_argv_paths, collect_paths_from_directory, CapabilityStore, PendingOpenPaths};
@@ -60,6 +61,7 @@ pub fn run() {
     let builder = builder
         .manage(pending)
         .manage(CapabilityStore::default())
+        .manage(projects::ProjectStore::default())
         .manage(shell::CloseState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -82,6 +84,14 @@ pub fn run() {
             disk::disk_rename,
             disk::take_pending_open_paths,
             disk::ack_pending_open_paths,
+            projects::project_pick_root,
+            projects::project_open_root,
+            projects::project_refresh,
+            projects::project_read,
+            projects::project_write_text,
+            projects::project_write_asset,
+            projects::project_rename,
+            projects::project_revoke,
             shell::desktop_open_external,
             shell::desktop_arm_close_guard,
             shell::desktop_ack_close_request,
@@ -94,6 +104,14 @@ pub fn run() {
         .setup(move |app| {
             app.state::<CapabilityStore>()
                 .set_registry(app.path().app_data_dir()?.join("disk-access.json"))?;
+            #[cfg(feature = "native-smoke")]
+            let project_registry = std::env::var_os("MDSH_NATIVE_PROJECT_REGISTRY")
+                .map(std::path::PathBuf::from)
+                .unwrap_or(app.path().app_data_dir()?.join("project-roots.json"));
+            #[cfg(not(feature = "native-smoke"))]
+            let project_registry = app.path().app_data_dir()?.join("project-roots.json");
+            app.state::<projects::ProjectStore>()
+                .set_registry(project_registry)?;
             #[cfg(feature = "native-smoke")]
             smoke_startup_phase(started, "user-setup");
             Ok(())

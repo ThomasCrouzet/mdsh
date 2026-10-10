@@ -454,11 +454,13 @@
 		let summary: string;
 		try {
 			const { backup } = await inspectBackupText(text, passphrase);
-			summary = t('settings.backupSummary', {
+			summary = t('settings.backupProjectSummary', {
 				date: formatBackupDate(backup.exportedAt),
 				drafts: backup.drafts.length,
 				workspaces: backup.workspaces.length,
-				templates: backup.templates.length
+				templates: backup.templates.length,
+				projects: backup.projects?.length ?? 0,
+				assets: backup.projectAssets?.length ?? 0
 			});
 			text = serializeBackup(backup);
 			passphrase = undefined;
@@ -499,13 +501,19 @@
 			const skippedSuffix =
 				counts.skipped > 0 ? t('settings.restoreSkippedSuffix', { n: counts.skipped }) : '';
 			const unchanged =
-				counts.unchanged.drafts + counts.unchanged.workspaces + counts.unchanged.templates;
+				counts.unchanged.drafts +
+				counts.unchanged.workspaces +
+				counts.unchanged.templates +
+				(counts.unchanged.projects ?? 0) +
+				(counts.unchanged.projectAssets ?? 0);
 			const unchangedSuffix =
 				unchanged > 0 ? t('settings.restoreUnchangedSuffix', { n: unchanged }) : '';
 			notify.success(
-				t('settings.backupRestored', {
+				t('settings.backupProjectRestored', {
 					drafts: counts.drafts,
-					workspaces: counts.workspaces
+					workspaces: counts.workspaces,
+					projects: counts.projects,
+					assets: counts.projectAssets
 				}) +
 					skippedSuffix +
 					unchangedSuffix
@@ -782,7 +790,7 @@
 						{t('settings.data')}
 					</h3>
 					<p class="mb-2 text-xs text-fg-dim">
-						{t('settings.dataDescription')}
+						{t('settings.backupProjectScope')}
 					</p>
 					<div class="mb-3 rounded-md border border-border bg-bg px-3 py-2" aria-live="polite">
 						<h4 class="mb-1 text-xs font-medium text-fg">{t('settings.storageHealth')}</h4>
@@ -803,6 +811,14 @@
 											})
 										: t('settings.storageUsageUnavailable')}
 								</li>
+								{#if storageHealth.projectAssetCount !== null && storageHealth.projectAssetBytes !== null}
+									<li>
+										{t('settings.projectAssetUsage', {
+											count: storageHealth.projectAssetCount,
+											usage: formatStorageBytes(storageHealth.projectAssetBytes)
+										})}
+									</li>
+								{/if}
 								<li>
 									{storageHealth.lastExternalBackupAt
 										? t('settings.lastBackup', {

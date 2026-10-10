@@ -42,3 +42,13 @@ retains its own results; this manifest is not a test report.
 Read an original with `git show <revision>:<original-path>`. Pipe that command to
 `shasum -a 256` to check its identity. The paths and full revision above also work
 with the repository's GitHub file history.
+
+## Version 2.0 implementation plan
+
+The roadmap now lists product scope and remaining proposals.
+Issue 134 and the release workflows track delivery checks.
+The original plan remains unchanged in this archive.
+
+| Original path | Recoverable copy | SHA-256 |
+| --- | --- | --- |
+| `ROADMAP.md` | [Version 2.0 plan](2026-10-10/ROADMAP.md) | `e4e05645b29ceb50cee412e98b9871b5a0c415e4c2ad8751b11fff041f42e538` |

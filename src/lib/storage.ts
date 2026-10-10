@@ -17,6 +17,7 @@
 
 import { browser } from '$app/environment';
 import { t } from '$lib/i18n';
+import { db } from './db';
 import { notify } from './notify.svelte';
 
 /** Context of a storage operation, for a tailored error message. */
@@ -32,6 +33,8 @@ export interface StorageHealth {
 	persistence: 'persistent' | 'best-effort' | 'unavailable';
 	usage: number | null;
 	quota: number | null;
+	projectAssetCount: number | null;
+	projectAssetBytes: number | null;
 	lastExternalBackupAt: number | null;
 	lastBackupErrorAt: number | null;
 	backupReminderDue: boolean;
@@ -86,11 +89,27 @@ export async function getStorageHealth(now = Date.now()): Promise<StorageHealth>
 	const lastExternalBackupAt = readTimestamp(BACKUP_SUCCESS_KEY);
 	const lastBackupErrorAt = readTimestamp(BACKUP_ERROR_KEY);
 	const lastReminderAt = readTimestamp(BACKUP_REMINDER_KEY);
+	let projectAssetCount: number | null = null;
+	let projectAssetBytes: number | null = null;
+	if (browser) {
+		try {
+			projectAssetCount = await db.projectAssets.count();
+			projectAssetBytes = 0;
+			await db.projectAssets.each((asset) => {
+				projectAssetBytes! += asset.data.byteLength;
+			});
+		} catch {
+			projectAssetCount = null;
+			projectAssetBytes = null;
+		}
+	}
 	if (!browser || !navigator.storage) {
 		return {
 			persistence: 'unavailable',
 			usage: null,
 			quota: null,
+			projectAssetCount,
+			projectAssetBytes,
 			lastExternalBackupAt,
 			lastBackupErrorAt,
 			backupReminderDue: isBackupReminderDue(now, lastExternalBackupAt, lastReminderAt)
@@ -118,6 +137,8 @@ export async function getStorageHealth(now = Date.now()): Promise<StorageHealth>
 		persistence,
 		usage,
 		quota,
+		projectAssetCount,
+		projectAssetBytes,
 		lastExternalBackupAt,
 		lastBackupErrorAt,
 		backupReminderDue: isBackupReminderDue(now, lastExternalBackupAt, lastReminderAt)

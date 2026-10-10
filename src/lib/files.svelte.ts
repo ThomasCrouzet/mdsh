@@ -36,6 +36,7 @@ import {
 } from './export-ops';
 import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
+import { projectWikiCandidates } from './project-paths';
 import { SaveQueue } from './save-queue';
 import { reportPersistenceError } from './storage';
 import { reportError } from './report';
@@ -56,6 +57,7 @@ function toDraftRow(file: FileItem, order: number, open = true): DraftRow {
 		id: file.id,
 		name: file.name,
 		content: file.content,
+		...(file.projectId ? { projectId: file.projectId, relativePath: file.relativePath } : {}),
 		createdAt: file.createdAt,
 		updatedAt: file.updatedAt,
 		order,
@@ -63,11 +65,21 @@ function toDraftRow(file: FileItem, order: number, open = true): DraftRow {
 	};
 }
 
+function applyDraftLocation(file: FileItem, row: DraftRow): void {
+	file.name = row.name;
+	if (row.projectId) file.projectId = row.projectId;
+	else delete file.projectId;
+	if (row.relativePath) file.relativePath = row.relativePath;
+	else delete file.relativePath;
+	file.updatedAt = Math.max(file.updatedAt, row.updatedAt);
+}
+
 class FilesStore {
 	files = $state<FileItem[]>([]);
 	/** Durable documents that are not currently shown as tabs. */
 	closedFiles = $state<FileItem[]>([]);
 	activeId = $state<string | null>(null);
+	projectAnchor = $state<{ id: string; fragment: string } | null>(null);
 	importProgress = $state<ImportReport | null>(null);
 	lastImportReport = $state<ImportReport | null>(null);
 	private importController: AbortController | null = null;
@@ -161,6 +173,11 @@ class FilesStore {
 		// resynchronize this draft (and do not overwrite our write).
 		onDraftSaved: (id, updatedAt) => {
 			this.crossTab.post({ type: 'draft-written', id, updatedAt });
+		},
+		onDraftReconciled: (row) => {
+			const file = this.library.find((entry) => entry.id === row.id);
+			if (file) applyDraftLocation(file, row);
+			this.metaIndex.invalidateMeta(row.id);
 		},
 		onConflictPreserved: (id, variant) => {
 			this.closedFiles.push({ ...variant, dirty: false });
@@ -276,6 +293,10 @@ class FilesStore {
 			if (this.trashBusy || this.saveQueue.has(id)) return;
 			file.name = row.name;
 			file.content = row.content;
+			if (row.projectId) file.projectId = row.projectId;
+			else delete file.projectId;
+			if (row.relativePath) file.relativePath = row.relativePath;
+			else delete file.relativePath;
 			file.updatedAt = row.updatedAt;
 			file.dirty = false;
 			this.saveQueue.trackPersisted(row);
@@ -307,6 +328,7 @@ class FilesStore {
 				id: r.id,
 				name: r.name,
 				content: r.content,
+				...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
 				createdAt: r.createdAt,
 				updatedAt: r.updatedAt,
 				dirty: false,
@@ -459,6 +481,29 @@ class FilesStore {
 		if (content.length > 0) this.metaIndex.invalidateBacklinksIndex();
 		this.scheduleSave(file.id);
 		return file;
+	}
+
+	async openProjectLink(sourceId: string, destination: string): Promise<void> {
+		const source = this.library.find((file) => file.id === sourceId);
+		if (!source?.projectId || !source.relativePath) return;
+		const { resolveProjectPath } = await import('./project-paths');
+		const path = resolveProjectPath(source.relativePath, destination);
+		const target = this.library.find(
+			(file) => file.projectId === source.projectId && file.relativePath === path
+		);
+		if (!target) {
+			notify.error(t('projects.linkMissing'));
+			return;
+		}
+		const fragment = destination.split('#').slice(1).join('#');
+		if (fragment) {
+			try {
+				this.projectAnchor = { id: target.id, fragment: decodeURIComponent(fragment) };
+			} catch {
+				this.projectAnchor = null;
+			}
+		}
+		this.openDocument(target.id);
 	}
 
 	async importFiles(
@@ -729,6 +774,7 @@ class FilesStore {
 							id: r.id,
 							name: r.name,
 							content: r.content,
+							...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
 							createdAt: r.createdAt,
 							updatedAt: r.updatedAt,
 							dirty: false,
@@ -809,6 +855,9 @@ class FilesStore {
 						entry.file.name
 					),
 					content: entry.file.content,
+					...(entry.file.projectId
+						? { projectId: entry.file.projectId, relativePath: entry.file.relativePath }
+						: {}),
 					createdAt: entry.file.createdAt,
 					updatedAt: entry.file.updatedAt,
 					dirty: false,
@@ -839,11 +888,20 @@ class FilesStore {
 				}
 			}
 			await this.saveQueue.settleAndRearm(restored.id);
-			const ok = await restoreFromTrash(id, toDraftRow(restored, insertAt), (row) => {
-				if (!this.closedFiles.some((file) => file.id === row.id))
-					this.closedFiles.push({ ...row, dirty: false });
-				this.metaIndex.invalidateMeta(row.id);
-			});
+			const ok = await restoreFromTrash(
+				id,
+				toDraftRow(restored, insertAt),
+				(row) => {
+					if (!this.closedFiles.some((file) => file.id === row.id))
+						this.closedFiles.push({ ...row, dirty: false });
+					this.metaIndex.invalidateMeta(row.id);
+				},
+				(row) => {
+					applyDraftLocation(restored, row);
+					this.saveQueue.trackPersisted(row);
+					this.metaIndex.invalidateMeta(row.id);
+				}
+			);
 			if (!ok) this.rollbackRestore(restored.id, entry, insertAt);
 		})();
 		this.pendingRestores.set(id, restorePromise);
@@ -924,6 +982,11 @@ class FilesStore {
 	rename(id: string, name: string): Promise<boolean> {
 		const file = this.files.find((f) => f.id === id);
 		if (!file) return Promise.resolve(false);
+		if (file.projectId && file.relativePath) {
+			return import('./projects').then(({ renameProjectDocument }) =>
+				renameProjectDocument(id, name)
+			);
+		}
 		const normalized = normalizeRename(name);
 		if (/[\r\n[\]|]/.test(normalized)) {
 			notify.error(t('files.invalidLinkName'));
@@ -1029,6 +1092,49 @@ class FilesStore {
 		return operation;
 	}
 
+	/** Apply committed project rows without resetting another document's editor. */
+	acceptProjectRows(
+		rows: DraftRow[],
+		expected?: ReadonlyMap<
+			string,
+			{ content: string; relativePath?: string | undefined; updatedAt: number }
+		>,
+		reconcile?: (content: string, id: string) => string
+	): string[] {
+		const applied: string[] = [];
+		for (const row of rows) {
+			const existing = this.library.find((file) => file.id === row.id);
+			const before = expected?.get(row.id);
+			const changed = !!(
+				existing &&
+				before &&
+				(existing.content !== before.content ||
+					existing.relativePath !== before.relativePath ||
+					existing.updatedAt !== before.updatedAt)
+			);
+			if (existing) {
+				existing.name = row.name;
+				existing.content = changed
+					? (reconcile?.(existing.content, row.id) ?? existing.content)
+					: row.content;
+				existing.updatedAt = changed ? Date.now() : row.updatedAt;
+				if (row.projectId) existing.projectId = row.projectId;
+				else delete existing.projectId;
+				if (row.relativePath) existing.relativePath = row.relativePath;
+				else delete existing.relativePath;
+				existing.dirty = true;
+			} else if (row.open === false) this.closedFiles.push({ ...row, dirty: false });
+			else this.files.push({ ...row, dirty: false });
+			this.saveQueue.invalidate(row.id);
+			this.saveQueue.trackPersisted(row);
+			if (changed) this.scheduleSave(row.id);
+			else applied.push(row.id);
+			this.metaIndex.invalidateMeta(row.id);
+		}
+		this.crossTab.post({ type: 'reorder' });
+		return applied;
+	}
+
 	private syncDiskName(id: string, name: string): void {
 		const file =
 			this.files.find((entry) => entry.id === id) ??
@@ -1128,6 +1234,7 @@ class FilesStore {
 			},
 			onCreate: (name: string, content: string) => this.createNew(name, content),
 			onSyncName: (id: string, name: string) => this.syncDiskName(id, name),
+			onUpdateContent: (id: string, content: string) => this.updateContent(id, content),
 			scheduleSave: (id: string) => this.scheduleSave(id),
 			onImportRollback: (id: string) => {
 				this.detachFromView(id);
@@ -1305,17 +1412,43 @@ class FilesStore {
 	}
 	/** Files that contain a wiki-link pointing to `targetId`. */
 	backlinks(targetId: string): FileItem[] {
-		return this.metaIndex.backlinks(targetId);
+		return this.library.filter(
+			(file) =>
+				file.id !== targetId &&
+				this.metaIndex
+					.wikiLinkTargets(file.id)
+					.some((target) => this.resolveWikiLink(target, file.id) === targetId)
+		);
 	}
 	/** Resolves a wiki-link → file id, or `null` if not found. */
-	resolveWikiLink(target: string): string | null {
+	resolveWikiLink(target: string, sourceId?: string): string | null {
+		const source = this.library.find((file) => file.id === sourceId);
+		if (source?.projectId) {
+			const candidates = projectWikiCandidates(source, target, this.library);
+			return candidates.length === 1 ? candidates[0]!.id : null;
+		}
 		return this.metaIndex.resolveWikiLink(target);
 	}
 	/**
 	 * Opens a wiki-link target: activates the existing file, or creates a new one
 	 * (Obsidian behavior). Returns the resolved/created id.
 	 */
-	openWikiLink(target: string): string | null {
+	openWikiLink(target: string, sourceId?: string): string | null {
+		const source = this.library.find((file) => file.id === sourceId);
+		if (source?.projectId) {
+			const matches = projectWikiCandidates(source, target, this.library);
+			if (matches.length !== 1) {
+				notify.info(
+					matches.length ? t('files.ambiguousLink', { name: target }) : t('projects.linkMissing')
+				);
+				return null;
+			}
+			const file = matches[0]!;
+			const fragment = target.split('#').slice(1).join('#');
+			if (fragment) this.projectAnchor = { id: file.id, fragment };
+			this.openDocument(file.id);
+			return file.id;
+		}
 		const resolved = this.resolveWikiLink(target);
 		if (resolved) {
 			this.openDocument(resolved);

@@ -1,3 +1,4 @@
 # Preserve upstream source and patch bytes on all platforms.
 src-tauri/vendor/glib/** -text
 patches/glib/variant-str-iter.patch -text
+patches/milkdown/image-proxy-race.patch -text

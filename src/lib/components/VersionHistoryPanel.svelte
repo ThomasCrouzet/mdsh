@@ -2,8 +2,7 @@
 	// §2.4 - Version history panel for the active file.
 	//
 	// Lists the timestamped snapshots (db.versions), shows a preview of a selected
-	// version's content plus a lightweight diff indicator (+X / -Y lines vs the
-	// current version), and allows restoring a version (with confirmation).
+	// version's content with a bounded line diff, and allows a safe restore.
 	// All local (Dexie), no network.
 
 	import { tick } from 'svelte';
@@ -14,10 +13,12 @@
 	import { promptStore } from '$lib/prompt.svelte';
 	import { notify } from '$lib/notify.svelte';
 	import { reportError } from '$lib/report';
-	import { listVersions, lineDiffStats } from '$lib/version-history';
+	import { reportPersistenceError } from '$lib/storage';
+	import { listVersions } from '$lib/version-history';
 	import { formatSaveAge } from '$lib/stats';
 	import type { VersionRow } from '$lib/db';
 	import { History, X, RotateCcw } from '@lucide/svelte';
+	import DiffView from './DiffView.svelte';
 
 	interface Props {
 		open: boolean;
@@ -33,10 +34,10 @@
 
 	const selected = $derived(versions.find((v) => v.id === selectedId) ?? null);
 	const currentContent = $derived(filesStore.active?.content ?? '');
-	const diff = $derived(selected ? lineDiffStats(currentContent, selected.content) : null);
 
 	$effect(() => {
 		if (!open || !browser) return;
+		let cancelled = false;
 		loading = true;
 		const id = filesStore.active?.id;
 		if (!id) {
@@ -46,12 +47,16 @@
 		}
 		void listVersions(id)
 			.then((rows) => {
+				if (cancelled) return;
 				versions = rows;
 				selectedId = rows[0]?.id ?? null;
 				loading = false;
-				tick().then(() => closeButton?.focus());
+				tick().then(() => {
+					if (!cancelled) closeButton?.focus();
+				});
 			})
 			.catch((err) => {
+				if (cancelled) return;
 				// Without this .catch, an IDB failure left the "Loading..." spinner
 				// frozen indefinitely. We exit the loading state and notify.
 				versions = [];
@@ -59,8 +64,13 @@
 				reportError('load version history', err, {
 					notifyUser: t('versionHistory.loadError')
 				});
-				tick().then(() => closeButton?.focus());
+				tick().then(() => {
+					if (!cancelled) closeButton?.focus();
+				});
 			});
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	async function handleRestore(): Promise<void> {
@@ -73,9 +83,14 @@
 			confirmLabel: t('versionHistory.restore')
 		});
 		if (!ok) return;
-		await filesStore.restoreVersion(active.id, v.content);
-		notify.success(t('versionHistory.restored'));
-		onClose();
+		try {
+			const restored = await filesStore.restoreVersion(active.id, v.content);
+			if (!restored) return;
+			notify.success(t('versionHistory.restored'));
+			onClose();
+		} catch (error) {
+			reportPersistenceError(error, 'save');
+		}
 	}
 </script>
 
@@ -158,18 +173,14 @@
 					<!-- Preview of the selected version -->
 					<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 						{#if selected}
-							<div
-								class="flex items-center gap-3 border-b border-border px-3 py-1.5 text-[11px] text-fg-dim"
-							>
-								<span>{t('versionHistory.preview')}</span>
-								{#if diff}
-									<span class="text-accent">+{diff.added}</span>
-									<span class="text-danger">−{diff.removed}</span>
-									<span>{t('versionHistory.vsCurrent')}</span>
-								{/if}
+							<div class="min-h-0 flex-1 overflow-auto p-3">
+								<DiffView
+									before={currentContent}
+									after={selected.content}
+									ariaLabel={`${t('versionHistory.preview')} ${t('versionHistory.vsCurrent')}`}
+									maxHeight="55vh"
+								/>
 							</div>
-							<pre
-								class="m-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs text-fg-muted">{selected.content}</pre>
 						{/if}
 					</div>
 				</div>

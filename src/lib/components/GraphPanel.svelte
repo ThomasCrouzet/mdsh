@@ -45,8 +45,12 @@
 			}));
 			const data = buildGraph(
 				files,
-				(id) => filesStore.wikiLinkTargets(id),
-				(target) => filesStore.resolveWikiLink(target)
+				(id) =>
+					filesStore
+						.wikiLinkTargets(id)
+						.map((target) => filesStore.resolveWikiLink(target, id))
+						.filter((target): target is string => target !== null),
+				(target) => target
 			);
 			edges = data.edges;
 			// Fewer iterations on large graphs to stay smooth.

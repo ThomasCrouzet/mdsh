@@ -71,7 +71,8 @@ jobs:
   e2e:
     needs: check
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # The v1.9 browser matrix took 20 minutes. Version 2 adds project workflows.
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

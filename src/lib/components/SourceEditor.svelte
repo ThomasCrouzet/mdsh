@@ -9,11 +9,21 @@
 		fileId: string;
 		content: string;
 		readonly?: boolean;
+		fillContainer?: boolean;
 		onChange: (markdown: string) => void;
 		onCursorLine?: (line: number) => void;
+		onViewportLine?: (line: number) => void;
 	}
 
-	let { fileId, content, readonly = false, onChange, onCursorLine }: Props = $props();
+	let {
+		fileId,
+		content,
+		readonly = false,
+		fillContainer = false,
+		onChange,
+		onCursorLine,
+		onViewportLine
+	}: Props = $props();
 	export function getFileId(): string {
 		return fileId;
 	}
@@ -349,6 +359,9 @@
 				if (update.selectionSet || update.docChanged) {
 					onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
 				}
+				if (update.viewportChanged || update.docChanged) {
+					onViewportLine?.(update.state.doc.lineAt(update.view.viewport.from).number);
+				}
 				if (update.docChanged) {
 					const v = update.state.doc.toString();
 					if (v !== lastEmitted) {
@@ -389,8 +402,11 @@
 				? { scrollTo: cm.EditorView.scrollIntoView(startState.selection.main.head) }
 				: {})
 		});
+		view.scrollDOM.tabIndex = 0;
+		view.scrollDOM.addEventListener('focus', () => view?.focus());
 		activeCM = cm;
 		onCursorLine?.(view.state.doc.lineAt(view.state.selection.main.head).number);
+		onViewportLine?.(view.state.doc.lineAt(view.viewport.from).number);
 		lastEmitted = content;
 		if (savedPosition?.scrollTop) {
 			const mountedView = view;
@@ -541,6 +557,26 @@
 			.catch((err) => reportError('navigate to line (source editor)', err));
 	}
 
+	/** Scrolls to a source line without changing the document or undo history. */
+	export function scrollToLine(line: number, focus = false): void {
+		if (!view) {
+			pendingGoTo = { line, query: '' };
+			return;
+		}
+		void loadCM()
+			.then((cm) => {
+				if (!view) return;
+				const doc = view.state.doc;
+				const safeLine = Math.max(1, Math.min(doc.lines, line));
+				const target = doc.line(safeLine);
+				view.dispatch({
+					effects: cm.EditorView.scrollIntoView(target.from, { y: 'start' })
+				});
+				if (focus) view.focus();
+			})
+			.catch((err) => reportError('scroll source editor', err));
+	}
+
 	/**
 	 * Public method exposed via `bind:this`: enables or disables typewriter
 	 * mode (active centering of the caret line). Uses a Compartment to
@@ -574,7 +610,12 @@
 
 <svelte:window onpagehide={saveSourceState} />
 
-<div bind:this={host} class="mdsh-source-cm" data-testid="mdsh-source">
+<div
+	bind:this={host}
+	class="mdsh-source-cm"
+	class:fill-container={fillContainer}
+	data-testid="mdsh-source"
+>
 	{#if loadError}
 		<div class="mdsh-source-error" role="alert">
 			<p>{t('source.loadErrorTitle')}</p>
@@ -596,6 +637,10 @@
 		overflow: hidden;
 		/* Isolates resize reflows (cf. milkdown.css). */
 		contain: layout style;
+	}
+	.mdsh-source-cm.fill-container {
+		max-width: none;
+		margin: 0;
 	}
 	.mdsh-source-error {
 		display: flex;

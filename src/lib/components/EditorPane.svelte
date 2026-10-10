@@ -10,19 +10,16 @@
 	// +page.svelte an `$effect` whose only purpose is a bind:this of an element
 	// belonging to this component.
 	//
-	// BUNDLE CONSTRAINT: no static import of SourceEditor / Editor / ReadView
-	// here - they are already imported in +page.svelte (they are entry chunks).
-	// The TOC stays lazy-loaded via modals.loadToc().
-
-	import Editor from '$lib/components/Editor.svelte';
+	// Load optional editor views when the selected mode needs them.
 	import SourceEditor from '$lib/components/SourceEditor.svelte';
-	import ReadView from '$lib/components/ReadView.svelte';
 	import Welcome from '$lib/components/Welcome.svelte';
 	import { Upload } from '@lucide/svelte';
+	import { onMount } from 'svelte';
 	import type { EditMode, FileItem } from '$lib/types';
 	import type { createEditorWidth } from '$lib/ui/editor-width.svelte';
 	import type { createModals } from '$lib/ui/modals.svelte';
 	import { t } from '$lib/i18n';
+	import { readPreference, writePreference } from '$lib/preferences';
 
 	interface Props {
 		libraryCount?: number;
@@ -87,6 +84,17 @@
 	let sourceEditorEl = $state<SourceEditor | null>(null);
 	let contentRoot = $state<HTMLDivElement | null>(null);
 	let sourceLine = $state(1);
+	let splitView = $state(false);
+	const SPLIT_VIEW_KEY = 'mdsh:split-view';
+
+	function toggleSplitView(): void {
+		splitView = !splitView;
+		writePreference(SPLIT_VIEW_KEY, splitView ? '1' : '0');
+	}
+
+	onMount(() => {
+		splitView = readPreference(SPLIT_VIEW_KEY) === '1';
+	});
 	function closeTool() {
 		onCloseTool();
 		requestAnimationFrame(() =>
@@ -120,41 +128,78 @@
 		{#if activeFile}
 			{#if mode === 'source'}
 				{#key activeFile.id}
-					<SourceEditor
-						bind:this={sourceEditorEl}
+					<div class="mdsh-source-mode">
+						<div class="mdsh-split-controls">
+							<button
+								type="button"
+								class:active={splitView}
+								aria-pressed={splitView}
+								aria-controls={splitView ? 'mdsh-split-editor' : undefined}
+								data-testid="split-view-toggle"
+								onclick={toggleSplitView}
+							>
+								{t(splitView ? 'splitView.hide' : 'splitView.show')}
+							</button>
+						</div>
+						<div id="mdsh-split-editor" class="mdsh-source-workspace">
+							{#if splitView}
+								{#await import('./SplitEditor.svelte') then module}
+									<module.default
+										fileId={activeFile.id}
+										content={activeFile.content}
+										onChange={onEditorChange}
+										onCursorLine={(line) => (sourceLine = line)}
+										onSourceEditorRef={(ref) => (sourceEditorEl = ref)}
+										{onArticleRef}
+									/>
+								{:catch}<p role="alert" class="p-4 text-danger">
+										{t('source.loadErrorTitle')}
+									</p>{/await}
+							{:else}
+								<SourceEditor
+									bind:this={sourceEditorEl}
+									fileId={activeFile.id}
+									content={activeFile.content}
+									onChange={onEditorChange}
+									onCursorLine={(line) => (sourceLine = line)}
+								/>
+							{/if}
+						</div>
+					</div>
+				{/key}
+			{:else if mode === 'read'}
+				{#await import('./ReadView.svelte') then module}
+					<module.default fileId={activeFile.id} content={activeFile.content} {onArticleRef} />
+				{:catch}<p role="alert" class="p-4 text-danger">{t('source.loadErrorTitle')}</p>{/await}
+			{:else}
+				{#await import('./Editor.svelte') then module}
+					<module.default
 						fileId={activeFile.id}
 						content={activeFile.content}
 						onChange={onEditorChange}
-						onCursorLine={(line) => (sourceLine = line)}
+						onFlush={onEditorFlush}
 					/>
-				{/key}
-			{:else if mode === 'read'}
-				<ReadView fileId={activeFile.id} content={activeFile.content} {onArticleRef} />
-			{:else}
-				<Editor
-					fileId={activeFile.id}
-					content={activeFile.content}
-					onChange={onEditorChange}
-					onFlush={onEditorFlush}
-				/>
+				{:catch}<p role="alert" class="p-4 text-danger">{t('editor.loadErrorTitle')}</p>{/await}
 			{/if}
 
 			<!-- Resize handle (desktop only); role presentation because
 		     mouse dragging is a convenience, keyboard presets go through the palette (⌘⇧P). -->
-			<div
-				bind:this={resizeHandleEl}
-				class="resize-handle"
-				class:resizing={editorWidth.resizing}
-				onpointerdown={editorWidth.startResize}
-				onpointermove={editorWidth.onResize}
-				onpointerup={editorWidth.stopResize}
-				onpointercancel={editorWidth.stopResize}
-				onlostpointercapture={editorWidth.stopResize}
-				ondblclick={editorWidth.resetEditorWidth}
-				role="presentation"
-				aria-hidden="true"
-				title={t('editorPane.resizeHandle', { width: editorWidth.editorMaxWidth })}
-			></div>
+			{#if mode !== 'source' || !splitView}
+				<div
+					bind:this={resizeHandleEl}
+					class="resize-handle"
+					class:resizing={editorWidth.resizing}
+					onpointerdown={editorWidth.startResize}
+					onpointermove={editorWidth.onResize}
+					onpointerup={editorWidth.stopResize}
+					onpointercancel={editorWidth.stopResize}
+					onlostpointercapture={editorWidth.stopResize}
+					ondblclick={editorWidth.resetEditorWidth}
+					role="presentation"
+					aria-hidden="true"
+					title={t('editorPane.resizeHandle', { width: editorWidth.editorMaxWidth })}
+				></div>
+			{/if}
 		{:else}
 			<Welcome
 				{onNew}
@@ -196,6 +241,44 @@
 {/if}
 
 <style>
+	.mdsh-source-mode {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		min-height: 0;
+	}
+	.mdsh-split-controls {
+		display: flex;
+		flex: none;
+		justify-content: flex-end;
+		padding: 0.35rem 0.65rem;
+		border-bottom: 1px solid var(--color-border);
+		background: color-mix(in oklab, var(--color-bg-1) 78%, transparent);
+	}
+	.mdsh-split-controls button {
+		padding: 0.3rem 0.7rem;
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-xs);
+		background: var(--color-bg-2);
+		color: var(--color-fg-muted);
+		font: 500 12px/1.4 var(--font-mono);
+		cursor: pointer;
+	}
+	.mdsh-split-controls button:hover,
+	.mdsh-split-controls button.active {
+		border-color: var(--color-accent);
+		color: var(--color-fg);
+	}
+	.mdsh-split-controls button:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 2px;
+	}
+	.mdsh-source-workspace {
+		min-width: 0;
+		min-height: 0;
+		flex: 1;
+	}
+
 	/* Keep a 24px clear strip inside both the preset edge and the pane edge.
 	   Source scrolls at the preset edge. Edit and Read scroll at the pane edge.
 	   Overlay scrollbars need this space even when their layout width is zero. */

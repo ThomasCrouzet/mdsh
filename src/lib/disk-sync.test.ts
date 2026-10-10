@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { notify } from './notify.svelte';
-import { promptStore } from './prompt.svelte';
+import { diskConflictStore } from './disk-conflict.svelte';
 import type { FileItem } from './types';
 
 // Mock all FSA operations to test disk synchronization, FileItem flags,
@@ -45,6 +45,10 @@ vi.mock('./disk-tauri', () => ({
 		revision: 'sha256:written'
 	})),
 	tauriReadMeta: vi.fn(async () => null),
+	tauriReadPath: vi.fn(async () => ({
+		content: 'external',
+		stat: { lastModified: 2, size: 8, revision: 'sha256:external' }
+	})),
 	tauriCheckPath: vi.fn(async () => 'ok'),
 	tauriOpenNativeGrants: vi.fn(async () => ({ files: [], failed: 0 }))
 }));
@@ -289,7 +293,9 @@ describe('saveToDisk', () => {
 			Object.defineProperty(writtenAfter, 'lastModified', { value: 12345, configurable: true });
 			const getFile = vi
 				.fn()
-				.mockResolvedValueOnce(onDisk) // check anti-écrasement
+				.mockResolvedValueOnce(onDisk)
+				.mockResolvedValueOnce(onDisk)
+				.mockResolvedValueOnce(onDisk)
 				.mockResolvedValueOnce(writtenAfter); // rafraîchissement baseline
 			const h = { getFile } as unknown as FileSystemFileHandle;
 			vi.mocked(fsa.getFsaLink).mockResolvedValue({
@@ -300,7 +306,7 @@ describe('saveToDisk', () => {
 			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:changed');
 			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 			vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
-			const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(true);
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('overwrite');
 
 			const ok = await saveToDisk('a', deps);
 
@@ -316,7 +322,11 @@ describe('saveToDisk', () => {
 			Object.defineProperty(onDisk, 'lastModified', { value: 1000, configurable: true });
 			const writtenAfter = new File(['contenu'], 'note.md');
 			Object.defineProperty(writtenAfter, 'lastModified', { value: 2000, configurable: true });
-			const getFile = vi.fn().mockResolvedValueOnce(onDisk).mockResolvedValueOnce(writtenAfter);
+			const getFile = vi
+				.fn()
+				.mockResolvedValueOnce(onDisk)
+				.mockResolvedValueOnce(onDisk)
+				.mockResolvedValueOnce(writtenAfter);
 			const h = { getFile } as unknown as FileSystemFileHandle;
 			vi.mocked(fsa.getFsaLink).mockResolvedValue({
 				handle: h,
@@ -325,7 +335,7 @@ describe('saveToDisk', () => {
 			});
 			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 			vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
-			const confirmSpy = vi.spyOn(promptStore, 'confirm');
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve');
 
 			const ok = await saveToDisk('a', deps);
 
@@ -338,7 +348,7 @@ describe('saveToDisk', () => {
 			const onDisk = new File(['contenu'], 'note.md');
 			const h = { getFile: vi.fn().mockResolvedValue(onDisk) } as unknown as FileSystemFileHandle;
 			vi.mocked(fsa.getFsaLink).mockResolvedValue({ handle: h, revision: null, epoch: 'epoch' });
-			const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('cancel');
 
 			expect(await saveToDisk('a', deps)).toBe(false);
 			expect(confirmSpy).toHaveBeenCalled();
@@ -361,7 +371,7 @@ describe('saveToDisk', () => {
 			});
 			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
 			vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
-			const confirmSpy = vi.spyOn(promptStore, 'confirm');
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve');
 
 			const ok = await saveToDisk('a', deps);
 
@@ -589,7 +599,7 @@ describe('saveToDisk desktop capability backend', () => {
 		vi.mocked(diskTauri.tauriWritePath).mockRejectedValue(
 			new Error('disk conflict: target changed since it was opened')
 		);
-		const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
+		const confirmSpy = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('cancel');
 
 		expect(await saveToDisk('a', deps)).toBe(false);
 		expect(diskTauri.tauriWritePath).toHaveBeenCalledOnce();
@@ -597,7 +607,7 @@ describe('saveToDisk desktop capability backend', () => {
 		confirmSpy.mockRestore();
 	});
 
-	it('retries a confirmed conflict with the explicit force flag', async () => {
+	it('compares the approved external revision again before writing', async () => {
 		const file = makeFile({ diskRevision: 'sha256:before' });
 		const { deps } = desktopDeps(file);
 		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
@@ -608,14 +618,14 @@ describe('saveToDisk desktop capability backend', () => {
 				size: 7,
 				revision: 'sha256:forced'
 			});
-		const confirmSpy = vi.spyOn(promptStore, 'confirm').mockResolvedValue(true);
+		const confirmSpy = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('overwrite');
 
 		expect(await saveToDisk('a', deps)).toBe(true);
 		expect(diskTauri.tauriWritePath).toHaveBeenLastCalledWith(
 			'/tmp/note.md',
 			'contenu',
-			'sha256:before',
-			true
+			'sha256:external',
+			false
 		);
 		expect(file.diskRevision).toBe('sha256:forced');
 		confirmSpy.mockRestore();

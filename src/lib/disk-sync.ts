@@ -2,6 +2,7 @@ import {
 	ImportSession,
 	ImportReadError,
 	validateMarkdownContent,
+	readUtf8File,
 	type ImportOptions,
 	type ImportReport
 } from './import-limits';
@@ -20,6 +21,7 @@ import {
 //  - `scheduleSave(id)` → void              (schedules Dexie persistence)
 
 import { browser } from '$app/environment';
+import { IMPORT_LIMITS } from './config';
 import { isDesktop } from './desktop';
 import {
 	checkHandle,
@@ -48,12 +50,14 @@ import {
 	tauriPickDirectoryAndOpen,
 	tauriPickSaveTarget,
 	tauriReadMeta,
+	tauriReadPath,
 	tauriWritePath,
 	type NativeDiskGrant
 } from './disk-tauri';
 import { t } from '$lib/i18n';
 import { notify } from './notify.svelte';
-import { promptStore } from './prompt.svelte';
+import { diskConflictStore } from './disk-conflict.svelte';
+import { createCheckpoint } from './version-history';
 import { reportError } from './report';
 import { reportPersistenceError } from './storage';
 import type { FileItem } from './types';
@@ -72,6 +76,7 @@ export interface DiskSyncDeps {
 	scheduleSave: (id: string) => void;
 	/** Applies the exact disk name through the store so metadata and persistence stay synchronized. */
 	onSyncName?: (id: string, name: string) => void;
+	onUpdateContent?: (id: string, content: string) => void;
 	onImportRollback?: (id: string) => void;
 }
 
@@ -302,10 +307,13 @@ export async function saveToDisk(id: string, deps: DiskSyncDeps): Promise<boolea
 	const file = deps.getFile(id);
 	if (!file) return false;
 
-	if (isDesktop()) {
-		return saveToDiskDesktop(id, file, deps);
+	try {
+		if (isDesktop()) return await saveToDiskDesktop(id, file, deps);
+		return await saveToDiskFsa(id, file, deps);
+	} catch (error) {
+		reportError('disk save', error, { notifyUser: t('disk.saveFailed', { name: file.name }) });
+		return false;
 	}
-	return saveToDiskFsa(id, file, deps);
 }
 
 async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Promise<boolean> {
@@ -323,12 +331,15 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 	}
 	let handle = existingLink?.handle ?? null;
 	const hadLink = handle !== null;
+	let reviewedRevision: string | null = null;
 	if (handle && existingLink) {
 		const ok = await requestPermission(handle, 'readwrite');
 		if (!ok) return false;
 		let onDiskRevision: string;
+		let onDiskFile: File;
 		try {
-			onDiskRevision = await revisionForFile(await handle.getFile());
+			onDiskFile = await handle.getFile();
+			onDiskRevision = await revisionForFile(onDiskFile);
 		} catch (err) {
 			file.brokenLink = true;
 			notify.error(t('disk.saveFailed', { name }));
@@ -336,12 +347,47 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 			return false;
 		}
 		if (existingLink.revision === null || onDiskRevision !== existingLink.revision) {
-			const overwrite = await confirmOverwrite(name);
-			if (!overwrite) {
+			let diskContent: string;
+			try {
+				diskContent = await readUtf8File(onDiskFile, IMPORT_LIMITS.maxFileBytes);
+				validateMarkdownContent(diskContent);
+			} catch (error) {
+				reportError('disk comparison read', error, { notifyUser: t('disk.saveFailed', { name }) });
+				return false;
+			}
+			const resolution = await diskConflictStore.resolve({
+				name,
+				localContent: content,
+				diskContent
+			});
+			if (resolution === 'cancel') {
 				notify.info(t('disk.saveCancelled', { name }));
 				return false;
 			}
+			if (!(await checkpointDiskBranch(id, name, resolution === 'reload' ? content : diskContent)))
+				return false;
+			if (
+				!sameDiskSource(id, file, content, name, deps) ||
+				(await revisionForFile(await handle.getFile())) !== onDiskRevision
+			) {
+				notify.error(t('files.otherTabChanges'));
+				return false;
+			}
+			if (resolution === 'reload') {
+				try {
+					await saveHandle(id, handle, onDiskRevision, epoch);
+				} catch (error) {
+					reportPersistenceError(error, 'save');
+					return false;
+				}
+				if (!sameDiskSource(id, file, content, name, deps)) return false;
+				applyDiskContent(id, file, diskContent, deps);
+				file.diskLastModified = onDiskFile.lastModified;
+				file.diskSize = onDiskFile.size;
+				return true;
+			}
 		}
+		reviewedRevision = onDiskRevision;
 	} else {
 		const picked = await pickSaveTarget(name);
 		if (!picked) return false;
@@ -356,6 +402,10 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		return false;
 	}
 	try {
+		if (reviewedRevision && (await revisionForFile(await handle.getFile())) !== reviewedRevision) {
+			notify.error(t('files.otherTabChanges'));
+			return false;
+		}
 		await writeHandle(handle, content);
 	} catch (err) {
 		// §6.9 / J3 - Write refused / file not found: we flag the link as broken,
@@ -435,13 +485,49 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		if (message.includes('disk conflict')) {
-			const overwrite = await confirmOverwrite(name);
-			if (!overwrite) {
-				notify.info(t('disk.saveCancelled', { name }));
-				return false;
-			}
 			try {
-				written = await tauriWritePath(pathRec.path, content, expectedRevision, true);
+				const external = await tauriReadPath(pathRec.path);
+				const resolution = await diskConflictStore.resolve({
+					name,
+					localContent: content,
+					diskContent: external.content
+				});
+				if (resolution === 'cancel') {
+					notify.info(t('disk.saveCancelled', { name }));
+					return false;
+				}
+				if (
+					!(await checkpointDiskBranch(
+						id,
+						name,
+						resolution === 'reload' ? content : external.content
+					))
+				)
+					return false;
+				if (!sameDiskSource(id, file, content, name, deps)) {
+					notify.error(t('files.otherTabChanges'));
+					return false;
+				}
+				if (resolution === 'reload') {
+					const currentDisk = await tauriReadPath(pathRec.path);
+					if (currentDisk.stat.revision !== external.stat.revision) {
+						notify.error(t('files.otherTabChanges'));
+						return false;
+					}
+					try {
+						await savePathLink(id, pathRec, epoch, external.stat.revision);
+					} catch (error) {
+						reportPersistenceError(error, 'save');
+						return false;
+					}
+					if (!sameDiskSource(id, file, content, name, deps)) return false;
+					applyDiskContent(id, file, external.content, deps);
+					file.diskRevision = external.stat.revision;
+					file.diskLastModified = external.stat.lastModified;
+					file.diskSize = external.stat.size;
+					return true;
+				}
+				written = await tauriWritePath(pathRec.path, content, external.stat.revision, false);
 			} catch (retryError) {
 				return reportDesktopWriteFailure(file, retryError);
 			}
@@ -503,14 +589,36 @@ function reportDesktopWriteFailure(file: FileItem, err: unknown): false {
 	return false;
 }
 
-async function confirmOverwrite(name: string): Promise<boolean> {
-	return promptStore.confirm({
-		title: t('disk.overwriteTitle'),
-		message: t('disk.overwriteMessage', { name }),
-		confirmLabel: t('disk.overwriteConfirm'),
-		cancelLabel: t('disk.overwriteCancel'),
-		danger: true
-	});
+async function checkpointDiskBranch(id: string, name: string, content: string): Promise<boolean> {
+	try {
+		await createCheckpoint({ id, name, content });
+		return true;
+	} catch (error) {
+		reportPersistenceError(error, 'save');
+		return false;
+	}
+}
+
+function sameDiskSource(
+	id: string,
+	file: FileItem,
+	content: string,
+	name: string,
+	deps: DiskSyncDeps
+): boolean {
+	const current = deps.getFile(id);
+	return current === file && current.content === content && current.name === name;
+}
+
+function applyDiskContent(id: string, file: FileItem, content: string, deps: DiskSyncDeps): void {
+	if (deps.onUpdateContent) deps.onUpdateContent(id, content);
+	else {
+		file.content = content;
+		file.updatedAt = Date.now();
+	}
+	file.dirty = false;
+	file.brokenLink = false;
+	deps.scheduleSave(id);
 }
 
 /**

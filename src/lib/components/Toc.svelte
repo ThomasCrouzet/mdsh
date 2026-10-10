@@ -41,22 +41,31 @@
 		const selectedMode = mode;
 		let timer: ReturnType<typeof setTimeout>;
 		let intersection: IntersectionObserver | null = null;
-		if (selectedMode !== previousMode || root !== previousRoot) {
+		const modeOrRootChanged = selectedMode !== previousMode || root !== previousRoot;
+		const renderedRoot = () =>
+			root?.querySelector<HTMLElement>(
+				selectedMode === 'read' ? '.mdsh-preview' : '.ProseMirror'
+			) ?? null;
+		const publishRenderedVisibility = () => {
+			if (selectedMode === 'source') return;
+			onEmpty(!renderedRoot()?.querySelector('h1,h2,h3,h4,h5,h6'));
+		};
+		if (modeOrRootChanged) {
 			items = [];
 			activeIndex = -1;
-			onEmpty(true);
 			previousMode = selectedMode;
 			previousRoot = root;
+			if (selectedMode === 'source') {
+				items = documentHeadings(text);
+				onEmpty(items.length === 0);
+			}
 		}
+		publishRenderedVisibility();
 		const update = () => {
 			items =
 				selectedMode === 'source'
 					? documentHeadings(text)
-					: renderedDocumentHeadings(
-							root?.querySelector<HTMLElement>(
-								selectedMode === 'read' ? '.mdsh-preview' : '.ProseMirror'
-							) ?? null
-						);
+					: renderedDocumentHeadings(renderedRoot());
 			onEmpty(items.length === 0);
 			intersection?.disconnect();
 			if (selectedMode !== 'source' && root) {
@@ -77,7 +86,10 @@
 			clearTimeout(timer);
 			timer = setTimeout(update, 120);
 		};
-		const observer = new MutationObserver(schedule);
+		const observer = new MutationObserver(() => {
+			publishRenderedVisibility();
+			schedule();
+		});
 		if (root && selectedMode !== 'source') {
 			observer.observe(root, { childList: true, subtree: true, characterData: true });
 		}

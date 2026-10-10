@@ -27,7 +27,7 @@ export function fileToDataUri(file: File): Promise<string | null> {
 }
 
 export interface ImageDropStore {
-	active: { id: string; content: string } | null;
+	active: { id: string; content: string; projectId?: string; relativePath?: string } | null;
 	createNew: (name: string) => void;
 	updateContent: (id: string, content: string) => void;
 	// Import summary: `created` (files created), `skipped` (non-markdown entries
@@ -102,7 +102,24 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 				.replace(/[\r\n[\]()!]/g, '')
 				.trim()
 				.slice(0, 80) || 'image';
-		blocks.push(`![${alt || embedded.alt || 'image'}](${embedded.dataUri})`);
+		let source = embedded.dataUri;
+		if (active.projectId && active.relativePath) {
+			try {
+				const [{ addProjectImage }, { relativeDestination }] = await Promise.all([
+					import('$lib/projects'),
+					import('$lib/project-paths')
+				]);
+				source = relativeDestination(
+					active.relativePath,
+					await addProjectImage(active.projectId, img)
+				);
+			} catch (error) {
+				unreadable++;
+				reportWarning('project image write', error);
+				continue;
+			}
+		}
+		blocks.push(`![${alt || embedded.alt || 'image'}](${source})`);
 	}
 
 	// §#6 - User feedback on skipped images (before the possible early
