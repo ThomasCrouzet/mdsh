@@ -161,6 +161,7 @@
 	{#await modals.loadPresentation() then PresentationView}
 		<PresentationView
 			open={modals.presentationOpen}
+			initialPresenting={modals.presentationStartPlaying}
 			onClose={() => (modals.presentationOpen = false)}
 		/>
 	{:catch}

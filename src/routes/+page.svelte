@@ -292,6 +292,14 @@
 		sidebarOpen = true;
 	}
 
+	async function handlePresentation() {
+		if (!canInteract) return;
+		window.dispatchEvent(new Event('mdsh:flush-editor'));
+		await tick();
+		if (!filesStore.active) filesStore.createNew(t('slides.newName'));
+		modals.openSlideEditor();
+	}
+
 	async function handleImport() {
 		if (!canInteract) return;
 		const diskLinkingAvailable = isDiskLinkingAvailable();
@@ -329,6 +337,10 @@
 	}
 
 	async function handleDesktopMenuAction(action: DesktopMenuAction) {
+		if (canInteract && modals.presentationOpen && !promptStore.open) {
+			window.dispatchEvent(new CustomEvent('mdsh:presentation-action', { detail: action }));
+			return;
+		}
 		if (
 			!canInteract ||
 			modals.anyOpen ||
@@ -593,6 +605,7 @@
 			onExportPDF={handleExportPDF}
 			onOpenPalette={modals.openPalette}
 			onOpenActions={modals.openActions}
+			onOpenPresentation={() => void handlePresentation()}
 			onSaveToDisk={handleSaveToDisk}
 		/>
 
@@ -703,7 +716,7 @@
 
 <Toast />
 <SpinnerToast />
-<Toasts />
+{#if !modals.presentationOpen}<Toasts />{/if}
 
 <!-- §B1.3 - Singleton prompt/confirm modal, driven by `promptStore`.
      Replaces the native `window.prompt` / `window.confirm` (CommandPalette +
