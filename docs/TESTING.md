@@ -36,6 +36,8 @@ It verifies cancellation, stale comparison rejection, reload, and a retained loc
 Browser file APIs cannot make the final revision check and write atomic against another application.
 
 The portable project scenario verifies cached rendering after network loss.
+Wait for the saved-state indicator before reloading a reopened document.
+Service worker readiness does not confirm that the open tab state reached IndexedDB.
 Chromium and Firefox use browser offline emulation.
 WebKit uses a stopped origin server because [Playwright offline emulation can reject service worker responses](https://github.com/microsoft/playwright/issues/42775).
 The report records the disruption and confirms service worker control.
@@ -69,6 +71,10 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
   Check H1 through H6, duplicate headings, source line navigation, and live edits.
   Code examples and front matter must not create entries.
   Empty documents, narrow windows, and focus mode must not reserve a column.
+- A delayed table of contents update can shift a link during pointer activation.
+  Record the link geometry from its first visible frame until the column appears.
+  Require stable geometry, deliver one normal click, and keep the target heading in the viewport.
+  Retain the geometry JSON, final screenshot, HTML report, and failure trace.
 - Heading level indicators must follow the pointer and caret without changing document content or exported files.
 - The link editor must keep a text contrast ratio of at least 4.5 in the light theme.
 - A Markdown image without a title must open in Edit mode after a reload.
@@ -81,6 +87,12 @@ Run the heading, outline, link, and shortcut workflows with:
 
 ```sh
 npm run test:e2e -- toc-modes.spec.ts heading-level.spec.ts link-theme.spec.ts keyboard-settings.spec.ts
+```
+
+Repeat the project anchor check with:
+
+```sh
+npm run test:e2e -- portable-projects.spec.ts --grep "same-document project links"
 ```
 
 The browser report retains screenshots, fixtures, and measured link contrast.

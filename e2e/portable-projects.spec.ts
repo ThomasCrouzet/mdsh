@@ -147,12 +147,16 @@ offlineProjectTest(
 			panel.getByRole('button', { name: 'Ouvrir notes/guide.md', exact: true })
 		).toBeVisible();
 		await panel.getByRole('button', { name: 'Ouvrir notes/guide.md', exact: true }).click();
+		await expect(page.locator('#app-toolbar input')).toHaveValue('guide');
+		// Wait for the reopened tab state to reach storage before reloading.
+		await expect(page.locator('#app-statusbar')).toContainText('Brouillons locaux :');
 		await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
 		await page.reload();
 		await expect
 			.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)))
 			.toBe(true);
 		await expect(page.locator('.mdsh-shell[aria-busy="false"]:not([inert])')).toBeVisible();
+		await expect(page.locator('#app-toolbar input')).toHaveValue('guide');
 		// WebKit offline emulation rejects service worker responses in Playwright 1.62.
 		// Stop the real origin to check cached modules without that emulation defect.
 		if (browserName === 'webkit') {
@@ -229,8 +233,44 @@ test('same-document project links scroll to their heading', async ({ page }, inf
 	);
 	const panel = await importArchive(page, await zip.generateAsync({ type: 'nodebuffer' }));
 	await panel.getByRole('button', { name: 'Ouvrir index.md', exact: true }).click();
-	await page.locator('[data-mode=read]').click();
-	await page.locator('.mdsh-preview').getByRole('link', { name: 'Go to end' }).click();
+	await expect(page.locator('.mdsh-toc-col nav')).toBeVisible();
+	// Capture the first painted link before the outline can change its position.
+	const [firstPosition] = await Promise.all([
+		page.evaluate(
+			() =>
+				new Promise<{ x: number; y: number }>((resolve, reject) => {
+					const started = performance.now();
+					function capture() {
+						const link = document.querySelector<HTMLAnchorElement>(
+							'.mdsh-preview a[href="index.md#destination"]'
+						);
+						const rectangle = link?.getBoundingClientRect();
+						if (rectangle?.width && rectangle.height) {
+							resolve({ x: rectangle.x, y: rectangle.y });
+							return;
+						}
+						if (performance.now() - started > 5000) {
+							reject(new Error('The rendered project link did not appear'));
+							return;
+						}
+						requestAnimationFrame(capture);
+					}
+					requestAnimationFrame(capture);
+				})
+		),
+		page.locator('[data-mode=read]').click()
+	]);
+	await expect(page.locator('.mdsh-toc-col nav button')).toHaveCount(2);
+	const link = page.locator('.mdsh-preview').getByRole('link', { name: 'Go to end' });
+	const settledPosition = await link.boundingBox();
+	await info.attach('project-link-layout.json', {
+		body: JSON.stringify({ firstPosition, settledPosition }),
+		contentType: 'application/json'
+	});
+	expect(settledPosition).not.toBeNull();
+	expect(settledPosition!.x).toBeCloseTo(firstPosition.x, 0);
+	expect(settledPosition!.y).toBeCloseTo(firstPosition.y, 0);
+	await link.click();
 	await expect(page.locator('.mdsh-preview #destination')).toBeInViewport();
 	await info.attach('project-heading.png', {
 		body: await page.screenshot(),
