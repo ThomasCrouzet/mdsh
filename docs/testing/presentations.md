@@ -84,6 +84,7 @@ The browser tests use the English locale. They select controls through stable
 - A reserved slide marker in element text can start a new slide after reload.
 - A reserved element marker in element text can create a different object.
 - A metadata marker and terminator in element text can truncate the document.
+- An alternative HTML comment close can bypass metadata framing or become noncanonical.
 - Text that resembles the framing escape marker can change after a round trip.
 - A Markdown horizontal rule inside an element can become a slide separator.
 - Closed backtick or tilde fences can expose internal markers to the parser.

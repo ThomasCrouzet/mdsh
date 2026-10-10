@@ -65,6 +65,8 @@ The metadata block starts and ends on isolated lines:
 
 The block must be the last non-whitespace content in the file.
 The parser only recognizes a block outside fenced code.
+The parser accepts the HTML comment terminators `-->` and `--!>`.
+The serializer always writes the canonical `-->` terminator.
 The serializer uses JSON Unicode escapes for angle brackets inside metadata.
 This rule prevents metadata values from closing the Markdown comment.
 The JSON object stores the visual layout.

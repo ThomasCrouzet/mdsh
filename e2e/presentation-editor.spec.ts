@@ -244,10 +244,10 @@ test('round-trips reserved framing lines and an unclosed fence', async ({ page }
 	await text.dblclick();
 	await editor.getByTestId('slide-text-editor').fill(content);
 	await editor.getByTestId('slide-text-done').click();
-	await editor.getByTestId('slide-notes').fill('Speaker note --> remains exact.');
+	await editor.getByTestId('slide-notes').fill('Speaker note --> and --!> remain exact.');
 	const rectangle = await addObject(editor, 'rectangle');
 	await rectangle.dblclick();
-	await editor.getByTestId('slide-text-editor').fill('**Shape --> Markdown**');
+	await editor.getByTestId('slide-text-editor').fill('**Shape --> and --!> Markdown**');
 	await editor.getByTestId('slide-text-done').click();
 	await expectSaved(editor);
 
@@ -258,18 +258,20 @@ test('round-trips reserved framing lines and an unclosed fence', async ({ page }
 	expect(canonical).toContain('<!-- mdsh-literal -->\n<!-- mdsh-slide:user-slide -->');
 	expect(canonical).toContain('<!-- mdsh-literal -->\n---');
 	expect(canonical).toContain('<!-- mdsh-literal -->\n<!-- mdsh-literal -->');
-	expect(canonical).toContain('Speaker note --\\u003e remains exact.');
-	expect(canonical).toContain('**Shape --\\u003e Markdown**');
+	expect(canonical).toContain('Speaker note --\\u003e and --!\\u003e remain exact.');
+	expect(canonical).toContain('**Shape --\\u003e and --!\\u003e Markdown**');
 	await editor.getByTestId('slide-source').click();
 	await editor.getByTestId('slide-close').click();
 	await page.reload();
 	const restored = await openPresentation(page);
-	await expect(restored.getByTestId('slide-notes')).toHaveValue('Speaker note --> remains exact.');
+	await expect(restored.getByTestId('slide-notes')).toHaveValue(
+		'Speaker note --> and --!> remain exact.'
+	);
 	await expect(
 		await renderedObject(restored, restored.locator(`[data-object-id="${textId}"]`))
 	).toContainText('const openFence = true;');
 	await expect(await renderedObject(restored, objects(restored, 'rectangle'))).toContainText(
-		'Shape --> Markdown'
+		'Shape --> and --!> Markdown'
 	);
 	await restored.getByTestId('slide-source').click();
 	await expect(restored.getByTestId('slide-source-editor')).toHaveValue(canonical);
@@ -280,6 +282,28 @@ test('round-trips reserved framing lines and an unclosed fence', async ({ page }
 	await expect(
 		restored.getByTestId('slide-canvas').getByText('Framing collisions edited', { exact: true })
 	).toBeVisible();
+	await restored.getByTestId('slide-source').click();
+	const editedCanonical = await restored.getByTestId('slide-source-editor').inputValue();
+	const alternativeClose = editedCanonical.replace(/\n-->\s*$/, '\n--!>');
+	expect(alternativeClose).not.toBe(editedCanonical);
+	await restored.getByTestId('slide-source-editor').fill(alternativeClose);
+	await restored.getByTestId('slide-source').click();
+	await expect(restored.getByTestId('slide-source-error')).toHaveCount(0);
+	await expect(restored.getByTestId('slide-notes')).toHaveValue(
+		'Speaker note --> and --!> remain exact.'
+	);
+	await expect(await renderedObject(restored, objects(restored, 'rectangle'))).toContainText(
+		'Shape --> and --!> Markdown'
+	);
+	const notes = restored.getByTestId('slide-notes');
+	await notes.fill('Speaker note --> and --!> remain exact. Updated');
+	await notes.press('Tab');
+	await expectSaved(restored);
+	await restored.getByTestId('slide-source').click();
+	const roundTrip = await restored.getByTestId('slide-source-editor').inputValue();
+	expect(roundTrip).toMatch(/\n-->\s*$/);
+	expect(roundTrip).not.toContain('--!>');
+	await restored.getByTestId('slide-source').click();
 
 	const pending = page.waitForEvent('download');
 	await restored.getByTestId('slide-export-html').click();
@@ -290,9 +314,9 @@ test('round-trips reserved framing lines and an unclosed fence', async ({ page }
 	expect(html).toContain('Framing collisions edited');
 	expect(html).toContain('openFence = ');
 	expect(html).toContain('>true</span>');
-	expect(html).toContain('Shape --&gt; Markdown');
+	expect(html).toContain('Shape --&gt; and --!&gt; Markdown');
 	await testInfo.attach('presentation-framing.md', {
-		body: canonical,
+		body: roundTrip,
 		contentType: 'text/markdown'
 	});
 	await testInfo.attach('presentation-framing.html', { path: output, contentType: 'text/html' });
