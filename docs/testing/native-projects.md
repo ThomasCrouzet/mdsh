@@ -105,6 +105,12 @@ not reach the disk. A registry failure must keep the project connection.
 The workflow changes a file in place during a read. The command must reject the snapshot.
 It also rejects reserved Windows paths and case-folded frontend path collisions.
 
+A repeated import can display existing documents while its disk refresh still runs.
+Wait for the Projects panel to become available before changing the next fixture.
+Reject an import failure even when documents from an earlier import remain visible.
+Apply the same wait after the refresh that follows duplicate-path cleanup.
+Otherwise, that earlier operation can open the next conflict before its intended refresh.
+
 ## Frontend scenarios
 
 Run these scenarios through the desktop WebView with a real temporary directory:
