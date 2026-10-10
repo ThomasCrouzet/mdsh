@@ -102,11 +102,35 @@ test.describe('Wiki-links navigation + backlinks', () => {
 		await paragraph.click();
 		await page.keyboard.press('End');
 		await page.keyboard.type(' [[Ideas|old alias]]');
-		await page.keyboard.press('ArrowLeft');
-		await page.keyboard.press('ArrowLeft');
-		for (let index = 0; index < 'old alias'.length; index++) {
-			await page.keyboard.press('Shift+ArrowLeft');
-		}
+		const wiki = paragraph.locator('[data-mdsh-wiki-link]');
+		await expect(wiki).toHaveText('[[Ideas|old alias]]');
+		// Mark boundaries can consume an arrow key without moving the selection.
+		await wiki.evaluate((element, alias) => {
+			const nodes = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+			for (let node = nodes.nextNode(); node; node = nodes.nextNode()) {
+				if (!(node instanceof Text)) continue;
+				const start = node.data.indexOf(alias);
+				if (start < 0) continue;
+				const range = document.createRange();
+				range.setStart(node, start);
+				range.setEnd(node, start + alias.length);
+				const selection = window.getSelection();
+				if (!selection) throw new Error('Text selection is unavailable');
+				selection.removeAllRanges();
+				selection.addRange(range);
+				return;
+			}
+			throw new Error('The wiki alias text is missing');
+		}, 'old alias');
+		await expect
+			.poll(() => page.evaluate(() => window.getSelection()?.toString()))
+			.toBe('old alias');
+		await testInfo.attach('wiki-alias-selection.json', {
+			body: JSON.stringify({
+				selectedText: await page.evaluate(() => window.getSelection()?.toString())
+			}),
+			contentType: 'application/json'
+		});
 		await page.keyboard.insertText('new alias');
 		await page.keyboard.press('ArrowRight');
 		await page.keyboard.press('ArrowRight');

@@ -80,6 +80,8 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
   Wait for offline readiness before the fixture reload. An unfinished first installation can show a persistent update notice after reload.
 - Delayed search results can move option buttons between pointer movement and activation.
   Record replacement-button geometry before and after results. Require one click at the original point to open replacement controls.
+- Visual editor mark boundaries can consume an arrow key without moving the selection.
+  Select the wiki alias text explicitly. Check the visible selection before replacement, then verify saved Markdown and navigation.
 - A Markdown image without a title must open in Edit mode after a reload.
   Normalize absent parser titles before Milkdown validates image attributes.
   Preserve the source image, caption, and export bytes.
