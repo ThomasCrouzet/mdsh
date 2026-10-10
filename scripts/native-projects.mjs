@@ -111,8 +111,21 @@ export async function nativeProjects({
 			'Projects panel'
 		);
 	};
-	const waitForProjectDocument = (relativePath) =>
-		until(
+	const waitForProjectsIdle = async () => {
+		const state = await until(
+			() =>
+				execute(`const panel = document.querySelector('[role="dialog"][aria-labelledby="projects-title"]');
+					const close = panel?.querySelector('header button');
+					if (!panel || panel.closest('[inert]') || panel.querySelector('[role="status"]') ||
+						!close || close.disabled || !close.getClientRects().length) return false;
+					return { failure: panel.querySelector('[role="alert"]')?.textContent?.trim() ?? null };`),
+			'Projects panel is available',
+			45_000
+		);
+		assert.equal(state.failure, null, `Project operation failed: ${state.failure}`);
+	};
+	const waitForProjectDocument = async (relativePath) => {
+		await until(
 			() =>
 				execute(
 					`return [...document.querySelectorAll('[data-project-document]')].some(node => node.getAttribute('data-project-document') === arguments[0]);`,
@@ -121,6 +134,8 @@ export async function nativeProjects({
 			`project document ${relativePath}`,
 			45_000
 		);
+		await waitForProjectsIdle();
+	};
 	const openProjectDocument = async (relativePath) => {
 		await until(
 			() =>
@@ -543,6 +558,7 @@ export async function nativeProjects({
 		rmSync(upperCasePath);
 		rmSync(lowerCasePath);
 		await clickVisibleText('button', 'Actualiser depuis le disque');
+		await waitForProjectsIdle();
 	} else {
 		rmSync(upperCasePath);
 	}

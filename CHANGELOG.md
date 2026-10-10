@@ -5,6 +5,17 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.0.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.9.0...v2.0.0) (2026-10-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* Backups now use schema 2. Version 1.9 cannot restore schema 2. Version 2.0 still restores schema 1.
+
+### Features
+
+* add portable projects and review workflows ([86698e7](https://github.com/ThomasCrouzet/mdsh/commit/86698e7f4f8d736ec0641a507c8959d1211f65e3)), closes [#134](https://github.com/ThomasCrouzet/mdsh/issues/134)
+
 ## [1.9.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.8.1...v1.9.0) (2026-10-09)
 
 

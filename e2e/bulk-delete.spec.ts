@@ -410,7 +410,6 @@ test('bulk deletion keeps the latest edit before the 400 ms save and restores th
 }) => {
 	await seedDocuments(page, [{ id: 'pending', content: 'Before' }], 'pending');
 	await expect(page.locator('.cm-content')).toBeVisible();
-	await page.clock.install();
 	await page.clock.pauseAt(new Date());
 	await page.locator('.cm-content').click();
 	await page.keyboard.press('ControlOrMeta+a');
@@ -447,7 +446,6 @@ test('a failed pending save blocks deletion and retry keeps the retained edit', 
 		'keep'
 	);
 	await expect(page.locator('.cm-content')).toBeVisible();
-	await page.clock.install();
 	await page.clock.pauseAt(new Date());
 	await page.locator('.cm-content').click();
 	await page.keyboard.press('ControlOrMeta+a');
@@ -563,8 +561,7 @@ for (const operation of ['delete', 'empty'] as const) {
 		await page.locator('aside button[data-file-id="sender"]').click();
 		const confirm = await prepareRemoteBatch(page, operation);
 
-		// Keep Milkdown's 200 ms report and the 400 ms save timer stopped in this page only.
-		await receiver.clock.install();
+		// Pause the context before the edit to stop Milkdown's 200 ms report and the 400 ms save timer.
 		await receiver.clock.pauseAt(new Date());
 		await editor.click();
 		await receiver.keyboard.press('ControlOrMeta+a');
