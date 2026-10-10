@@ -41,6 +41,13 @@ Switch views without leaving your document. Choose the light, dark, or system
 theme. The bracket-and-hash logo, warm text, and amber accents keep the interface
 consistent across the web app and Desktop.
 
+Select **Slides** in the toolbar to create a presentation from your document.
+Move, resize, and rotate text, images, shapes, and arrows on the slide.
+Use the slide strip to add, duplicate, and reorder slides.
+The editor saves text and layout in one Markdown file.
+HTML exports work offline. PDF and print exports use one page for each slide.
+See the [presentation editor guide](docs/presentation-editor.md) and [file format](docs/presentation-format.md).
+
 ## A workspace that stays local
 
 | Write | Organize | Take your work with you |
