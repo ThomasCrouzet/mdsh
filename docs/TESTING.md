@@ -255,6 +255,11 @@ For the bulk deletion, PDF width, scrollbar, and heading-command workflows:
 npm run test:e2e -- bulk-delete.spec.ts editor-width.spec.ts slash-commands.spec.ts
 ```
 
+The deletion fixtures stop the browser context clock before the pending edit.
+Separate clock installation and pause calls can race with real time and reject the pause timestamp.
+Keep the edit, deletion, storage, and reload assertions active when correcting clock setup.
+The cross-tab cases use real IndexedDB transactions and BroadcastChannel messages while editor and save timers remain stopped.
+
 ## Verify the artifacts
 
 Every browser run produces:
