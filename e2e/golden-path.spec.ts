@@ -6,7 +6,7 @@ test.describe('Golden path - persistence lifecycle', () => {
 		await resetAppState(page);
 	});
 
-	test('creates a file and keeps its content after reload', async ({ page }) => {
+	test('creates a file and keeps its content after reload', async ({ page }, testInfo) => {
 		await createFirstFile(page);
 		// Select source mode in the UI so CodeMirror is visible. On WebKit,
 		// resetAppState can reload before localStorage persists the mode.
@@ -19,8 +19,8 @@ test.describe('Golden path - persistence lifecycle', () => {
 		// Type into the CodeMirror contenteditable to simulate user input.
 		await page.keyboard.type(payload);
 
-		// Wait for the 400 ms save delay and a safety margin.
-		await page.waitForTimeout(800);
+		const status = page.locator('#app-statusbar');
+		await expect(status).toContainText('Brouillons locaux : enregistré');
 
 		// Reload the page.
 		await page.reload();
@@ -41,6 +41,11 @@ test.describe('Golden path - persistence lifecycle', () => {
 			});
 			expect(text).toBe(payload);
 		}).toPass({ timeout: 10_000 });
+		await expect(status.getByText('Brouillons locaux : enregistré', { exact: true })).toBeVisible();
+		await testInfo.attach('restored-save-status', {
+			body: await page.screenshot({ animations: 'disabled' }),
+			contentType: 'image/png'
+		});
 	});
 
 	test('blocks input during a slow load and keeps later creations', async ({ page }) => {

@@ -77,6 +77,11 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
   Retain the geometry JSON, final screenshot, HTML report, and failure trace.
 - Heading level indicators must follow the pointer and caret without changing document content or exported files.
 - The link editor must keep a text contrast ratio of at least 4.5 in the light theme.
+  Wait for offline readiness before the fixture reload. An unfinished first installation can show a persistent update notice after reload.
+- Delayed search results can move option buttons between pointer movement and activation.
+  Record replacement-button geometry before and after results. Require one click at the original point to open replacement controls.
+- Visual editor mark boundaries can consume an arrow key without moving the selection.
+  Select the wiki alias text explicitly. Check the visible selection before replacement, then verify saved Markdown and navigation.
 - A Markdown image without a title must open in Edit mode after a reload.
   Normalize absent parser titles before Milkdown validates image attributes.
   Preserve the source image, caption, and export bytes.
@@ -100,6 +105,9 @@ Its source metadata identifies the commit and working diff.
 
 ### Durability and resource pressure risks
 
+- A restored draft can appear unsaved after reload although its content is durable.
+  Check the saved label after content restoration. Keep pending writes and write failures visible.
+  Do not use an imported modification date as the local save time.
 - A process kill before the 400 ms timer can lose the in-memory revision. An
   unload event is not a durability barrier. Record the last committed revision
   separately from the text that existed only in the editor.

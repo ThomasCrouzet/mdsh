@@ -104,6 +104,38 @@ test.describe('bounded diff workflows', () => {
 		await resetAppState(page);
 	});
 
+	test('keeps the replacement toggle under the pointer when results arrive', async ({
+		page
+	}, testInfo) => {
+		await seedFiles(page, [{ name: 'Stable.md', content: 'alpha one' }]);
+		await openCommand(page, 'Recherche cross-fichiers');
+		const search = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+		await page.clock.pauseAt(new Date());
+		await search.getByRole('combobox').fill('alpha');
+		const toggle = search.getByRole('button', {
+			name: 'Afficher le remplacement cross-fichiers'
+		});
+		const before = await toggle.boundingBox();
+		expect(before).not.toBeNull();
+		const point = { x: before!.x + before!.width / 2, y: before!.y + before!.height / 2 };
+		await page.mouse.move(point.x, point.y);
+		await page.clock.fastForward(150);
+		await expect(search.getByRole('option')).toHaveCount(1);
+		const after = await toggle.boundingBox();
+		await testInfo.attach('replacement-toggle-geometry.json', {
+			body: JSON.stringify({ before, after, point }),
+			contentType: 'application/json'
+		});
+		expect(after).not.toBeNull();
+		expect(Math.abs(after!.x - before!.x)).toBeLessThan(0.5);
+		expect(Math.abs(after!.y - before!.y)).toBeLessThan(0.5);
+		await page.mouse.click(point.x, point.y);
+		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+		await expect(search.getByRole('textbox', { name: 'Texte de remplacement' })).toBeVisible();
+		await page.clock.resume();
+		await attachEvidence(testInfo, page, 'replacement-toggle-stable');
+	});
+
 	test('shows an escaped history diff and keeps the current revision after restore', async ({
 		page
 	}, testInfo) => {
