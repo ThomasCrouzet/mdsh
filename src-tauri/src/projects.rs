@@ -759,10 +759,10 @@ fn temporary_path(path: &Path) -> Result<PathBuf, String> {
     Ok(parent.join(format!(".{name}.{}.tmp", Uuid::new_v4())))
 }
 
-fn sync_parent(path: &Path) -> Result<(), String> {
+fn sync_parent(_path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = _path.parent() {
             File::open(parent)
                 .and_then(|directory| directory.sync_all())
                 .map_err(|error| error.to_string())?;
@@ -851,10 +851,10 @@ fn atomic_registry_replace(
     result
 }
 
-fn sync_cap_directory(directory: &Dir) -> Result<(), String> {
+fn sync_cap_directory(_directory: &Dir) -> Result<(), String> {
     #[cfg(unix)]
     {
-        directory
+        _directory
             .try_clone()
             .map_err(|error| error.to_string())?
             .into_std_file()
