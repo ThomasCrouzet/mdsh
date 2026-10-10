@@ -8,7 +8,7 @@ import {
 } from './disk-tauri';
 import { deleteHandle, getPathLink } from './fsa';
 import { db, type DraftRow } from './db';
-import { promptStore } from './prompt.svelte';
+import { diskConflictStore } from './disk-conflict.svelte';
 import type { FileItem } from './types';
 
 const DISK_PATH = '/tmp/issue-78.md';
@@ -155,7 +155,7 @@ describe('desktop import and save integration', () => {
 		const reimported = await openFromDisk(restartedDeps);
 		const revisionBeforeSave = state.stat.revision;
 		reimported[0]!.content = '# Second edit';
-		const confirmOverwrite = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
+		const confirmOverwrite = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('cancel');
 
 		expect(reimported).toEqual([restartedFiles[0]]);
 		expect(restartedFiles).toHaveLength(1);
@@ -188,7 +188,7 @@ describe('desktop import and save integration', () => {
 		setTauriDiskIoForTests(secondSession);
 		const restartedDeps = createDeps(TEST_IDS[2], restartedFiles);
 		const reimported = await openFromDisk(restartedDeps);
-		const confirmOverwrite = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
+		const confirmOverwrite = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('cancel');
 
 		expect(reimported).toEqual([restartedFiles[0]]);
 		expect(restartedFiles[0]?.content).toBe('# Local draft');
@@ -214,7 +214,7 @@ describe('desktop import and save integration', () => {
 		const restored = await persistAndReload(opened!);
 		const nextSession = createNativeIo('fresh-session', state);
 		setTauriDiskIoForTests(nextSession);
-		const confirm = vi.spyOn(promptStore, 'confirm').mockResolvedValue(false);
+		const confirm = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('cancel');
 		expect(await saveToDisk(TEST_IDS[0], createDeps(TEST_IDS[0], restored))).toBe(true);
 		expect(state.content).toBe('# Unsaved local edit');
 		expect(nextSession.restoreGrants).toHaveBeenCalledOnce();

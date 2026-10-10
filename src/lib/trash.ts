@@ -15,6 +15,8 @@ import { deleteHandle } from './fsa';
 import { isDesktop } from './desktop';
 import { reportPersistenceError } from './storage';
 import { uniqueName } from './file-utils';
+import { pathKey } from './project-paths';
+import { projectConflictVariant } from './project-conflicts';
 
 async function deletePurgedDiskLink(id: string): Promise<void> {
 	if (isDesktop()) {
@@ -49,14 +51,18 @@ async function preserveCurrentVariant(
 	const current = await db.drafts.get(id);
 	if (!current || (current.name === replacement.name && current.content === replacement.content))
 		return;
-	const documents = await db.drafts.toArray();
+	const [documents, assets] = await Promise.all([db.drafts.toArray(), db.projectAssets.toArray()]);
+	const variant = projectConflictVariant(current, documents, assets);
 	const preserved = {
-		...current,
+		...variant,
 		id: newId(),
-		name: uniqueName(
-			documents.map((document) => document.name),
-			current.name
-		),
+		name:
+			variant.relativePath === current.relativePath
+				? uniqueName(
+						documents.map((document) => document.name),
+						current.name
+					)
+				: variant.name,
 		order: documents.reduce((max, document) => Math.max(max, document.order), -1) + 1,
 		open: false
 	};
@@ -120,6 +126,9 @@ export async function loadTrashRows(now = Date.now()): Promise<TrashLoadResult[]
 			id: tr.file.id,
 			name: tr.file.name,
 			content: tr.file.content,
+			...(tr.file.projectId
+				? { projectId: tr.file.projectId, relativePath: tr.file.relativePath }
+				: {}),
 			createdAt: tr.file.createdAt,
 			updatedAt: tr.file.updatedAt,
 			dirty: false,
@@ -148,7 +157,7 @@ export async function moveToTrash(
 	let preserved: TrashedRow | undefined;
 	let variant: DraftRow | undefined;
 	try {
-		await db.transaction('rw', db.drafts, db.trashed, db.versions, async () => {
+		await db.transaction('rw', [db.drafts, db.trashed, db.versions, db.projectAssets], async () => {
 			variant = await preserveCurrentVariant(id, draftRow);
 			preserved = await preserveTrashEntry(id);
 			await db.drafts.delete(id);
@@ -172,7 +181,7 @@ export async function moveManyToTrash(rows: readonly TrashedRow[]): Promise<{
 	const preserved: TrashedRow[] = [];
 	const variants: DraftRow[] = [];
 	if (unique.length === 0) return { preserved, variants };
-	await db.transaction('rw', db.drafts, db.trashed, db.versions, async () => {
+	await db.transaction('rw', [db.drafts, db.trashed, db.versions, db.projectAssets], async () => {
 		for (const row of unique) {
 			const variant = await preserveCurrentVariant(row.id, row.file);
 			if (variant) variants.push(variant);
@@ -216,17 +225,37 @@ export async function purgeManyPermanently(ids: readonly string[]): Promise<void
 export async function restoreFromTrash(
 	id: string,
 	draftRow: DraftRow,
-	onPreserved?: (row: DraftRow) => void
+	onPreserved?: (row: DraftRow) => void,
+	onRestored?: (row: DraftRow) => void
 ): Promise<boolean> {
 	let preserved: DraftRow | undefined;
+	let restored = draftRow;
 	try {
-		await db.transaction('rw', db.drafts, db.trashed, db.versions, async () => {
+		await db.transaction('rw', [db.drafts, db.trashed, db.versions, db.projectAssets], async () => {
 			preserved = await preserveCurrentVariant(draftRow.id, draftRow);
-			if (draftRow.id !== id) await copyVersionHistory(id, draftRow.id);
-			await db.drafts.put(draftRow);
+			if (draftRow.projectId && draftRow.relativePath) {
+				const [projectDocuments, projectAssets] = await Promise.all([
+					db.drafts.where('projectId').equals(draftRow.projectId).toArray(),
+					db.projectAssets.where('projectId').equals(draftRow.projectId).toArray()
+				]);
+				const restoredPathKey = pathKey(draftRow.relativePath);
+				const occupied =
+					projectDocuments.some(
+						(document) =>
+							document.id !== draftRow.id &&
+							document.relativePath &&
+							pathKey(document.relativePath) === restoredPathKey
+					) || projectAssets.some((asset) => pathKey(asset.path) === restoredPathKey);
+				if (occupied) {
+					restored = projectConflictVariant(draftRow, projectDocuments, projectAssets);
+				}
+			}
+			if (restored.id !== id) await copyVersionHistory(id, restored.id);
+			await db.drafts.put(restored);
 			await db.trashed.delete(id);
 		});
 		if (preserved) onPreserved?.(preserved);
+		onRestored?.(restored);
 		return true;
 	} catch (err) {
 		reportPersistenceError(err, 'save');

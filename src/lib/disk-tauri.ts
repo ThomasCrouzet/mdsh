@@ -302,6 +302,11 @@ export async function tauriReadMeta(path: string): Promise<DiskFileMeta | null> 
 	return currentIo.stat((await grantForPath(path)).token);
 }
 
+export async function tauriReadPath(path: string): Promise<NativeDiskRead> {
+	const currentIo = await getIo();
+	return currentIo.readFile((await grantForPath(path)).token);
+}
+
 export async function tauriRenamePath(
 	path: string,
 	name: string,

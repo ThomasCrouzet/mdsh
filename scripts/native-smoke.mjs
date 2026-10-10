@@ -19,6 +19,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { testSource } from './test-source.mjs';
 import { nativeDiskRaces } from './native-disk-races.mjs';
 import { nativeExportCancellation } from './native-export-cancellation.mjs';
+import { nativeProjects } from './native-projects.mjs';
 
 const binary = resolve(
 	process.env.NATIVE_BINARY ??
@@ -41,6 +42,8 @@ const endpoint = `http://127.0.0.1:${port}`;
 const output = resolve(process.env.NATIVE_TEST_OUTPUT ?? 'native-test-results');
 mkdirSync(output, { recursive: true });
 const temp = mkdtempSync(join(tmpdir(), 'mdsh-native-'));
+const nativeProjectRoot = join(temp, 'native-project');
+const nativeProjectRegistry = join(temp, 'project-roots.json');
 const nativePdfPath = join(temp, 'native.pdf');
 const diskGate = join(temp, 'disk-gate');
 const panelMarker = join(temp, 'print-panel');
@@ -200,6 +203,8 @@ function launch(openFile = true) {
 			TAURI_WEBDRIVER_PORT: String(port),
 			MDSH_SMOKE_PDF: nativePdfPath,
 			MDSH_SMOKE_DISK_GATE: diskGate,
+			MDSH_NATIVE_PROJECT_ROOT: nativeProjectRoot,
+			MDSH_NATIVE_PROJECT_REGISTRY: nativeProjectRegistry,
 			MDSH_SMOKE_PRINT_PANEL: panelMarker
 		}
 	});
@@ -288,14 +293,23 @@ async function connect(expectDocument = true) {
 	});
 	session = created.sessionId;
 	results.runtime = created.capabilities;
-	await until(
-		() =>
-			execute(
-				'return document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false" && !document.querySelector(".mdsh-shell")?.hasAttribute("inert");'
-			),
-		'native application ready',
-		45_000
-	);
+	try {
+		await until(
+			() =>
+				execute(
+					'return document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false" && !document.querySelector(".mdsh-shell")?.hasAttribute("inert");'
+				),
+			'native application ready',
+			45_000
+		);
+	} catch (error) {
+		const state = await execute(`return {
+			title: document.title,
+			shell: document.querySelector('.mdsh-shell')?.outerHTML.slice(0, 500),
+			body: document.body?.innerText.slice(0, 500)
+		};`);
+		throw new Error(`${String(error)}; state=${JSON.stringify(state)}`, { cause: error });
+	}
 	await waitForNativeOpenDelivery();
 	if (!expectDocument) return;
 	await until(
@@ -895,6 +909,30 @@ try {
 	});
 	await waitForNativeOpenDelivery();
 	passed('native replacement rename substitution and revocation races reject stale writes');
+	results.nativeProjects = await nativeProjects({
+		execute,
+		executeAsync,
+		until,
+		fixtureRoot: nativeProjectRoot,
+		projectRegistry: nativeProjectRegistry,
+		gate: diskGate,
+		output,
+		restart: async () => {
+			const stopped = once(/** @type {import('node:child_process').ChildProcess} */ (app), 'exit');
+			app.kill();
+			await Promise.race([
+				stopped,
+				delay(15_000).then(() => {
+					throw new Error('Native restart for project grants blocked');
+				})
+			]);
+			app = undefined;
+			session = '';
+			launch(false);
+			await connect(false);
+		}
+	});
+	passed('native project roots remain confined across refresh restart and revocation');
 	const diskBeforePurge = readFileSync(fixture);
 	const linkedDraft = (await drafts()).find(
 		(/** @type {{name: string}} */ item) => item.name === basename(fixture)
@@ -935,6 +973,7 @@ try {
 		[sharedOwners, link]
 	);
 	assert.equal(seeded, true);
+	await execute(`localStorage.setItem('mdsh:activeId', arguments[0]);`, [linkedDraft.id]);
 	await reload();
 	await trashLinkedDocuments([linkedDraft.id]);
 	const sharedState = await purgeState();

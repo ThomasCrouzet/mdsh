@@ -6,6 +6,7 @@ import { filesStore } from '$lib/files.svelte';
 import { promptStore } from '$lib/prompt.svelte';
 import { notify } from '$lib/notify.svelte';
 import { t } from '$lib/i18n';
+import { commitReplacements } from '$lib/replacement-commit';
 
 vi.mock('$lib/replace-worker', () => ({
 	replaceInFilesAsync: vi.fn(async () => ({
@@ -13,6 +14,10 @@ vi.mock('$lib/replace-worker', () => ({
 		total: 1,
 		regexError: null
 	}))
+}));
+
+vi.mock('$lib/replacement-commit', () => ({
+	commitReplacements: vi.fn()
 }));
 
 beforeEach(() => {
@@ -28,6 +33,7 @@ beforeEach(() => {
 		}
 	);
 	vi.spyOn(promptStore, 'confirm').mockResolvedValue(true);
+	vi.mocked(commitReplacements).mockResolvedValue({ status: 'stale' });
 });
 afterEach(() => {
 	cleanup();
@@ -42,30 +48,24 @@ async function replace() {
 	const button = screen.getByRole('button', { name: t('search.replaceAll') });
 	await waitFor(() => expect(button).toBeEnabled());
 	await user.click(button);
+	await user.click(await screen.findByRole('button', { name: t('replacePreview.confirm') }));
 }
 
 describe('replacement failure handling', () => {
 	it('keeps the panel open when the store refuses a stale replacement', async () => {
-		vi.spyOn(filesStore, 'replaceInAll').mockResolvedValue({
-			files: 0,
-			occurrences: 0,
-			regexError: 'Changed in another tab'
-		});
 		const success = vi.spyOn(notify, 'success');
 		const onClose = vi.fn();
 		render(SearchPanel, { open: true, onClose });
 		await replace();
 		await waitFor(() =>
-			expect(screen.getByRole('alert')).toHaveTextContent('Changed in another tab')
+			expect(screen.getByRole('alert')).toHaveTextContent(t('replacePreview.stale'))
 		);
 		expect(onClose).not.toHaveBeenCalled();
 		expect(success).not.toHaveBeenCalled();
 	});
 
 	it('reports a checkpoint failure and lets the user retry', async () => {
-		vi.spyOn(filesStore, 'replaceInAll').mockRejectedValue(
-			new DOMException('Full', 'QuotaExceededError')
-		);
+		vi.mocked(commitReplacements).mockRejectedValue(new DOMException('Full', 'QuotaExceededError'));
 		const success = vi.spyOn(notify, 'success');
 		const onClose = vi.fn();
 		render(SearchPanel, { open: true, onClose });
@@ -73,7 +73,7 @@ describe('replacement failure handling', () => {
 		await waitFor(() =>
 			expect(screen.getByRole('alert')).toHaveTextContent(t('search.replaceFailed'))
 		);
-		expect(screen.getByRole('button', { name: t('search.replaceAll') })).toBeEnabled();
+		expect(screen.getByRole('button', { name: t('replacePreview.confirm') })).toBeEnabled();
 		expect(onClose).not.toHaveBeenCalled();
 		expect(success).not.toHaveBeenCalled();
 	});

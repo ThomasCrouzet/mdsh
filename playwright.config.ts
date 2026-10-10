@@ -74,7 +74,12 @@ export default defineConfig({
 				'**/link-theme.spec.ts',
 				'**/keyboard-settings.spec.ts',
 				'**/slash-commands.spec.ts',
-				'**/wiki-links.spec.ts'
+				'**/wiki-links.spec.ts',
+				'**/portable-projects.spec.ts',
+				'**/project-*.spec.ts',
+				'**/source-fidelity.spec.ts',
+				'**/split-view.spec.ts',
+				'**/diff-workflows.spec.ts'
 			]
 		},
 		{
@@ -99,7 +104,12 @@ export default defineConfig({
 				'**/link-theme.spec.ts',
 				'**/keyboard-settings.spec.ts',
 				'**/slash-commands.spec.ts',
-				'**/wiki-links.spec.ts'
+				'**/wiki-links.spec.ts',
+				'**/portable-projects.spec.ts',
+				'**/project-*.spec.ts',
+				'**/source-fidelity.spec.ts',
+				'**/split-view.spec.ts',
+				'**/diff-workflows.spec.ts'
 			]
 		},
 		{

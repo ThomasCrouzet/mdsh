@@ -5,6 +5,7 @@ import {
 	MAX_MEDIA_TOTAL_BYTES,
 	type MediaIssue
 } from './image-media';
+import { projectDestinations } from '../project-links';
 
 export interface MarkdownImageDestination {
 	start: number;
@@ -20,14 +21,16 @@ function escapedAt(source: string, index: number): boolean {
 
 /** Finds inline Markdown image destinations while leaving code untouched. */
 export function markdownImageDestinations(markdown: string): MarkdownImageDestination[] {
-	const destinations: MarkdownImageDestination[] = [];
+	const destinations: MarkdownImageDestination[] = projectDestinations(markdown)
+		.filter((destination) => destination.image)
+		.map(({ start, end, source }) => ({ start, end, source }));
 	let fence: string | null = null;
 	let inlineTicks = 0;
 	for (let index = 0; index < markdown.length; index++) {
 		if (index === 0 || markdown[index - 1] === '\n') {
 			const end = markdown.indexOf('\n', index);
 			const line = markdown.slice(index, end === -1 ? markdown.length : end);
-			const match = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+			const match = /^ {0,3}(`{3,}|~{3,})/.exec(markdownContainerLine(line));
 			if (match?.[1]) {
 				const marker = match[1];
 				if (!fence) fence = marker;
@@ -63,47 +66,22 @@ export function markdownImageDestinations(markdown: string): MarkdownImageDestin
 				continue;
 			}
 		}
-		if (
-			inlineTicks !== 0 ||
-			markdown.slice(index, index + 2) !== '![' ||
-			escapedAt(markdown, index)
-		)
-			continue;
-		let cursor = index + 2;
-		let brackets = 1;
-		for (; cursor < markdown.length; cursor++) {
-			if (escapedAt(markdown, cursor)) continue;
-			if (markdown[cursor] === '[') brackets++;
-			if (markdown[cursor] === ']' && --brackets === 0) break;
-		}
-		if (markdown.slice(cursor, cursor + 2) !== '](') continue;
-		cursor += 2;
-		while (/\s/.test(markdown[cursor] ?? '') && cursor < markdown.length) cursor++;
-		const angle = markdown[cursor] === '<';
-		const start = angle ? ++cursor : cursor;
-		let parentheses = 0;
-		for (; cursor < markdown.length; cursor++) {
-			const character = markdown[cursor];
-			if (escapedAt(markdown, cursor)) continue;
-			if (angle && character === '>') break;
-			if (angle) continue;
-			if (character === '(') parentheses++;
-			if (character === ')') {
-				if (parentheses === 0) break;
-				parentheses--;
-			}
-			if (/\s/.test(character ?? '') && parentheses === 0) break;
-		}
-		if (cursor > start) {
-			destinations.push({
-				start,
-				end: cursor,
-				source: markdown.slice(start, cursor).replace(/\\([()])/g, '$1')
-			});
-			index = cursor;
-		}
 	}
-	return destinations;
+	return destinations.toSorted((left, right) => left.start - right.start);
+}
+
+function markdownContainerLine(line: string): string {
+	let value = line;
+	while (true) {
+		const quote = /^ {0,3}>[ \t]?/.exec(value);
+		if (quote) {
+			value = value.slice(quote[0].length);
+			continue;
+		}
+		const list = /^ {0,3}(?:[-+*]|\d+[.)])[ \t]+/.exec(value);
+		if (!list) return value;
+		value = value.slice(list[0].length);
+	}
 }
 
 function normalizedImagePath(value: string): string | null {

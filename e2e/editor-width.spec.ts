@@ -432,8 +432,8 @@ test.describe('Editor width', () => {
 						.toBeLessThan(before - 60);
 					await page.reload();
 					await expect(page.locator(content)).toBeVisible({ timeout: 20_000 });
-					// Read mode adds its outline after rendering, which moves the grip.
-					if (mode === 'read') await expect(page.locator('.mdsh-toc-col')).toBeVisible();
+					// Each mode adds its outline after rendering, which moves the grip.
+					await expect(page.locator('.mdsh-toc-col')).toBeVisible();
 					await expect
 						.poll(async () => (await page.locator(content).boundingBox())?.width ?? 0)
 						.toBeLessThan(before - 60);

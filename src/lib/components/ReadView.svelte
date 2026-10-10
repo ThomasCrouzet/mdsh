@@ -59,6 +59,14 @@
 	 */
 	function openWikiLinkFromEvent(e: Event): boolean {
 		const target = e.target as HTMLElement | null;
+		const projectLink = target?.closest<HTMLAnchorElement>('a[href]:not(.wiki-link)');
+		const destination = projectLink?.getAttribute('href');
+		const file = filesStore.library.find((file) => file.id === fileId);
+		if (file?.projectId && destination && !/^(?:#|[a-z][a-z\d+.-]*:|\/\/)/i.test(destination)) {
+			e.preventDefault();
+			void filesStore.openProjectLink(fileId, destination);
+			return true;
+		}
 		const link = target?.closest<HTMLAnchorElement>('a.wiki-link');
 		if (!link) return false;
 		const encoded = link.getAttribute('data-mdsh-wiki');
@@ -67,7 +75,7 @@
 		// Prevent the logical href from adding an unused browser history entry.
 		// Apply this to Cmd/Ctrl-click too; internal mdsh links have no alternate behavior.
 		e.preventDefault();
-		filesStore.openWikiLink(wikiTarget);
+		filesStore.openWikiLink(wikiTarget, fileId);
 		return true;
 	}
 
@@ -102,6 +110,22 @@
 	});
 
 	let html = $state('');
+	let renderedFileId = $state<string | null>(null);
+
+	$effect(() => {
+		const anchor = filesStore.projectAnchor;
+		void html;
+		if (!anchor || anchor.id !== fileId || renderedFileId !== fileId) return;
+		void tick().then(() =>
+			requestAnimationFrame(() => {
+				if (filesStore.projectAnchor !== anchor || anchor.id !== fileId) return;
+				articleEl
+					?.querySelector(`#${CSS.escape(anchor.fragment)}`)
+					?.scrollIntoView({ block: 'start' });
+				filesStore.projectAnchor = null;
+			})
+		);
+	});
 	// §B3.1 - `loading` is now gated by a 200 ms timer. Before: a "Rendering…"
 	// flash on every switch (~50 ms typical). The pattern mirrors
 	// `spinner.svelte.ts`: we only show the spinner if the render takes > 200 ms,
@@ -115,6 +139,7 @@
 
 	async function doRender(md: string, fid: string) {
 		const seq = ++renderSeq;
+		renderedFileId = null;
 		err = null;
 		const loadingTimer = setTimeout(() => {
 			if (seq === renderSeq) loading = true;
@@ -126,6 +151,7 @@
 				document.documentElement.getAttribute('data-theme')
 			);
 			const out = await renderMarkdown(md, {
+				fileId: fid,
 				mermaidTheme,
 				headingPermalinks: true,
 				allowRemoteImages: false
@@ -133,8 +159,9 @@
 			if (seq !== renderSeq) return; // a more recent render has started
 			if (fid !== fileId) return; // the file changed in the meantime
 			html = out;
+			renderedFileId = fid;
 			hasBlockedRemoteImages = out.includes('data-mdsh-remote-');
-			restoreReadPosition(fid);
+			if (filesStore.projectAnchor?.id !== fid) restoreReadPosition(fid);
 		} catch (e) {
 			if (seq !== renderSeq) return;
 			err = e instanceof Error ? e.message : String(e);
@@ -212,7 +239,15 @@
 <svelte:window onpagehide={() => positionFileId && saveReadPosition(positionFileId)} />
 
 <div class="mdsh-read-wrapper">
-	<div class="mdsh-read" bind:this={readScroller}>
+	<!-- The focusable scroller lets keyboard users scroll rendered documents. -->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<div
+		class="mdsh-read"
+		bind:this={readScroller}
+		role="region"
+		tabindex="0"
+		aria-label={t('toolbar.readingMode')}
+	>
 		{#if err}
 			<div class="mdsh-read-error" role="alert">
 				<strong>{t('read.renderError')}</strong>
@@ -274,6 +309,10 @@
 		height: 100%;
 		width: 100%;
 		overflow-y: auto;
+	}
+	.mdsh-read:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: -2px;
 	}
 	.mdsh-read-loading {
 		position: absolute;

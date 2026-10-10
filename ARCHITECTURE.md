@@ -83,6 +83,30 @@ imported identifiers in both workspace references and Markdown links. It checks
 existing variants against the mapped references before reusing them, including
 cycles. Repeating the same merge does not duplicate an unchanged linked notebook.
 
+## Projects keep paths separate from document identity
+
+Dexie schema 6 adds projects and binary assets. A project document keeps its existing draft ID plus a project ID and relative path.
+Closed tabs, history, and workspaces continue to refer to draft IDs.
+Paths use normalized slash separators. Validation rejects traversal, platform-reserved names, and case-insensitive collisions.
+
+Project ZIP import validates the central directory before decompression. Each entry also has an enforced decompression limit.
+Import writes documents, assets, and project metadata in one transaction.
+Rendering resolves local images through the project asset table without changing the Markdown source.
+Project export writes relative paths, separate assets, and a link report.
+
+The native directory registry owns access independently of IndexedDB.
+Session tokens authorize relative operations under one selected root. Backups exclude registry identifiers and revision baselines.
+Native refresh is explicit. Local and external changes require comparison before either branch replaces the other.
+
+## Source preview and change comparisons
+
+Source preview keeps one CodeMirror editor and a delayed reading view.
+The divider has pointer and keyboard controls. Its saved ratio also applies when the panes stack vertically.
+
+History, disk conflicts, and replacement previews share a bounded line-diff renderer.
+It displays text without HTML execution. Work limits prevent large comparisons from blocking the interface.
+Replacement confirms its inputs and writes checkpoints with replacements in one database transaction.
+
 ## Durability is a state transition, not a timer
 
 The 400 ms save debounce is an optimization, not proof that content is durable. `SaveQueue` serializes writes per document and records a rejected IndexedDB revision as a durability failure. `flushAwait()` retries failed rows and rejects while any in-memory revision is not represented in IndexedDB. Backup export, restore, and workspace replacement stop at that barrier. The UI reports the error without converting it into a successful save.
@@ -140,3 +164,8 @@ notes. The first WYSIWYG pass takes 119 ms, then 85 to 88 ms. Typing takes a
 median of 25 ms and 34 ms at the 95th percentile. These values are references
 for this machine. The wider CI budgets are regression alarms. They are not a
 performance guarantee for all devices.
+
+Optional editor views load when the selected mode needs them.
+The startup state module shares its static dependencies in one resource.
+Bundle graph checks cover startup, rendering, Source, and visual editing.
+The precache budget includes every offline editor view and project operation.

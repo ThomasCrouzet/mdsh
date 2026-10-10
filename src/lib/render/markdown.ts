@@ -31,9 +31,13 @@ type MathToken = Tokens.Generic & {
 	display?: boolean;
 };
 
+const MAX_HIGHLIGHT_CHARS = 100_000;
+
 export type MermaidTheme = 'default' | 'dark' | 'neutral' | 'forest';
 
 export interface RenderOptions {
+	fileId?: string;
+	projectContext?: import('../project-media').ProjectContext;
 	/** Mermaid theme: `default` (light) for PDF, `dark` for the app preview. */
 	mermaidTheme?: MermaidTheme;
 	/**
@@ -76,6 +80,7 @@ function renderMath(tex: string, displayMode: boolean): string {
 }
 
 function highlightCode(code: string, lang: string | undefined): string {
+	if (code.length > MAX_HIGHLIGHT_CHARS) return escapeHTML(code);
 	const language = lang && hljs.getLanguage(lang) ? lang : null;
 	if (language) {
 		return hljs.highlight(code, { language, ignoreIllegals: true }).value;
@@ -151,6 +156,7 @@ function buildMarked(mermaidSink: string[], headingPermalinks: boolean): Marked 
 				const language = lang && hljs.getLanguage(lang) ? lang : null;
 				const highlighted = highlightCode(text, language ?? undefined);
 				const cls = language ? `hljs language-${language}` : 'hljs';
+				const omitted = text.length > MAX_HIGHLIGHT_CHARS ? ' data-mdsh-highlight="omitted"' : '';
 				// §B1.9 - `aria-label` on `<pre>` announces the block's
 				// language to the screen reader (e.g. "Code JavaScript").
 				// Without a label the SR just says "code" with no context.
@@ -158,7 +164,7 @@ function buildMarked(mermaidSink: string[], headingPermalinks: boolean): Marked 
 				const ariaLabel = language
 					? t('read.codeBlockLang', { lang: language })
 					: t('read.codeBlock');
-				return `<pre aria-label="${escapeHTML(ariaLabel)}"><code class="${cls}">${highlighted}</code></pre>\n`;
+				return `<pre aria-label="${escapeHTML(ariaLabel)}"><code class="${cls}"${omitted}>${highlighted}</code></pre>\n`;
 			}
 		},
 		extensions: [
@@ -399,6 +405,12 @@ async function renderMarkdownCore(
 		if (block) html = block + html;
 	}
 
+	if (opts.fileId || opts.projectContext) {
+		const { projectContextFor, resolveProjectHtmlImages } = await import('../project-media');
+		const context =
+			opts.projectContext ?? (opts.fileId ? await projectContextFor(opts.fileId) : undefined);
+		if (context) html = await resolveProjectHtmlImages(html, context);
+	}
 	return { html: await sanitize(html, opts.allowRemoteImages === true), fm };
 }
 

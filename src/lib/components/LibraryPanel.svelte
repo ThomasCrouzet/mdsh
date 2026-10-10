@@ -16,7 +16,7 @@
 		filesStore.library.flatMap((file) =>
 			filesStore
 				.wikiLinkTargets(file.id)
-				.filter((target) => !filesStore.resolveWikiLink(target))
+				.filter((target) => !filesStore.resolveWikiLink(target, file.id))
 				.map((target) => ({ file, target }))
 		)
 	);
@@ -26,7 +26,7 @@
 				if (scope === 'open' && !openIds.has(file.id)) return false;
 				if (scope === 'closed' && openIds.has(file.id)) return false;
 				return normalizeCommandSearch(
-					`${file.name} ${filesStore.documentTitle(file.id)} ${filesStore.getTags(file.id).join(' ')}`
+					`${file.name} ${file.relativePath ?? ''} ${filesStore.documentTitle(file.id)} ${filesStore.getTags(file.id).join(' ')}`
 				).includes(normalizeCommandSearch(query.trim()));
 			})
 			.sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name))
@@ -207,9 +207,12 @@
 						class="flex min-w-0 flex-1 flex-col gap-1 p-3 text-left hover:bg-bg-2"
 						onclick={() => open(file.id)}
 						disabled={filesStore.trashBusy}
-						aria-label={t('library.openDocument', { name: file.name })}
+						aria-label={t('library.openDocument', { name: file.relativePath ?? file.name })}
 					>
 						<span class="max-w-full truncate text-sm font-medium">{file.name}</span>
+						{#if file.relativePath}<span class="max-w-full truncate text-xs text-fg-muted"
+								>{file.relativePath}</span
+							>{/if}
 						<span class="max-w-full truncate text-xs text-fg-muted"
 							>{filesStore.documentTitle(file.id)} · {new Intl.DateTimeFormat(i18n.locale, {
 								dateStyle: 'medium',

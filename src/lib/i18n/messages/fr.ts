@@ -2,8 +2,16 @@
 // from or extra to `en.ts` is a compile error. Values keep French diacritics.
 
 import type { MessageKey } from './en';
+import { splitFr } from './split-fr';
+import { projectFr } from './project-fr';
+import { diffFr } from './diff-fr';
+import { backupProjectFr } from './backup-project-fr';
 
 export const fr: Record<MessageKey, string> = {
+	...splitFr,
+	...projectFr,
+	...diffFr,
+	...backupProjectFr,
 	'brand.name': 'mdsh',
 	'brand.localWorkspace': 'Espace local',
 	'library.browseCount': 'Retrouver vos documents ({n})',

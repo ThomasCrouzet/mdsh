@@ -23,15 +23,26 @@ import {
 	newId,
 	DISK_LINK_EPOCH_KEY,
 	type DraftRow,
+	type ProjectAssetRow,
+	type ProjectRow,
 	type WorkspaceRow,
 	type TemplateRow
 } from '../db';
 import { encryptString, decryptString, isEncryptedEnvelope } from '../crypto';
 import { t } from '$lib/i18n';
 import { rewriteWikiLinkTargets } from '../wiki-links';
+import { pathKey, projectPath } from '../project-paths';
 
 export const BACKUP_FORMAT = 'mdsh-backup';
-export const BACKUP_SCHEMA_VERSION = 1;
+export const BACKUP_SCHEMA_VERSION = 2;
+
+const PROJECT_BACKUP_LIMITS = {
+	maxProjects: IMPORT_LIMITS.maxFiles,
+	maxAssets: 1300,
+	maxAssetBytes: 2 * 1024 * 1024,
+	maxAssetBytesTotal: IMPORT_LIMITS.maxBatchBytes
+} as const;
+const PROJECT_NATIVE_BASELINE_PREFIX = 'project-native-revisions:';
 
 async function ensureLiveDraftsDurable(): Promise<void> {
 	const { filesStore } = await import('../files.svelte');
@@ -45,20 +56,43 @@ export interface BackupFile {
 	drafts: DraftRow[];
 	workspaces: WorkspaceRow[];
 	templates: TemplateRow[];
+	/** Schema 2 portable projects. Schema 1 fixtures omit this collection. */
+	projects?: BackupProject[];
+	/** Schema 2 assets use bounded base64 instead of IndexedDB binary values. */
+	projectAssets?: BackupProjectAsset[];
+}
+
+export type BackupProject = Omit<ProjectRow, 'nativeRootId'>;
+
+export interface BackupProjectAsset {
+	id: string;
+	projectId: string;
+	path: string;
+	mime: string;
+	data: string;
 }
 
 /** Preserves imported ID links, including cycles and repeated merges. */
-export function planDraftMerge(incoming: DraftRow[], existing: DraftRow[]) {
+export function planDraftMerge(
+	incoming: DraftRow[],
+	existing: DraftRow[],
+	projectIdMap = new Map<string, string>()
+) {
 	const candidates = new Map<string, DraftRow>();
 	const importedIdMap = new Map<string, string>();
 	const dependants = new Map<string, Set<string>>();
 	const byId = new Map(incoming.map((draft) => [draft.id, draft]));
 	for (const draft of incoming) {
+		const mappedProjectId = draft.projectId
+			? (projectIdMap.get(draft.projectId) ?? draft.projectId)
+			: undefined;
 		const matches = existing.filter(
 			(row) =>
 				row.name === draft.name &&
 				row.createdAt === draft.createdAt &&
-				row.updatedAt === draft.updatedAt
+				row.updatedAt === draft.updatedAt &&
+				row.projectId === mappedProjectId &&
+				row.relativePath === draft.relativePath
 		);
 		const candidate = matches.find((row) => row.content === draft.content) ?? matches[0];
 		if (candidate) candidates.set(draft.id, candidate);
@@ -91,6 +125,9 @@ export function planDraftMerge(incoming: DraftRow[], existing: DraftRow[]) {
 					...draft,
 					id: importedIdMap.get(draft.id)!,
 					content: rewrite(draft.content),
+					...(draft.projectId
+						? { projectId: projectIdMap.get(draft.projectId) ?? draft.projectId }
+						: {}),
 					order: ++order
 				}
 	);
@@ -103,10 +140,14 @@ export interface RestoreCounts {
 	drafts: number;
 	workspaces: number;
 	templates: number;
+	projects: number;
+	projectAssets: number;
 	unchanged: {
 		drafts: number;
 		workspaces: number;
 		templates: number;
+		projects?: number;
+		projectAssets?: number;
 	};
 	/**
 	 * Total number of entries present in the file but REJECTED as corrupted
@@ -121,6 +162,8 @@ export interface BackupSkipped {
 	drafts: number;
 	workspaces: number;
 	templates: number;
+	projects: number;
+	projectAssets: number;
 }
 
 /** Result of `parseBackup`: the valid backup + the count of rejected rows. */
@@ -141,18 +184,31 @@ export class BackupParseError extends Error {
 
 /** Reads the persisted state and builds the backup object (draft order preserved). */
 export async function collectBackup(now = Date.now()): Promise<BackupFile> {
-	const [drafts, workspaces, templates] = await Promise.all([
+	const [draftRows, workspaces, templates, projectRows, assetRows] = await Promise.all([
 		db.drafts.orderBy('order').toArray(),
 		db.workspaces.orderBy('updatedAt').toArray(),
-		db.templates.orderBy('updatedAt').toArray()
+		db.templates.orderBy('updatedAt').toArray(),
+		db.projects.orderBy('updatedAt').toArray(),
+		db.projectAssets.toArray()
 	]);
+	const drafts = draftRows.map(normalizeDraft);
+	const projects = projectRows.map(normalizeProject);
+	const projectAssets = assetRows.map((asset) => ({
+		id: asset.id,
+		projectId: asset.projectId,
+		path: asset.path,
+		mime: asset.mime,
+		data: bytesToBase64(asset.data)
+	}));
 	return {
 		format: BACKUP_FORMAT,
 		schemaVersion: BACKUP_SCHEMA_VERSION,
 		exportedAt: now,
 		drafts,
 		workspaces,
-		templates
+		templates,
+		projects,
+		projectAssets
 	};
 }
 
@@ -171,6 +227,53 @@ function validTimestamp(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 8.64e15;
 }
 
+function normalizeDraft(draft: DraftRow): DraftRow {
+	return {
+		id: draft.id,
+		name: draft.name,
+		content: draft.content,
+		...(draft.projectId === undefined ? {} : { projectId: draft.projectId }),
+		...(draft.relativePath === undefined ? {} : { relativePath: draft.relativePath }),
+		createdAt: draft.createdAt,
+		updatedAt: draft.updatedAt,
+		order: draft.order,
+		...(draft.open === undefined ? {} : { open: draft.open })
+	};
+}
+
+function normalizeProject(project: ProjectRow): BackupProject {
+	return {
+		id: project.id,
+		name: project.name,
+		createdAt: project.createdAt,
+		updatedAt: project.updatedAt
+	};
+}
+
+function bytesToBase64(data: Uint8Array): string {
+	let binary = '';
+	const chunkSize = 0x8000;
+	for (let offset = 0; offset < data.byteLength; offset += chunkSize) {
+		binary += String.fromCharCode(...data.subarray(offset, offset + chunkSize));
+	}
+	return btoa(binary);
+}
+
+function base64ToBytes(value: string): Uint8Array {
+	if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+		throw new BackupParseError(t('backup.notMdshBackup'));
+	}
+	let binary: string;
+	try {
+		binary = atob(value);
+	} catch {
+		throw new BackupParseError(t('backup.notMdshBackup'));
+	}
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+	return bytes;
+}
+
 function validDraft(v: unknown): v is DraftRow {
 	if (!isObject(v)) return false;
 	return (
@@ -182,7 +285,39 @@ function validDraft(v: unknown): v is DraftRow {
 		validTimestamp(v.updatedAt) &&
 		typeof v.order === 'number' &&
 		Number.isFinite(v.order) &&
-		(v.open === undefined || typeof v.open === 'boolean')
+		(v.open === undefined || typeof v.open === 'boolean') &&
+		(v.projectId === undefined || (typeof v.projectId === 'string' && v.projectId.length > 0)) &&
+		(v.relativePath === undefined ||
+			(typeof v.relativePath === 'string' && v.relativePath.length > 0)) &&
+		(v.projectId === undefined) === (v.relativePath === undefined)
+	);
+}
+
+function validProject(v: unknown): v is BackupProject {
+	if (!isObject(v)) return false;
+	return (
+		typeof v.id === 'string' &&
+		v.id.length > 0 &&
+		typeof v.name === 'string' &&
+		v.name.length > 0 &&
+		validTimestamp(v.createdAt) &&
+		validTimestamp(v.updatedAt)
+	);
+}
+
+function validProjectAsset(v: unknown): v is BackupProjectAsset {
+	if (!isObject(v)) return false;
+	return (
+		typeof v.id === 'string' &&
+		v.id.length > 0 &&
+		typeof v.projectId === 'string' &&
+		v.projectId.length > 0 &&
+		typeof v.path === 'string' &&
+		v.path.length > 0 &&
+		typeof v.mime === 'string' &&
+		v.mime.startsWith('image/') &&
+		v.mime.length <= 128 &&
+		typeof v.data === 'string'
 	);
 }
 
@@ -245,7 +380,8 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 	if (
 		!Array.isArray(raw.drafts) ||
 		!Array.isArray(raw.workspaces) ||
-		!Array.isArray(raw.templates)
+		!Array.isArray(raw.templates) ||
+		(schemaVersion >= 2 && (!Array.isArray(raw.projects) || !Array.isArray(raw.projectAssets)))
 	) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
 	}
@@ -254,20 +390,62 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 	}
 	if (
 		raw.drafts.length + raw.templates.length > BACKUP_LIMITS.maxDocuments ||
-		raw.workspaces.length > BACKUP_LIMITS.maxWorkspaces
+		raw.workspaces.length > BACKUP_LIMITS.maxWorkspaces ||
+		(schemaVersion >= 2 &&
+			(raw.projects as unknown[]).length > PROJECT_BACKUP_LIMITS.maxProjects) ||
+		(schemaVersion >= 2 &&
+			(raw.projectAssets as unknown[]).length > PROJECT_BACKUP_LIMITS.maxAssets)
 	)
 		throw new BackupParseError(t('backup.tooLarge'));
-	const drafts = raw.drafts.filter(validDraft);
-	const workspaces = raw.workspaces.filter(validWorkspace);
-	const templates = raw.templates.filter(validTemplate);
+	const draftRows = raw.drafts.filter(validDraft);
+	const workspaceRows = raw.workspaces.filter(validWorkspace);
+	const templateRows = raw.templates.filter(validTemplate);
+	const projectRows = schemaVersion >= 2 ? (raw.projects as unknown[]).filter(validProject) : [];
+	const assetRows =
+		schemaVersion >= 2 ? (raw.projectAssets as unknown[]).filter(validProjectAsset) : [];
 	const skipped = {
-		drafts: raw.drafts.length - drafts.length,
-		workspaces: raw.workspaces.length - workspaces.length,
-		templates: raw.templates.length - templates.length
+		drafts: raw.drafts.length - draftRows.length,
+		workspaces: raw.workspaces.length - workspaceRows.length,
+		templates: raw.templates.length - templateRows.length,
+		projects: schemaVersion >= 2 ? (raw.projects as unknown[]).length - projectRows.length : 0,
+		projectAssets:
+			schemaVersion >= 2 ? (raw.projectAssets as unknown[]).length - assetRows.length : 0
 	};
-	if (skipped.drafts + skipped.workspaces + skipped.templates > 0) {
+	if (
+		skipped.drafts +
+			skipped.workspaces +
+			skipped.templates +
+			skipped.projects +
+			skipped.projectAssets >
+		0
+	) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
 	}
+	const drafts = draftRows.map(normalizeDraft);
+	const workspaces = workspaceRows.map((workspace) => ({
+		id: workspace.id,
+		name: workspace.name,
+		fileIds: [...workspace.fileIds],
+		activeId: workspace.activeId,
+		createdAt: workspace.createdAt,
+		updatedAt: workspace.updatedAt
+	}));
+	const templates = templateRows.map((template) => ({
+		id: template.id,
+		name: template.name,
+		content: template.content,
+		builtin: template.builtin,
+		createdAt: template.createdAt,
+		updatedAt: template.updatedAt
+	}));
+	const projects = projectRows.map((project) => normalizeProject(project));
+	const projectAssets = assetRows.map((asset) => ({
+		id: asset.id,
+		projectId: asset.projectId,
+		path: asset.path,
+		mime: asset.mime,
+		data: asset.data
+	}));
 	if (
 		workspaces.reduce((total, workspace) => total + workspace.fileIds.length, 0) >
 		BACKUP_LIMITS.maxTotalWorkspaceReferences
@@ -290,6 +468,50 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 			throw new BackupParseError(t('backup.notMdshBackup'));
 		}
 	}
+	if (
+		new Set(projects.map((project) => project.id)).size !== projects.length ||
+		new Set(projectAssets.map((asset) => asset.id)).size !== projectAssets.length
+	) {
+		throw new BackupParseError(t('backup.notMdshBackup'));
+	}
+	const projectIds = new Set(projects.map((project) => project.id));
+	const projectPaths = new Set<string>();
+	for (const draft of drafts) {
+		if (!draft.projectId || !draft.relativePath) continue;
+		if (!projectIds.has(draft.projectId)) throw new BackupParseError(t('backup.notMdshBackup'));
+		let normalized: string;
+		try {
+			normalized = projectPath(draft.relativePath);
+		} catch {
+			throw new BackupParseError(t('backup.notMdshBackup'));
+		}
+		if (normalized !== draft.relativePath) throw new BackupParseError(t('backup.notMdshBackup'));
+		const key = `${draft.projectId}\0${pathKey(normalized)}`;
+		if (projectPaths.has(key)) throw new BackupParseError(t('backup.notMdshBackup'));
+		projectPaths.add(key);
+	}
+	let assetBytes = 0;
+	for (const asset of projectAssets) {
+		if (!projectIds.has(asset.projectId)) throw new BackupParseError(t('backup.notMdshBackup'));
+		let normalized: string;
+		try {
+			normalized = projectPath(asset.path);
+		} catch {
+			throw new BackupParseError(t('backup.notMdshBackup'));
+		}
+		if (normalized !== asset.path) throw new BackupParseError(t('backup.notMdshBackup'));
+		const key = `${asset.projectId}\0${pathKey(normalized)}`;
+		if (projectPaths.has(key)) throw new BackupParseError(t('backup.notMdshBackup'));
+		projectPaths.add(key);
+		const size = base64ToBytes(asset.data).byteLength;
+		assetBytes += size;
+		if (
+			size > PROJECT_BACKUP_LIMITS.maxAssetBytes ||
+			assetBytes > PROJECT_BACKUP_LIMITS.maxAssetBytesTotal
+		) {
+			throw new BackupParseError(t('backup.tooLarge'));
+		}
+	}
 	return {
 		backup: {
 			format: BACKUP_FORMAT,
@@ -297,7 +519,9 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 			exportedAt: raw.exportedAt,
 			drafts,
 			workspaces,
-			templates
+			templates,
+			projects,
+			projectAssets
 		},
 		skipped
 	};
@@ -314,6 +538,105 @@ export function parseBackup(json: string): BackupFile {
 }
 
 // ─── Application ──────────────────────────────────────────────────────────
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+	return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+}
+
+function sameProjectContent(
+	incomingProjectId: string,
+	existingProjectId: string,
+	incomingDrafts: DraftRow[],
+	existingDrafts: DraftRow[],
+	incomingAssets: ProjectAssetRow[],
+	existingAssets: ProjectAssetRow[]
+): boolean {
+	const incomingDocuments = incomingDrafts
+		.filter((draft) => draft.projectId === incomingProjectId)
+		.sort((left, right) => (left.relativePath ?? '').localeCompare(right.relativePath ?? ''));
+	const existingDocuments = existingDrafts
+		.filter((draft) => draft.projectId === existingProjectId)
+		.sort((left, right) => (left.relativePath ?? '').localeCompare(right.relativePath ?? ''));
+	if (incomingDocuments.length !== existingDocuments.length) return false;
+	for (let index = 0; index < incomingDocuments.length; index++) {
+		const incoming = incomingDocuments[index]!;
+		const existing = existingDocuments[index]!;
+		if (
+			incoming.relativePath !== existing.relativePath ||
+			incoming.name !== existing.name ||
+			incoming.content !== existing.content ||
+			incoming.createdAt !== existing.createdAt ||
+			incoming.updatedAt !== existing.updatedAt ||
+			incoming.open !== existing.open
+		) {
+			return false;
+		}
+	}
+	const incomingProjectAssets = incomingAssets
+		.filter((asset) => asset.projectId === incomingProjectId)
+		.sort((left, right) => left.path.localeCompare(right.path));
+	const existingProjectAssets = existingAssets
+		.filter((asset) => asset.projectId === existingProjectId)
+		.sort((left, right) => left.path.localeCompare(right.path));
+	if (incomingProjectAssets.length !== existingProjectAssets.length) return false;
+	return incomingProjectAssets.every((incoming, index) => {
+		const existing = existingProjectAssets[index]!;
+		return (
+			incoming.path === existing.path &&
+			incoming.mime === existing.mime &&
+			equalBytes(incoming.data, existing.data)
+		);
+	});
+}
+
+function planProjectMerge(
+	incomingProjects: BackupProject[],
+	incomingDrafts: DraftRow[],
+	incomingAssets: ProjectAssetRow[],
+	existingProjects: ProjectRow[],
+	existingDrafts: DraftRow[],
+	existingAssets: ProjectAssetRow[]
+) {
+	const projectIdMap = new Map<string, string>();
+	const reservedProjectIds = new Set(existingProjects.map((project) => project.id));
+	const reservedAssetIds = new Set(existingAssets.map((asset) => asset.id));
+	const projectsToPut: ProjectRow[] = [];
+	const assetsToPut: ProjectAssetRow[] = [];
+	let unchangedAssets = 0;
+	for (const project of incomingProjects) {
+		const candidate = existingProjects.find(
+			(existing) =>
+				existing.name === project.name &&
+				existing.createdAt === project.createdAt &&
+				existing.updatedAt === project.updatedAt &&
+				sameProjectContent(
+					project.id,
+					existing.id,
+					incomingDrafts,
+					existingDrafts,
+					incomingAssets,
+					existingAssets
+				)
+		);
+		if (candidate) {
+			projectIdMap.set(project.id, candidate.id);
+			unchangedAssets += incomingAssets.filter((asset) => asset.projectId === project.id).length;
+			continue;
+		}
+		let mappedId = project.id;
+		while (reservedProjectIds.has(mappedId)) mappedId = newId();
+		reservedProjectIds.add(mappedId);
+		projectIdMap.set(project.id, mappedId);
+		projectsToPut.push({ ...project, id: mappedId });
+		for (const asset of incomingAssets.filter((row) => row.projectId === project.id)) {
+			let assetId = asset.id;
+			while (reservedAssetIds.has(assetId)) assetId = newId();
+			reservedAssetIds.add(assetId);
+			assetsToPut.push({ ...asset, id: assetId, projectId: mappedId });
+		}
+	}
+	return { projectIdMap, projectsToPut, assetsToPut, unchangedAssets };
+}
 
 /**
  * Writes a backup into IndexedDB.
@@ -335,16 +658,37 @@ export async function applyBackup(
 ): Promise<RestoreCounts> {
 	backup = parseBackupWithReport(serializeBackup(backup)).backup;
 	if (skipped > 0) throw new BackupParseError(t('backup.notMdshBackup'));
+	const projects = backup.projects ?? [];
+	const projectAssets = (backup.projectAssets ?? []).map((asset): ProjectAssetRow => ({
+		...asset,
+		data: base64ToBytes(asset.data)
+	}));
 	const counts: RestoreCounts = {
 		drafts: 0,
 		workspaces: 0,
 		templates: 0,
-		unchanged: { drafts: 0, workspaces: 0, templates: 0 },
+		projects: 0,
+		projectAssets: 0,
+		unchanged: {
+			drafts: 0,
+			workspaces: 0,
+			templates: 0,
+			...(backup.schemaVersion >= 2 ? { projects: 0, projectAssets: 0 } : {})
+		},
 		skipped
 	};
 	await db.transaction(
 		'rw',
-		[db.drafts, db.workspaces, db.templates, db.versions, db.trashed, db.metadata],
+		[
+			db.drafts,
+			db.workspaces,
+			db.templates,
+			db.versions,
+			db.trashed,
+			db.metadata,
+			db.projects,
+			db.projectAssets
+		],
 		async () => {
 			if (mode === 'replace') {
 				// Keep a durable recovery point, including writes from other tabs that
@@ -361,21 +705,48 @@ export async function applyBackup(
 						trashedAt: Date.now()
 					});
 				}
-				await Promise.all([db.drafts.clear(), db.workspaces.clear(), db.templates.clear()]);
+				await Promise.all([
+					db.drafts.clear(),
+					db.workspaces.clear(),
+					db.templates.clear(),
+					db.projects.clear(),
+					db.projectAssets.clear()
+				]);
+				await db.metadata.where('key').startsWith(PROJECT_NATIVE_BASELINE_PREFIX).delete();
 				await db.metadata.put({ key: DISK_LINK_EPOCH_KEY, value: newId() });
 				await Promise.all([
 					db.drafts.bulkPut(backup.drafts),
 					db.workspaces.bulkPut(backup.workspaces),
-					db.templates.bulkPut(backup.templates)
+					db.templates.bulkPut(backup.templates),
+					db.projects.bulkPut(projects),
+					db.projectAssets.bulkPut(projectAssets)
 				]);
 				counts.drafts = backup.drafts.length;
 				counts.workspaces = backup.workspaces.length;
 				counts.templates = backup.templates.length;
+				counts.projects = projects.length;
+				counts.projectAssets = projectAssets.length;
 				return;
 			}
 			// merge
-			const existing = await db.drafts.toArray();
-			const { importedIdMap, draftsToPut } = planDraftMerge(backup.drafts, existing);
+			const [existing, existingProjects, existingAssets] = await Promise.all([
+				db.drafts.toArray(),
+				db.projects.toArray(),
+				db.projectAssets.toArray()
+			]);
+			const projectPlan = planProjectMerge(
+				projects,
+				backup.drafts,
+				projectAssets,
+				existingProjects,
+				existing,
+				existingAssets
+			);
+			const { importedIdMap, draftsToPut } = planDraftMerge(
+				backup.drafts,
+				existing,
+				projectPlan.projectIdMap
+			);
 			const existingWorkspaces = await db.workspaces.toArray();
 			const workspaceIds = new Set(existingWorkspaces.map((row) => row.id));
 			const workspacesToPut = backup.workspaces.flatMap((workspace) => {
@@ -416,15 +787,25 @@ export async function applyBackup(
 			await Promise.all([
 				db.drafts.bulkPut(draftsToPut.filter((row): row is DraftRow => row !== null)),
 				db.workspaces.bulkPut(workspacesToPut),
-				db.templates.bulkPut(templatesToPut)
+				db.templates.bulkPut(templatesToPut),
+				db.projects.bulkPut(projectPlan.projectsToPut),
+				db.projectAssets.bulkPut(projectPlan.assetsToPut)
 			]);
 			counts.drafts = draftsToPut.filter((row) => row !== null).length;
 			counts.workspaces = workspacesToPut.length;
 			counts.templates = templatesToPut.length;
+			counts.projects = projectPlan.projectsToPut.length;
+			counts.projectAssets = projectPlan.assetsToPut.length;
 			counts.unchanged = {
 				drafts: backup.drafts.length - counts.drafts,
 				workspaces: backup.workspaces.length - counts.workspaces,
-				templates: backup.templates.length - counts.templates
+				templates: backup.templates.length - counts.templates,
+				...(backup.schemaVersion >= 2
+					? {
+							projects: projects.length - counts.projects,
+							projectAssets: projectPlan.unchangedAssets
+						}
+					: {})
 			};
 		}
 	);
@@ -518,7 +899,12 @@ export async function restoreFromText(
 ): Promise<RestoreCounts> {
 	await ensureDurable();
 	const { backup, skipped } = await inspectBackupText(text, passphrase);
-	const skippedTotal = skipped.drafts + skipped.workspaces + skipped.templates;
+	const skippedTotal =
+		skipped.drafts +
+		skipped.workspaces +
+		skipped.templates +
+		skipped.projects +
+		skipped.projectAssets;
 	return applyBackup(backup, mode, skippedTotal);
 }
 

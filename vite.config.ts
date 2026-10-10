@@ -256,6 +256,8 @@ export default defineConfig(({ mode }) => {
 					// Mermaid stays outside the static entry/node graph. Documents without diagrams do not load it.
 					// This meets the roadmap isolation requirement.
 					manualChunks(id: string): string | undefined {
+						// Startup state and its shared dependencies use one offline resource.
+						if (id.endsWith('/src/lib/files.svelte.ts')) return 'workspace-state';
 						// These dependency-free helpers share one small offline resource.
 						if (id.endsWith('/src/lib/config.ts') || id.endsWith('/src/lib/abort.ts'))
 							return 'operation-utils';

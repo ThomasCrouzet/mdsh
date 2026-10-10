@@ -31,12 +31,14 @@
 		"node": ">=22"
 	},
 	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
+		"patch:milkdown": "node scripts/patch-milkdown-images.mjs --write",
+		"patch:milkdown:check": "node scripts/patch-milkdown-images.mjs --check",
+		"dev": "node scripts/patch-milkdown-images.mjs --write && vite dev",
+		"build": "node scripts/patch-milkdown-images.mjs --write && vite build",
 		"preview": "vite preview",
 		"preview:pages": "node scripts/preview-pages.mjs",
 		"prepare": "node scripts/prepare.mjs",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run check:katex-assets",
+		"check": "node scripts/patch-milkdown-images.mjs --write && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run check:katex-assets",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"check:katex-assets": "node scripts/sync-katex-assets.mjs --check",
 		"notices:generate": "node scripts/generate-third-party-notices.mjs",

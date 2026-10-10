@@ -4,6 +4,8 @@ export interface DraftRow {
 	id: string;
 	name: string;
 	content: string;
+	projectId?: string;
+	relativePath?: string;
 	createdAt: number;
 	updatedAt: number;
 	order: number;
@@ -75,6 +77,23 @@ export interface MetadataRow {
 	value: string;
 }
 
+export interface ProjectRow {
+	id: string;
+	name: string;
+	createdAt: number;
+	updatedAt: number;
+	/** A native registry identifier, never a grant supplied by imported data. */
+	nativeRootId?: string;
+}
+
+export interface ProjectAssetRow {
+	id: string;
+	projectId: string;
+	path: string;
+	mime: string;
+	data: Uint8Array;
+}
+
 export const DISK_LINK_EPOCH_KEY = 'disk-link-epoch';
 export const LEGACY_DISK_LINK_EPOCH = 'legacy';
 
@@ -85,6 +104,8 @@ class MdshDB extends Dexie {
 	versions!: Table<VersionRow, string>;
 	templates!: Table<TemplateRow, string>;
 	metadata!: Table<MetadataRow, string>;
+	projects!: Table<ProjectRow, string>;
+	projectAssets!: Table<ProjectAssetRow, string>;
 
 	constructor() {
 		super('mdsh');
@@ -126,6 +147,11 @@ class MdshDB extends Dexie {
 			versions: 'id, draftId, createdAt, [draftId+createdAt]',
 			templates: 'id, updatedAt',
 			metadata: 'key'
+		});
+		this.version(6).stores({
+			drafts: 'id, updatedAt, order, projectId, &[projectId+relativePath]',
+			projects: 'id, updatedAt',
+			projectAssets: 'id, projectId, &[projectId+path]'
 		});
 	}
 }

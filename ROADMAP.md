@@ -3,6 +3,12 @@
 > For what is shipped: [`CHANGELOG.md`](./CHANGELOG.md). To contribute: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 > Open an issue before a large PR.
 
+## Version 2.0 scope
+
+The implementation adds portable projects, native directory access, split editing, comparisons, and project backups.
+[Issue 134](https://github.com/ThomasCrouzet/mdsh/issues/134) tracks delivery and release validation.
+The [original implementation plan](archive/2026-10-10/ROADMAP.md) remains available with its source hash in the archive manifest.
+
 ## Pending ideas
 
 - **Watch `@lucide/svelte`** - keep the exact version pinned and test icon API changes before upgrading.
@@ -34,9 +40,6 @@ These remaining proposals are not release commitments:
 Owner: the project maintainer. Source date: 2026-09-22.
 Close a proposal after a documented scope decision or a release with its workflow checks.
 
-- Split source and rendered preview, with a measured rendering budget.
-- Portable project archives with separate image assets and link reports.
-- Detailed version and disk-conflict comparisons.
 - Metadata forms that preserve unsupported YAML fields.
 - Image insertion at the caret, optional conversion, and clear size feedback.
 - Print presets, text size, and interface density controls.

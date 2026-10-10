@@ -104,9 +104,11 @@ test('preserves the disk revision across reload and refuses an unconfirmed overw
 	await page.reload();
 	await expect(editor).toHaveText('LOCAL_VERSION');
 	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
-	const prompt = page.getByRole('dialog', { name: 'Le fichier disque a changé' });
+	const prompt = page.getByRole('dialog', {
+		name: 'Résoudre le conflit disque pour revision-check.md'
+	});
 	await expect(prompt).toBeVisible();
-	await prompt.getByRole('button', { name: 'Annuler', exact: true }).click();
+	await prompt.getByRole('button', { name: 'Annuler', exact: true }).last().click();
 	await expect
 		.poll(() =>
 			page.evaluate(async () => {

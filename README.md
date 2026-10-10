@@ -34,6 +34,9 @@ checklist, and insert images. **Source** gives you the Markdown directly, with
 syntax highlighting, search, replacement, and per-document undo. **Read** shows
 the rendered document with an outline for navigation.
 
+In Source, select **Show preview** to edit beside the rendered document.
+Resize the divider with the pointer or arrow keys. The app remembers its position.
+
 Switch views without leaving your document. Choose the light, dark, or system
 theme. The bracket-and-hash logo, warm text, and amber accents keep the interface
 consistent across the web app and Desktop.
@@ -49,6 +52,9 @@ consistent across the web app and Desktop.
 
 - **Manage many documents:** filter the library, select several documents, or move
   the full library to trash. Restore individual documents or empty the trash.
+- **Keep portable projects:** import a folder or ZIP with document paths and local assets.
+  Export the project as a ZIP with its resources and a link report.
+- **Review changes:** compare history versions, disk conflicts, and global replacement results before applying them.
 - **Keep disk links:** save back to an opened file in supported browsers and
   Desktop. Revision checks detect external edits before an overwrite.
 - **Check the PDF width:** select **PDF (A4)** for a guide to the 178 mm text area.
@@ -92,7 +98,7 @@ Deleting a document moves it to trash for 30 days.
 
 Browser storage is not a backup. Export backups from Settings before clearing
 browser data or changing profiles. Backups include open and closed documents,
-workspaces, and custom templates. They exclude trash, version history, and disk
+projects, assets, workspaces, and custom templates. They exclude trash, version history, and disk
 permissions. Optional encryption uses AES-GCM and PBKDF2 through WebCrypto.
 
 The app has no backend, account, telemetry, cloud sync, or runtime CDN. It sanitizes

@@ -30,9 +30,18 @@
 		onNew: () => void;
 		onImport: () => Promise<void> | void;
 		onOpenLibrary?: () => void;
+		onOpenProjects?: () => void;
 	}
 
-	let { open, focusMode = false, onClose, onNew, onImport, onOpenLibrary }: Props = $props();
+	let {
+		open,
+		focusMode = false,
+		onClose,
+		onNew,
+		onImport,
+		onOpenLibrary,
+		onOpenProjects
+	}: Props = $props();
 
 	let draggingId = $state<string | null>(null);
 	let dragOverId = $state<string | null>(null);
@@ -345,6 +354,14 @@
 
 	{#if onOpenLibrary}
 		<button
+			class="mx-2 mt-2 rounded border border-border px-3 py-2 text-left text-sm text-fg-muted hover:bg-bg-2"
+			data-testid="projects-open"
+			onclick={() => {
+				if (isMobile) onClose();
+				onOpenProjects?.();
+			}}>{t('projects.open')}</button
+		>
+		<button
 			bind:this={libraryButton}
 			class="m-2 rounded border border-border px-3 py-2 text-left text-sm text-fg-muted hover:bg-bg-2"
 			onclick={(event) => {
@@ -490,7 +507,7 @@
 							onclick={(e) => handleSelect(e, file.id)}
 							onkeydown={(e) => handleFileKey(e, file.id)}
 							data-file-id={file.id}
-							aria-label={`${label}${dirtyHint}${isSelected ? t('sidebar.selectedSuffix') : ''}${file.brokenLink ? '. ' + t('sidebar.brokenDiskLink') : ''}`}
+							aria-label={`${label}${dirtyHint}${file.relativePath ? ` (${file.relativePath})` : ''}${isSelected ? t('sidebar.selectedSuffix') : ''}${file.brokenLink ? '. ' + t('sidebar.brokenDiskLink') : ''}`}
 							aria-pressed={isSelected}
 							aria-current={isActive ? 'true' : undefined}
 						>
@@ -501,7 +518,12 @@
 									<Circle size={8} class="text-fg-dim" />
 								{/if}
 							</span>
-							<span class="flex-1 truncate">{label}</span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate">{label}</span>
+								{#if file.relativePath}<span class="block truncate text-xs text-fg-dim"
+										>{file.relativePath}</span
+									>{/if}
+							</span>
 							{#if file.brokenLink}
 								<!-- §6.9 - "Broken disk link" badge: visually warns that the
 								     FSA handle no longer resolves. Relinking action via DiskLinksPanel

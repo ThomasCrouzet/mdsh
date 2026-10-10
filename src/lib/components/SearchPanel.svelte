@@ -2,17 +2,19 @@
 	import { tick, onMount, untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import { filesStore } from '$lib/files.svelte';
-	import { t } from '$lib/i18n';
+	import { t, type MessageKey } from '$lib/i18n';
 	import { promptStore } from '$lib/prompt.svelte';
 	import { notify } from '$lib/notify.svelte';
 	import { reportError } from '$lib/report';
 	import { reportPersistenceError } from '$lib/storage';
+	import { commitReplacements } from '$lib/replacement-commit';
 	import { replaceInFilesAsync } from '$lib/replace-worker';
 	import type { Hit } from '$lib/types';
 	import type { SearchRequest, SearchResponse } from '$lib/workers/search.worker';
 	import { corpusFingerprint, SEARCH_MAX_HITS } from '$lib/search-core';
 	import { focusTrap } from '$lib/a11y/focusTrap';
 	import { Search, X, CaseSensitive, Regex, WholeWord, Replace } from '@lucide/svelte';
+	import DiffView from './DiffView.svelte';
 
 	interface Props {
 		open: boolean;
@@ -46,6 +48,42 @@
 	// §2.6 - Cross-file replacement (opt-in: toggled via the replace button).
 	let showReplace = $state(false);
 	let replacement = $state('');
+
+	interface ReplacePreviewFile {
+		id: string;
+		name: string;
+		before: string;
+		after: string;
+		count: number;
+		updatedAt: number;
+		relativePath: string | undefined;
+	}
+
+	interface ReplacePreview {
+		files: ReplacePreviewFile[];
+		total: number;
+		query: string;
+		replacement: string;
+		caseSensitive: boolean;
+		wholeWord: boolean;
+		useRegex: boolean;
+		scope: 'library' | 'open';
+	}
+
+	let replacementPreview = $state<ReplacePreview | null>(null);
+	let previewIndex = $state(0);
+	let previewCancelButton: HTMLButtonElement | null = $state(null);
+	const previewFile = $derived(replacementPreview?.files[previewIndex] ?? null);
+
+	function closeReplacementPreview(): void {
+		replacementPreview = null;
+		previewIndex = 0;
+		void tick().then(() => inputEl?.focus());
+	}
+
+	function diffMessage(key: MessageKey, params?: Record<string, string | number>): string {
+		return t(key, params);
+	}
 
 	// §A4.1 - Search is offloaded to a Web Worker (cf.
 	// `src/lib/workers/search.worker.ts`) so as not to block the main thread
@@ -208,6 +246,27 @@
 	});
 
 	$effect(() => {
+		const preview = replacementPreview;
+		if (
+			preview &&
+			(preview.query !== debouncedQuery.trim() ||
+				preview.replacement !== replacement ||
+				preview.caseSensitive !== caseSensitive ||
+				preview.wholeWord !== wholeWord ||
+				preview.useRegex !== useRegex ||
+				preview.scope !== scope)
+		) {
+			replacementPreview = null;
+			previewIndex = 0;
+		}
+	});
+
+	$effect(() => {
+		if (!replacementPreview) return;
+		void tick().then(() => previewCancelButton?.focus());
+	});
+
+	$effect(() => {
 		const hit = hits[selected];
 		const index = selected;
 		if (!hit) return;
@@ -230,9 +289,8 @@
 		onClose();
 	}
 
-	// §2.6 - Replaces all occurrences across all files, after
-	// previewing the count + confirmation. Modifications go through
-	// updateContent → history snapshot → undoable via the history.
+	// Create an immutable preview. Confirmation records all checkpoints before
+	// it changes any draft.
 	async function handleReplaceAll(): Promise<void> {
 		const q = debouncedQuery.trim();
 		if (q.length < 2 || replacing) return;
@@ -241,7 +299,14 @@
 		const opts = { caseSensitive, wholeWord, useRegex };
 		const replacementValue = replacement;
 		try {
-			const slices = corpus.map((f) => ({ id: f.id, name: f.name, content: f.content }));
+			await filesStore.flushPendingAwait();
+			const slices = corpus.map((file) => ({
+				id: file.id,
+				name: file.name,
+				content: file.content,
+				updatedAt: file.updatedAt,
+				relativePath: file.relativePath
+			}));
 			const preview = await replaceInFilesAsync(slices, q, replacementValue, opts);
 			if (preview.regexError) {
 				queryError = preview.regexError;
@@ -251,26 +316,82 @@
 				notify.info(t('search.noOccurrence'));
 				return;
 			}
-			const ok = await promptStore.confirm({
-				title: t('search.confirmTitle', { n: preview.total }),
-				message:
-					t('search.confirmInFiles', { n: preview.results.length }) +
-					' ' +
-					t('search.confirmUndoable'),
-				confirmLabel: t('search.replaceAll'),
-				danger: true
-			});
-			if (!ok) return;
-			const res = await filesStore.replaceInAll(q, replacementValue, opts, scope);
-			if (res.regexError) {
-				queryError = res.regexError;
+			replacementPreview = {
+				files: preview.results.map((result) => {
+					const source = slices.find((file) => file.id === result.id)!;
+					return {
+						id: result.id,
+						name: result.name,
+						before: source.content,
+						after: result.content,
+						count: result.count,
+						updatedAt: source.updatedAt,
+						relativePath: source.relativePath
+					};
+				}),
+				total: preview.total,
+				query: q,
+				replacement: replacementValue,
+				caseSensitive,
+				wholeWord,
+				useRegex,
+				scope
+			};
+			previewIndex = 0;
+		} catch (error) {
+			queryError = t('search.replaceFailed');
+			reportPersistenceError(error, 'save');
+		} finally {
+			replacing = false;
+		}
+	}
+
+	function previewIsCurrent(preview: ReplacePreview): boolean {
+		return preview.files.every((planned) => {
+			const current = filesStore.library.find((file) => file.id === planned.id);
+			return (
+				current?.name === planned.name &&
+				current.content === planned.before &&
+				current.updatedAt === planned.updatedAt &&
+				current.relativePath === planned.relativePath
+			);
+		});
+	}
+
+	async function confirmReplacement(): Promise<void> {
+		const preview = replacementPreview;
+		if (!preview || replacing) return;
+		replacing = true;
+		queryError = null;
+		try {
+			if (!previewIsCurrent(preview)) {
+				closeReplacementPreview();
+				queryError = diffMessage('replacePreview.stale');
 				return;
 			}
-			if (res.occurrences === 0) {
-				notify.info(t('search.noOccurrence'));
+			const committed = await commitReplacements(preview.files);
+			if (committed.status === 'stale') {
+				closeReplacementPreview();
+				queryError = diffMessage('replacePreview.stale');
 				return;
 			}
-			notify.success(t('search.replacedSummary', { n: res.occurrences, files: res.files }));
+			const expected = new Map(
+				preview.files.map((file) => [
+					file.id,
+					{
+						content: file.before,
+						relativePath: file.relativePath,
+						updatedAt: file.updatedAt
+					}
+				])
+			);
+			const applied = filesStore.acceptProjectRows(committed.rows, expected);
+			if (applied.length === committed.rows.length) {
+				notify.success(
+					t('search.replacedSummary', { n: preview.total, files: preview.files.length })
+				);
+			} else notify.info(t('files.otherTabChanges'));
+			replacementPreview = null;
 			onClose();
 		} catch (error) {
 			queryError = t('search.replaceFailed');
@@ -284,7 +405,10 @@
 		if (e.isComposing || e.defaultPrevented || promptStore.open) return;
 		if (e.key === 'Escape') {
 			e.preventDefault();
-			onClose();
+			e.stopPropagation();
+			if (replacementPreview) {
+				closeReplacementPreview();
+			} else onClose();
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
 			selected = Math.min(selected + 1, hits.length - 1);
@@ -309,7 +433,12 @@
 			if (e.target === e.currentTarget) onClose();
 		}}
 		onkeydown={(e) => {
-			if (e.key === 'Escape') onClose();
+			if (e.key === 'Escape') {
+				if (replacementPreview) {
+					e.preventDefault();
+					closeReplacementPreview();
+				} else onClose();
+			}
 		}}
 		role="dialog"
 		aria-modal="true"
@@ -472,60 +601,122 @@
 				</div>
 			{/if}
 
-			<ul
-				id="search-listbox"
-				hidden={Boolean(queryError || regexError)}
-				role="listbox"
-				aria-label={t('search.resultsLabel')}
-				class="max-h-[60vh] overflow-y-auto py-1"
-			>
-				{#if query.trim().length < 2}
-					<li
-						class="px-4 py-6 text-center text-xs text-fg-dim"
-						role="option"
-						aria-disabled="true"
-						aria-selected="false"
-					>
-						{t('search.minChars')}
-					</li>
-				{:else if hits.length === 0}
-					<li
-						class="px-4 py-6 text-center text-xs text-fg-dim"
-						role="option"
-						aria-disabled="true"
-						aria-selected="false"
-					>
-						{t('search.noResult')}
-					</li>
-				{:else}
-					{#each hits as hit, i (hit.fileId + ':' + hit.line + ':' + i)}
-						<li
-							role="option"
-							id={`search-hit-${hit.fileId}-${hit.line}-${i}`}
-							aria-selected={i === selected}
+			{#if replacementPreview && previewFile}
+				<section class="flex min-h-0 max-h-[68vh] flex-col" aria-labelledby="replace-preview-title">
+					<header class="border-b border-border px-3 py-2">
+						<h2 id="replace-preview-title" class="text-sm font-medium text-fg">
+							{diffMessage('replacePreview.title')}
+						</h2>
+						<p class="mt-1 text-xs text-fg-muted">{diffMessage('replacePreview.description')}</p>
+						<p class="mt-1 text-xs text-fg-dim" role="status">
+							{diffMessage('replacePreview.fileCount', {
+								files: replacementPreview.files.length,
+								occurrences: replacementPreview.total
+							})}
+						</p>
+					</header>
+					<div class="flex min-h-0 flex-1 flex-col sm:flex-row">
+						<ul
+							class="max-h-28 shrink-0 overflow-y-auto border-b border-border py-1 sm:max-h-none sm:w-48 sm:border-b-0 sm:border-r"
+							aria-label={diffMessage('replacePreview.title')}
 						>
-							<button
-								class="flex w-full flex-col gap-1 px-3 py-2 text-left transition"
-								class:bg-bg-2={i === selected}
-								onclick={() => openHit(hit)}
-								onmouseenter={() => (selected = i)}
-								tabindex="-1"
-							>
-								<div class="flex items-center gap-2 text-xs text-fg-muted">
-									<span class="truncate font-medium">{stripExt(hit.name)}</span>
-									<span class="text-fg-dim">:{hit.line}</span>
-								</div>
-								<div class="truncate font-mono text-xs text-fg">
-									{hit.snippet.slice(0, hit.matchStart)}<mark
-										class="bg-accent/25 text-accent rounded-sm px-0.5"
-										>{hit.snippet.slice(hit.matchStart, hit.matchEnd)}</mark
-									>{hit.snippet.slice(hit.matchEnd)}
-								</div>
-							</button>
+							{#each replacementPreview.files as file, index (file.id)}
+								<li>
+									<button
+										class="w-full px-3 py-2 text-left text-xs text-fg-muted transition hover:bg-bg-2"
+										class:bg-bg-2={index === previewIndex}
+										class:text-fg={index === previewIndex}
+										aria-current={index === previewIndex ? 'true' : undefined}
+										onclick={() => (previewIndex = index)}
+									>
+										<span class="block truncate font-medium">{file.name}</span>
+										<span class="text-fg-dim">{file.count}</span>
+									</button>
+								</li>
+							{/each}
+						</ul>
+						<div class="min-h-0 min-w-0 flex-1 overflow-auto p-3">
+							<DiffView
+								before={previewFile.before}
+								after={previewFile.after}
+								ariaLabel={previewFile.name}
+								maxHeight="42vh"
+							/>
+						</div>
+					</div>
+					<footer class="flex flex-wrap justify-end gap-2 border-t border-border px-3 py-2">
+						<button
+							bind:this={previewCancelButton}
+							class="rounded border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-bg-2 hover:text-fg"
+							onclick={closeReplacementPreview}
+						>
+							{diffMessage('replacePreview.cancel')}
+						</button>
+						<button
+							class="rounded bg-danger px-3 py-1.5 text-xs text-white transition hover:opacity-90 disabled:opacity-40"
+							disabled={replacing}
+							onclick={() => void confirmReplacement()}
+						>
+							{diffMessage('replacePreview.confirm')}
+						</button>
+					</footer>
+				</section>
+			{:else}
+				<ul
+					id="search-listbox"
+					hidden={Boolean(queryError || regexError)}
+					role="listbox"
+					aria-label={t('search.resultsLabel')}
+					class="max-h-[60vh] overflow-y-auto py-1"
+				>
+					{#if query.trim().length < 2}
+						<li
+							class="px-4 py-6 text-center text-xs text-fg-dim"
+							role="option"
+							aria-disabled="true"
+							aria-selected="false"
+						>
+							{t('search.minChars')}
 						</li>
-					{/each}
-				{/if}
-			</ul>
+					{:else if hits.length === 0}
+						<li
+							class="px-4 py-6 text-center text-xs text-fg-dim"
+							role="option"
+							aria-disabled="true"
+							aria-selected="false"
+						>
+							{t('search.noResult')}
+						</li>
+					{:else}
+						{#each hits as hit, i (hit.fileId + ':' + hit.line + ':' + i)}
+							<li
+								role="option"
+								id={`search-hit-${hit.fileId}-${hit.line}-${i}`}
+								aria-selected={i === selected}
+							>
+								<button
+									class="flex w-full flex-col gap-1 px-3 py-2 text-left transition"
+									class:bg-bg-2={i === selected}
+									onclick={() => openHit(hit)}
+									onmouseenter={() => (selected = i)}
+									tabindex="-1"
+								>
+									<div class="flex items-center gap-2 text-xs text-fg-muted">
+										<span class="truncate font-medium">{stripExt(hit.name)}</span>
+										<span class="text-fg-dim">:{hit.line}</span>
+									</div>
+									<div class="truncate font-mono text-xs text-fg">
+										{hit.snippet.slice(0, hit.matchStart)}<mark
+											class="bg-accent/25 text-accent rounded-sm px-0.5"
+											>{hit.snippet.slice(hit.matchStart, hit.matchEnd)}</mark
+										>{hit.snippet.slice(hit.matchEnd)}
+									</div>
+								</button>
+							</li>
+						{/each}
+					{/if}
+				</ul>
+			{/if}
 		</div>
 	</div>
 {/if}

@@ -15,8 +15,10 @@
 // calling store cannot guarantee the context (jsdom OK, SSR no).
 
 import type { FileItem } from '$lib/types';
+import type { ProjectAssetRow } from '../db';
 import { stripMdExtension, untitledBasename, untitledFilename } from '$lib/file-utils';
 import { abortable, checkAborted } from '../abort';
+import { IMPORT_LIMITS } from '../config';
 
 export interface MediaExportOptions {
 	allowNetworkImages?: boolean;
@@ -52,7 +54,7 @@ export function sanitizeFilename(name: string): string {
  * @returns `true` when a download/save was initiated; `false` when the user
  * cancelled the desktop save dialog (callers must NOT clear dirty or toast success).
  */
-async function triggerDownload(blob: Blob, filename: string): Promise<boolean> {
+export async function triggerDownload(blob: Blob, filename: string): Promise<boolean> {
 	const { isDesktop } = await import('../desktop');
 	if (isDesktop()) {
 		const { tauriSaveExportBlob } = await import('../disk-tauri');
@@ -113,6 +115,9 @@ export async function exportHTML(
 	checkAborted(options.signal);
 	const { html: renderedHtml, title } = await abortable(
 		renderMarkdownDetailed(file.content, {
+			...(file.projectId && file.relativePath
+				? { projectContext: { projectId: file.projectId, relativePath: file.relativePath } }
+				: {}),
 			allowRemoteImages: options.allowNetworkImages === true
 		}),
 		options.signal
@@ -168,6 +173,9 @@ export async function exportPDF(
 	checkAborted(options.signal);
 	const { html: renderedHtml, title } = await abortable(
 		renderMarkdownDetailed(file.content, {
+			...(file.projectId && file.relativePath
+				? { projectContext: { projectId: file.projectId, relativePath: file.relativePath } }
+				: {}),
 			showFrontmatter: false,
 			allowRemoteImages: options.allowNetworkImages === true
 		}),
@@ -206,24 +214,77 @@ export async function exportPDF(
 export async function exportZip(files: FileItem[], filename = 'mdsh-export.zip'): Promise<boolean> {
 	if (typeof window === 'undefined' || typeof document === 'undefined' || files.length === 0)
 		return false;
+	if (files.length > IMPORT_LIMITS.maxFiles) throw new Error('Library export document limit');
+	const encoder = new TextEncoder();
+	let inputBytes = 0;
+	let entries = files.length;
+	for (const file of files) {
+		const size = encoder.encode(file.content).byteLength;
+		inputBytes += size;
+		if (size > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+			throw new Error('Library export size limit');
+	}
+	const projectIds = new Set(files.flatMap((file) => (file.projectId ? [file.projectId] : [])));
+	const projectAssets = new Map<string, ProjectAssetRow[]>();
+	if (projectIds.size) {
+		const [{ db }, { PROJECT_LIMITS }] = await Promise.all([
+			import('../db'),
+			import('../project-archive')
+		]);
+		for (const projectId of projectIds) {
+			const snapshot: ProjectAssetRow[] = [];
+			projectAssets.set(projectId, snapshot);
+			await db.projectAssets
+				.where('projectId')
+				.equals(projectId)
+				.each((asset) => {
+					inputBytes += asset.data.byteLength;
+					entries++;
+					if (entries > PROJECT_LIMITS.maxEntries - 3 || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+						throw new Error('Library export size limit');
+					snapshot.push(asset);
+				});
+		}
+	}
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
+	let archiveBytes = 0;
 	const used = new Set<string>();
-	for (const f of files) {
-		// Sanitize BEFORE deduplication: uniqueness (`-2`, `-3`…) thus operates
-		// on already-safe names (otherwise an `a/b.md` would create a nested
-		// entry in the ZIP instead of a flat file).
-		let name = sanitizeFilename(f.name);
-		if (used.has(name)) {
+	function archiveName(requested: string): string {
+		let name = sanitizeFilename(requested);
+		if (used.has(name.toLowerCase())) {
 			const ext = name.match(/\.[^.]+$/)?.[0] ?? '';
 			const base = ext ? name.slice(0, -ext.length) : name;
 			let i = 2;
-			while (used.has(`${base}-${i}${ext}`)) i++;
+			while (used.has(`${base}-${i}${ext}`.toLowerCase())) i++;
 			name = `${base}-${i}${ext}`;
 		}
-		used.add(name);
-		zip.file(name, f.content);
+		used.add(name.toLowerCase());
+		return name;
+	}
+	for (const file of files.filter((file) => !file.projectId)) {
+		archiveBytes += encoder.encode(file.content).byteLength;
+		zip.file(archiveName(file.name), file.content);
+	}
+	if (projectIds.size) {
+		const [{ db }, { buildProjectZip }] = await Promise.all([
+			import('../db'),
+			import('../project-archive')
+		]);
+		for (const projectId of projectIds) {
+			const project = await db.projects.get(projectId);
+			if (!project) throw new Error('Export project no longer exists');
+			const assets = projectAssets.get(projectId) ?? [];
+			const documents = files
+				.filter((file) => file.projectId === projectId)
+				.map((file) => ({ id: file.id, relativePath: file.relativePath!, content: file.content }));
+			const archive = await buildProjectZip(project.name, documents, assets);
+			archiveBytes += archive.size;
+			if (archiveBytes > IMPORT_LIMITS.maxBatchBytes) throw new Error('Library export size limit');
+			zip.file(archiveName(`${project.name}.zip`), await archive.arrayBuffer());
+		}
 	}
 	const blob = await zip.generateAsync({ type: 'blob' });
+	if (blob.size > IMPORT_LIMITS.maxBatchBytes) throw new Error('Library export size limit');
 	return triggerDownload(blob, filename);
 }

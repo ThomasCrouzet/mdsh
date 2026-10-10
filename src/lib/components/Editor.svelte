@@ -13,6 +13,7 @@
 	import { i18n, t } from '$lib/i18n';
 	import { blockEditLabels, toolbarLabels } from '$lib/editor-labels';
 	import { notify } from '$lib/notify.svelte';
+	import { filesStore } from '$lib/files.svelte';
 	import {
 		ImageMarkdownRoundTrip,
 		normalizeImageTitlesForMilkdown
@@ -127,7 +128,12 @@
 		// Keep YAML outside the Markdown editor so it cannot become headings or links.
 		let frontmatter = stripFrontmatter(initial);
 		let roundTrip = new ImageMarkdownRoundTrip(frontmatter.content);
-		const restoreMarkdown = (markdown: string) => frontmatter.raw + roundTrip.restore(markdown);
+		let sourceMarkdown = initial;
+		let editorBaseline: string | null = null;
+		const restoreMarkdown = (markdown: string) =>
+			editorBaseline === null || markdown === editorBaseline
+				? sourceMarkdown
+				: frontmatter.raw + roundTrip.restore(markdown);
 		lastEditorMarkdown = initial;
 		const applyImageAlternatives = () => {
 			const alternatives = roundTrip.alternatives;
@@ -157,9 +163,30 @@
 			blockCaptionPlaceholderText: t('editor.imageCaption'),
 			blockConfirmButton: t('prompt.confirm'),
 			inlineConfirmButton: t('prompt.confirm'),
-			proxyDomURL: editorImageSource,
+			proxyDomURL: async (source: string) => {
+				const { projectContextFor, projectImageSource } = await import('$lib/project-media');
+				try {
+					return (
+						(await projectImageSource(source, await projectContextFor(idForMount))) ??
+						editorImageSource(source)
+					);
+				} catch {
+					return editorImageSource(source);
+				}
+			},
 			onUpload: async (file: File) => {
 				try {
+					const document = filesStore.library.find((document) => document.id === idForMount);
+					if (document?.projectId && document.relativePath) {
+						const [{ addProjectImage }, { relativeDestination }] = await Promise.all([
+							import('$lib/projects'),
+							import('$lib/project-paths')
+						]);
+						const path = await addProjectImage(document.projectId, file);
+						const source = relativeDestination(document.relativePath, path);
+						roundTrip.registerUpload(source, file.name.replace(/\.[^.]+$/, ''));
+						return source;
+					}
 					const embedded = await embedImageFile(file);
 					roundTrip.registerUpload(embedded.dataUri, embedded.alt);
 					return embedded.dataUri;
@@ -255,6 +282,12 @@
 		instance.editor.use(headingLevelPlugin);
 		instance.on((listener) => {
 			listener.markdownUpdated((_ctx, md) => {
+				// A queued event must not replace a newer editor document.
+				try {
+					if (md !== instance.getMarkdown()) return;
+				} catch {
+					return;
+				}
 				const portableMarkdown = restoreMarkdown(md);
 				if (token === mountToken) lastEditorMarkdown = portableMarkdown;
 				queueMicrotask(applyImageAlternatives);
@@ -268,6 +301,7 @@
 		});
 		try {
 			await instance.create();
+			editorBaseline = instance.getMarkdown();
 		} catch (err) {
 			if (token === mountToken) loadError = true;
 			reportError('Crepe mount', err);
@@ -531,7 +565,10 @@
 			frontmatter = stripFrontmatter(markdown);
 			roundTrip = new ImageMarkdownRoundTrip(frontmatter.content);
 			lastEditorMarkdown = markdown;
+			sourceMarkdown = markdown;
+			editorBaseline = null;
 			instance.editor.action(replaceAll(roundTrip.editorMarkdown));
+			editorBaseline = instance.getMarkdown();
 			applyImageAlternatives();
 		};
 		if (content !== initial && fileId === idForMount) await updateExternalContent(content);

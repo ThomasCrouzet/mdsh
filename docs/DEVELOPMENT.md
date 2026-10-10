@@ -120,6 +120,27 @@ This shares one parser version across Milkdown, Mermaid, and Markdown rendering.
 Regenerate the bundled CSS and fonts after a KaTeX update.
 The visual editor loads its Milkdown plugin imports through one deferred module.
 
+### Milkdown image proxy patch
+
+Milkdown 7.22.2 initializes each image view with the raw Markdown source.
+The view mounts before an asynchronous image proxy resolves.
+A relative project path can therefore cause a request to the application origin.
+
+`patches/milkdown/image-proxy-race.patch` initializes block and inline image views with an empty source.
+The existing proxy then supplies a data URI or the blocked-image placeholder.
+The patch changes the published JavaScript files that Vite imports.
+It also changes their TypeScript source files for inspection.
+
+`npm run patch:milkdown` applies the patch and verifies the installed package version.
+`npm run patch:milkdown:check` fails if the package version or required patch state differs.
+The prepare, development, check, and build commands apply the patch idempotently.
+This also repairs a cached `node_modules` directory before a production build.
+The patch script requires Git, which is already required for repository development.
+
+Remove the patch after Milkdown ships the same fix and the browser media workflow passes.
+
+### Bundle budgets
+
 `npm run size` checks public chunks, transitive mode graphs, and the PWA precache.
 Its graph artifact is `.svelte-kit/output/client/.vite/bundle-graph.json`.
 Do not add all mode totals: the graphs share modules.

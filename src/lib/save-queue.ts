@@ -9,6 +9,9 @@ import { db, newId } from './db';
 import type { DraftRow } from './db';
 import { TIMERS } from './config';
 import { uniqueName } from './file-utils';
+import { projectConflictVariant } from './project-conflicts';
+
+const SAVE_SUPERSEDED = Symbol('save-superseded');
 
 /** Callbacks to the store's `$state` - injected at construction. */
 export interface SaveQueueCallbacks {
@@ -30,6 +33,8 @@ export interface SaveQueueCallbacks {
 	onDraftSaved?: (id: string, updatedAt: number) => void;
 	/** Called when a concurrent durable branch was copied to version history. */
 	onConflictPreserved?: (id: string, variant: DraftRow) => void;
+	/** Called when a write adopts a newer durable project location. */
+	onDraftReconciled?: (row: DraftRow) => void;
 	/** Persistent per-document errors for a reactive status surface. */
 	onFailuresChange?: (ids: string[]) => void;
 }
@@ -81,7 +86,10 @@ export class SaveQueue {
 	/** Latest unresolved durability failure per live draft. Cleared only by a successful put. */
 	private durabilityFailures = new Map<string, unknown>();
 	/** Last durable content observed by this tab, used for optimistic conflict detection. */
-	private persistedRows = new Map<string, Pick<DraftRow, 'name' | 'content' | 'updatedAt'>>();
+	private persistedRows = new Map<
+		string,
+		Pick<DraftRow, 'name' | 'content' | 'projectId' | 'relativePath' | 'updatedAt'>
+	>();
 	/** Per-id serial chain so puts never race each other on the same draft. */
 	private chains = new Map<string, Promise<void>>();
 	/**
@@ -122,6 +130,8 @@ export class SaveQueue {
 		this.persistedRows.set(row.id, {
 			name: row.name,
 			content: row.content,
+			...(row.projectId === undefined ? {} : { projectId: row.projectId }),
+			...(row.relativePath === undefined ? {} : { relativePath: row.relativePath }),
 			updatedAt: row.updatedAt
 		});
 	}
@@ -130,51 +140,98 @@ export class SaveQueue {
 		return this.timers.has(id) || (this.writingIds.get(id) ?? 0) > 0;
 	}
 
-	private async putPreservingConflict(row: DraftRow): Promise<void> {
+	private async putPreservingConflict(row: DraftRow, generation: number): Promise<DraftRow | null> {
+		const superseded = () =>
+			this.generations.get(row.id) !== generation ||
+			this.discardedIds.has(row.id) ||
+			this.invalidatedIds.has(row.id);
 		if (this.writeRow) {
+			if (superseded()) return null;
 			await this.writeRow(row);
+			// An injected writer has no enclosing transaction to roll back. A
+			// discard must reach execute() so it can remove a committed stale row.
+			if (this.discardedIds.has(row.id)) return row;
+			if (superseded()) return null;
 			this.trackPersisted(row);
-			return;
+			return row;
 		}
 		let preserved: DraftRow | undefined;
-		await db.transaction('rw', db.drafts, db.versions, async () => {
-			const current = await db.drafts.get(row.id);
-			const baseline = this.persistedRows.get(row.id);
-			const changedSinceRead = current
-				? !baseline ||
-					current.name !== baseline.name ||
-					current.content !== baseline.content ||
-					current.updatedAt !== baseline.updatedAt
-				: false;
-			if (
-				current &&
-				changedSinceRead &&
-				(current.name !== row.name || current.content !== row.content)
-			) {
-				const documents = await db.drafts.toArray();
-				preserved = {
-					...current,
-					id: newId(),
-					name: uniqueName(
-						documents.map((document) => document.name),
-						current.name
-					),
-					order: documents.reduce((max, document) => Math.max(max, document.order), -1) + 1,
-					open: false
-				};
-				await db.drafts.put(preserved);
-				await db.versions.put({
-					id: newId(),
-					draftId: current.id,
-					name: current.name,
-					content: current.content,
-					createdAt: Date.now()
-				});
-			}
-			await db.drafts.put(row);
-		});
-		this.trackPersisted(row);
+		let written = row;
+		try {
+			await db.transaction('rw', db.drafts, db.versions, db.projectAssets, async () => {
+				const current = await db.drafts.get(row.id);
+				if (superseded()) throw SAVE_SUPERSEDED;
+				const baseline = this.persistedRows.get(row.id);
+				const durableLocationChanged = Boolean(
+					current &&
+					baseline &&
+					(current.projectId !== baseline.projectId ||
+						current.relativePath !== baseline.relativePath)
+				);
+				if (current && durableLocationChanged) {
+					const relocated = { ...row };
+					delete relocated.projectId;
+					delete relocated.relativePath;
+					written = {
+						...relocated,
+						name: current.name,
+						...(current.projectId && current.relativePath
+							? { projectId: current.projectId, relativePath: current.relativePath }
+							: {})
+					};
+				}
+				const changedSinceRead = current
+					? !baseline ||
+						current.name !== baseline.name ||
+						current.content !== baseline.content ||
+						current.projectId !== baseline.projectId ||
+						current.relativePath !== baseline.relativePath ||
+						current.updatedAt !== baseline.updatedAt
+					: false;
+				if (
+					current &&
+					changedSinceRead &&
+					(current.name !== written.name || current.content !== written.content)
+				) {
+					const [documents, assets] = await Promise.all([
+						db.drafts.toArray(),
+						db.projectAssets.toArray()
+					]);
+					const variant = projectConflictVariant(current, documents, assets);
+					preserved = {
+						...variant,
+						id: newId(),
+						name:
+							variant.relativePath === current.relativePath
+								? uniqueName(
+										documents.map((document) => document.name),
+										current.name
+									)
+								: variant.name,
+						order: documents.reduce((max, document) => Math.max(max, document.order), -1) + 1,
+						open: false
+					};
+					await db.drafts.put(preserved);
+					await db.versions.put({
+						id: newId(),
+						draftId: current.id,
+						name: current.name,
+						content: current.content,
+						createdAt: Date.now()
+					});
+				}
+				if (superseded()) throw SAVE_SUPERSEDED;
+				await db.drafts.put(written);
+				if (superseded()) throw SAVE_SUPERSEDED;
+			});
+		} catch (error) {
+			if (error === SAVE_SUPERSEDED) return null;
+			throw error;
+		}
+		this.trackPersisted(written);
 		if (preserved) this.cb.onConflictPreserved?.(row.id, preserved);
+		if (written !== row) this.cb.onDraftReconciled?.(written);
+		return written;
 	}
 
 	private bumpGeneration(id: string): number {
@@ -216,7 +273,9 @@ export class SaveQueue {
 			if (this.generations.get(id) !== gen) return;
 
 			try {
-				await this.putPreservingConflict(row);
+				const written = await this.putPreservingConflict(row, gen);
+				if (!written) return;
+				if (written !== row) row = written;
 			} catch (err) {
 				// Only surface errors for the still-current live generation.
 				if (

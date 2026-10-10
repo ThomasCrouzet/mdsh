@@ -4,6 +4,8 @@ export interface FileItem {
 	id: string;
 	name: string;
 	content: string;
+	projectId?: string;
+	relativePath?: string;
 	createdAt: number;
 	updatedAt: number;
 	dirty: boolean;

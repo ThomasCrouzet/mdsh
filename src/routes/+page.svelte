@@ -34,8 +34,10 @@
 	import { schedulePrefetch } from '$lib/ui/prefetch.svelte';
 	import { createFileIntents } from '$lib/ui/file-intents.svelte';
 	import { initDesktopShell, type DesktopMenuAction } from '$lib/desktop-shell';
+	import { diskConflictStore } from '$lib/disk-conflict.svelte';
 
 	let mode = $state<EditMode>('wysiwyg');
+	let projectsOpen = $state(false);
 	let documentTool = $state<'find' | 'outline' | null>(null);
 	function openDocumentTool(kind: 'find' | 'outline') {
 		documentTool = kind;
@@ -155,7 +157,7 @@
 	let dialogTrigger: HTMLElement | null = null;
 	$effect.pre(() => {
 		if (!browser) return;
-		const open = modals.anyOpen || promptStore.open;
+		const open = modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending;
 		if (open && !hadDialog) dialogTrigger = document.activeElement as HTMLElement | null;
 		if (!open && hadDialog) {
 			void tick().then(() => {
@@ -327,7 +329,14 @@
 	}
 
 	async function handleDesktopMenuAction(action: DesktopMenuAction) {
-		if (!canInteract || modals.anyOpen || promptStore.open) return;
+		if (
+			!canInteract ||
+			modals.anyOpen ||
+			promptStore.open ||
+			projectsOpen ||
+			!!diskConflictStore.pending
+		)
+			return;
 		switch (action) {
 			case 'new':
 				handleNew();
@@ -553,7 +562,11 @@
 {/if}
 
 <div
-	inert={!canInteract || modals.anyOpen || promptStore.open}
+	inert={!canInteract ||
+		modals.anyOpen ||
+		promptStore.open ||
+		projectsOpen ||
+		!!diskConflictStore.pending}
 	aria-busy={!hydrated}
 	class="mdsh-shell flex h-[100dvh] w-full overflow-hidden bg-bg text-fg"
 >
@@ -564,6 +577,7 @@
 		onNew={handleNew}
 		onImport={handleImport}
 		onOpenLibrary={modals.openLibrary}
+		onOpenProjects={() => (projectsOpen = true)}
 	/>
 
 	<div
@@ -622,7 +636,7 @@
 
 {#if prefs.focusMode}
 	<button
-		inert={modals.anyOpen || promptStore.open}
+		inert={modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending}
 		type="button"
 		class="fixed top-2 right-2 z-[75] min-h-10 rounded border border-accent bg-bg-1 px-3 text-xs font-medium text-accent shadow-lg"
 		onclick={prefs.toggleFocusMode}
@@ -631,7 +645,40 @@
 	</button>
 {/if}
 
-<ImportProgress blocked={modals.anyOpen || promptStore.open} />
+<ImportProgress
+	blocked={modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending}
+/>
+
+{#if diskConflictStore.pending}
+	{#await import('$lib/components/DiskConflictPanel.svelte') then module}
+		<module.default />
+	{:catch}
+		<div role="alert" class="fixed inset-0 z-[80] bg-bg p-6 text-fg">
+			{t('projects.operationFailed')}<button onclick={() => diskConflictStore.choose('cancel')}
+				>{t('diskConflict.cancel')}</button
+			>
+		</div>
+	{/await}
+{/if}
+
+{#if projectsOpen}
+	{#await import('$lib/components/ProjectsPanel.svelte') then module}
+		<module.default
+			onClose={() => {
+				projectsOpen = false;
+				void tick().then(() =>
+					document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')?.focus()
+				);
+			}}
+		/>
+	{:catch}
+		<div role="alert" class="fixed inset-0 z-50 bg-bg p-6 text-fg">
+			{t('projects.operationFailed')}<button onclick={() => (projectsOpen = false)}
+				>{t('projects.close')}</button
+			>
+		</div>
+	{/await}
+{/if}
 
 <!-- Live regions to announce mode switches to screen readers
 	 (WCAG 4.1.3 Status Messages). A distinct region per mode so announcements

@@ -157,9 +157,12 @@ test('backup verification reports its contents without changing the library', as
 			})
 		)
 	});
-	await expect(
-		page.getByRole('dialog', { name: 'Sauvegarde vérifiée. Votre bibliothèque est inchangée.' })
-	).toContainText('0 document');
+	const summary = page.getByRole('dialog', {
+		name: 'Sauvegarde vérifiée. Votre bibliothèque est inchangée.'
+	});
+	await expect(summary).toContainText('0 fichier(s)');
+	await expect(summary).toContainText('0 projet(s)');
+	await expect(summary).toContainText('0 ressource(s) de projet');
 	await page.keyboard.press('Escape');
 	await page.keyboard.press('Escape');
 	await expect(page.locator('.cm-content')).toContainText('Keep my work');

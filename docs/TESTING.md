@@ -9,6 +9,38 @@ which risk each test detects and why the browser suite cannot detect it. Do not 
 tests only to increase coverage. Do not test dependency internals, type contracts,
 constant values, or mocked call sequences alone.
 
+## Version 2.0 project risks
+
+Write browser scenarios before implementation. Test the following failures through visible results and downloaded artifacts where possible.
+
+- Old drafts or backups can lose documents during the schema upgrade. Keep a version 1.9 fixture and compare its complete content.
+- Duplicate basenames can overwrite each other. Import separate directories with identical filenames and compare both exported files.
+- Archive paths can escape the project root through absolute paths, traversal, encoding, or symlinks. Reject unsafe archives before storage changes.
+- Large archives can exhaust memory or storage. Apply entry, depth, compressed, expanded, and image limits before atomic import.
+- Missing assets, malformed images, and unsupported links can appear complete. Show a link report with precise document paths and destinations.
+- Rendering can replace source image paths or contact a remote host. Compare source text and record requests during offline rendering.
+- Visual editing can request a private relative image path before local asset resolution. Record requests for block and inline images.
+- Renames can break incoming links, fragments, aliases, code samples, or documents with duplicate basenames. Check each destination after export.
+- A storage failure can leave partial projects. Keep existing data and make failed writes visible.
+- Backup merge can collide with project identifiers or paths. Keep a complete project copy and make repeated merges idempotent.
+- Native directory access can escape through symlinks or stale grants. Check confinement, revocation, restart, and actual file contents.
+- External edits can occur during comparison. Recheck the exact revision before overwrite or reload and retain the local version.
+- Source preview can reset undo, lose the caret, or block typing. Check navigation, resizing, small screens, and a large document.
+- A large comparison can block the interface. Bound comparison work and show any omitted context explicitly.
+- A replacement preview can become stale. Refuse changed inputs and rebuild the preview before applying changes.
+
+Feature scenarios cover [split view](testing/split-view.md), [comparisons](testing/diff-workflows.md), [project backups](testing/project-backup.md), and [native projects](testing/native-projects.md).
+
+The browser filesystem workflow uses an OPFS file selected by its fixture.
+It verifies cancellation, stale comparison rejection, reload, and a retained local checkpoint.
+Browser file APIs cannot make the final revision check and write atomic against another application.
+
+The portable project scenario verifies cached rendering after network loss.
+Chromium and Firefox use browser offline emulation.
+WebKit uses a stopped origin server because [Playwright offline emulation can reject service worker responses](https://github.com/microsoft/playwright/issues/42775).
+The report records the disruption and confirms service worker control.
+This server outage check does not reproduce every operating system network condition.
+
 ## Retained isolated risks
 
 The test review removed duplicate creation, selection, rendering, export, and
@@ -135,6 +167,8 @@ failures through the operating system.
 
 ### Image layout and native export risks
 
+- Milkdown can mount an image node before its asynchronous proxy resolves. Never assign the relative Markdown source to the DOM image.
+- Test existing and missing project images. Include block images, inline images, queries, and cross-tab document updates.
 - Embedded image data can fill the source editor. Hide the payload with a keyboard-accessible
   control. Editing, undo, mode changes, reload, and Markdown export must preserve the bytes.
 - A fixed image height can crop pixels when the PDF width guide or window becomes narrower.
@@ -167,7 +201,17 @@ failures through the operating system.
   `toolbar-stability.spec.ts` holds real registration, then checks geometry and
   one pointer click in Chromium and Firefox.
 
-Run `npm run test:e2e -- image-layout.spec.ts` for image payload and layout checks.
+Run the focused browser media workflows with:
+
+```sh
+npm run test:e2e -- project-media.spec.ts image-layout.spec.ts media-export.spec.ts source-fidelity.spec.ts portable-projects.spec.ts
+```
+
+The project media workflow records all requests for private relative paths.
+It covers the initial mount and a cross-tab update of the same visual editor.
+The attached ZIP contains existing and missing block and inline image fixtures.
+The request artifact must contain an empty JSON array.
+
 Run the native build command from `.github/workflows/desktop.yml`, then
 `node scripts/native-smoke.mjs`. On macOS, `native-test-results/native.pdf` comes from
 the same native print operation as the application. The test supplies a save destination
@@ -218,3 +262,14 @@ CI uploads `playwright-report` on success and failure and keeps it for 14 days.
 The artifact belongs to the workflow run and its source commit. Compare that
 commit with the release tag before using the results as release evidence.
 Native WebView runs also upload `native-smoke-<platform>` artifacts.
+
+Source preservation and library export limits use [source-fidelity.md](testing/source-fidelity.md).
+
+## Version 2 accessibility
+
+The project tree, split view, history comparison, and disk comparison must support keyboard operation.
+Check initial focus, focus confinement, focus restoration, scroll access, and text contrast.
+
+Run `npm run test:e2e -- v2-accessibility.spec.ts --project=chromium`.
+The Playwright report retains screenshots and axe results.
+Wait for interface animations before the contrast check. Keep all serious and critical violations as failures.

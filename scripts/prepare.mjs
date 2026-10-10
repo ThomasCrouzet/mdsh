@@ -12,5 +12,6 @@ function run(command, args, required) {
 	);
 }
 
+run('node', ['scripts/patch-milkdown-images.mjs', '--write'], true);
 run('npx', ['svelte-kit', 'sync'], true);
 if (!process.env.CI) run('npx', ['lefthook', 'install'], false);

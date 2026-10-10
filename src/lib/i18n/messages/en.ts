@@ -6,7 +6,16 @@
 // `t(key, params)`. Generated/merged from the i18n migration - keep grouped by
 // namespace. Plurals use the parenthetical "(s)" form in both locales.
 
+import { splitEn } from './split-en';
+import { projectEn } from './project-en';
+import { diffEn } from './diff-en';
+import { backupProjectEn } from './backup-project-en';
+
 export const en = {
+	...splitEn,
+	...projectEn,
+	...diffEn,
+	...backupProjectEn,
 	'brand.name': 'mdsh',
 	'brand.localWorkspace': 'Local workspace',
 	'library.browseCount': 'Open your library ({n})',
