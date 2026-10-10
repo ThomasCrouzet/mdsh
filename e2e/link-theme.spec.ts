@@ -30,6 +30,9 @@ test('keeps the link editor readable in the light theme', async ({ page }, testI
 	await createFirstFile(page);
 	await writeSourceContent(page, 'Readable link');
 	await page.evaluate(() => localStorage.setItem('mdsh:theme', 'light'));
+	await expect(page.locator('.mdsh-local-indicator')).toHaveText('Prêt hors ligne', {
+		timeout: 20_000
+	});
 	await page.reload();
 	await page.locator('button[data-mode="wysiwyg"]').click();
 	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');

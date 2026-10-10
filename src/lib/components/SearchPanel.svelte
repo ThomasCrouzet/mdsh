@@ -531,11 +531,6 @@
 				>
 					<Replace size={14} />
 				</button>
-				{#if debouncedQuery.trim().length >= 2 && !regexError && !queryError}
-					<span class="text-xs text-fg-dim" aria-live="polite" aria-atomic="true"
-						>{t('search.resultCount', { n: hits.length })}</span
-					>
-				{/if}
 				<button
 					class="rounded p-1 text-fg-dim transition hover:bg-bg-2 hover:text-fg"
 					onclick={onClose}
@@ -560,6 +555,11 @@
 						>{t(value === 'library' ? 'library.all' : 'library.open')}</button
 					>
 				{/each}
+				{#if debouncedQuery.trim().length >= 2 && !regexError && !queryError}
+					<span class="ml-auto text-fg-dim" aria-live="polite" aria-atomic="true"
+						>{t('search.resultCount', { n: hits.length })}</span
+					>
+				{/if}
 			</div>
 			{#if hits.length >= SEARCH_MAX_HITS}
 				<p class="px-3 py-2 text-xs text-fg-muted" role="status">
