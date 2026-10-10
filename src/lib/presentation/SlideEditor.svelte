@@ -63,6 +63,16 @@
 	let thumbnailTouch: { pointerId: number; from: number; startY: number; startX: number } | null =
 		null;
 	let userMessage = $state('');
+	type ClipboardShortcut = {
+		kind: 'copy' | 'cut' | 'paste';
+		payload: string | undefined;
+		slideId: string;
+		selectedIds: string[];
+		nativeHandled: boolean;
+		fallbackApplied: boolean;
+	};
+	let clipboardShortcut: ClipboardShortcut | null = null;
+	let clipboardDisposed = false;
 	const gestures = createPresentationGestures(
 		editor,
 		() => canvas,
@@ -154,6 +164,8 @@
 		};
 		window.addEventListener('mdsh:presentation-action', nativeAction);
 		return () => {
+			clipboardDisposed = true;
+			clipboardShortcut = null;
 			gestures.cancel();
 			window.removeEventListener('mdsh:presentation-action', nativeAction);
 		};
@@ -279,7 +291,9 @@
 			return;
 		}
 		const modifier = event.ctrlKey || event.metaKey;
-		if (modifier && event.key.toLowerCase() === 'z') {
+		if (modifier && ['c', 'x', 'v'].includes(event.key.toLowerCase())) {
+			startClipboardShortcut(event.key.toLowerCase());
+		} else if (modifier && event.key.toLowerCase() === 'z') {
 			event.preventDefault();
 			finishText();
 			if (event.shiftKey) editor.redo();
@@ -321,29 +335,121 @@
 			void editText();
 		}
 	}
-	function copy(event: ClipboardEvent) {
+	function focusClickedButton(event: MouseEvent) {
+		if (event.button !== 0 || !(event.target instanceof Element)) return;
+		const button = event.target.closest('button');
+		if (button && !button.disabled) button.focus({ preventScroll: true });
+	}
+	function copySelection() {
+		const payload = editor.copy();
+		if (typeof navigator.clipboard?.writeText === 'function')
+			void navigator.clipboard.writeText(payload).catch(() => {
+				// The internal object clipboard remains available if access is denied.
+			});
+		return payload;
+	}
+	function releaseClipboardShortcut(request: ClipboardShortcut) {
+		setTimeout(() => {
+			if (clipboardShortcut === request) clipboardShortcut = null;
+		}, 0);
+	}
+	function startClipboardShortcut(key: string) {
+		const kind = key === 'v' ? 'paste' : key === 'x' ? 'cut' : 'copy';
+		if (kind !== 'paste' && !editor.selected.length) return;
+		const request: ClipboardShortcut = {
+			kind,
+			payload: kind === 'paste' ? undefined : copySelection(),
+			slideId: editor.slide.id,
+			selectedIds: [...editor.selected],
+			nativeHandled: false,
+			fallbackApplied: false
+		};
+		clipboardShortcut = request;
+		// Native clipboard events run before this fallback task.
+		setTimeout(() => {
+			if (clipboardDisposed || request.nativeHandled) return;
+			if (kind === 'paste') void pasteFromClipboard(request);
+			else {
+				request.fallbackApplied = true;
+				if (kind === 'cut') cutSelection(request);
+				releaseClipboardShortcut(request);
+			}
+		}, 0);
+	}
+	function cutSelection(request: ClipboardShortcut) {
 		if (
-			(event.target as HTMLElement).closest('textarea,input,[contenteditable="true"]') ||
-			!editor.selected.length
+			editor.slide.id === request.slideId &&
+			editor.selected.length === request.selectedIds.length &&
+			request.selectedIds.every((id) => editor.selected.includes(id))
 		)
-			return;
+			editor.remove();
+	}
+	async function pasteFromClipboard(request: ClipboardShortcut) {
+		const images: File[] = [];
+		let text = '';
+		let unavailable = false;
+		try {
+			if (typeof navigator.clipboard?.read === 'function') {
+				const items = await navigator.clipboard.read();
+				for (const item of items) {
+					if (clipboardDisposed || request.nativeHandled) return;
+					const type = item.types.find((value) => value.startsWith('image/'));
+					if (type) images.push(new File([await item.getType(type)], 'clipboard-image', { type }));
+					else if (item.types.includes('text/plain'))
+						text += await (await item.getType('text/plain')).text();
+				}
+			} else if (typeof navigator.clipboard?.readText === 'function')
+				text = await navigator.clipboard.readText();
+			else unavailable = true;
+		} catch {
+			images.length = 0;
+			try {
+				if (typeof navigator.clipboard?.readText === 'function')
+					text = await navigator.clipboard.readText();
+				else unavailable = true;
+			} catch {
+				unavailable = true;
+			}
+		}
+		if (clipboardDisposed || request.nativeHandled || editor.slide.id !== request.slideId) return;
+		request.fallbackApplied = true;
+		if (unavailable && !editor.clipboardAvailable) notify.error(t('palette.clipboardUnavailable'));
+		else applyPaste(images, text);
+		releaseClipboardShortcut(request);
+	}
+	function copy(event: ClipboardEvent) {
+		if ((event.target as HTMLElement).closest('textarea,input,[contenteditable="true"]')) return;
+		const request = clipboardShortcut?.kind === event.type ? clipboardShortcut : null;
+		if (!request && !editor.selected.length) return;
 		event.preventDefault();
 		event.stopPropagation();
-		event.clipboardData?.setData('text/plain', editor.copy());
-		if (event.type === 'cut') editor.remove();
+		if (request?.fallbackApplied) return;
+		if (request) request.nativeHandled = true;
+		event.clipboardData?.setData('text/plain', request?.payload ?? editor.copy());
+		if (event.type === 'cut') {
+			if (request) cutSelection(request);
+			else editor.remove();
+		}
+		if (request) releaseClipboardShortcut(request);
 	}
 	function paste(event: ClipboardEvent) {
 		if ((event.target as HTMLElement).closest('textarea,input,[contenteditable="true"]')) return;
 		event.preventDefault();
 		event.stopPropagation();
+		const request = clipboardShortcut?.kind === 'paste' ? clipboardShortcut : null;
+		if (request?.fallbackApplied) return;
+		if (request) request.nativeHandled = true;
 		const images = Array.from(event.clipboardData?.files ?? []).filter((file) =>
 			file.type.startsWith('image/')
 		);
+		applyPaste(images, event.clipboardData?.getData('text/plain') ?? '');
+		if (request) releaseClipboardShortcut(request);
+	}
+	function applyPaste(images: File[], text: string) {
 		if (images.length) {
 			void insertImages(images);
 			return;
 		}
-		const text = event.clipboardData?.getData('text/plain') ?? '';
 		if (text.startsWith('mdsh-slide-elements\n')) editor.paste(text);
 		else if (text) editor.add('text', text);
 		else editor.paste();
@@ -431,6 +537,7 @@
 	aria-label={t('slides.title')}
 	tabindex="-1"
 	data-testid="presentation-editor"
+	onclickcapture={focusClickedButton}
 	onkeydown={handleKey}
 	oncopy={copy}
 	oncut={copy}
@@ -687,7 +794,7 @@
 							'copy',
 							'slides.copy',
 							() => {
-								editor.copy();
+								copySelection();
 							},
 							!editor.selected.length
 						)}

@@ -48,10 +48,9 @@ async function selectObject(editor: Locator, object: Locator, extend = false): P
 	);
 	const index = ids.indexOf(id);
 	if (index < 0) throw new Error('The slide object is absent from the object list.');
-	await editor
-		.getByTestId('slide-object-list-item')
-		.nth(index)
-		.click({ modifiers: extend ? ['Shift'] : [] });
+	const listItem = editor.getByTestId('slide-object-list-item').nth(index);
+	await listItem.click({ modifiers: extend ? ['Shift'] : [] });
+	await expect(listItem).toBeFocused();
 	await expect(object).toHaveAttribute('aria-pressed', 'true');
 }
 
@@ -800,6 +799,13 @@ test('applies selection, grouping, stacking, connector, and history commands', a
 	await page.keyboard.press('ControlOrMeta+c');
 	await page.keyboard.press('ControlOrMeta+v');
 	await expect(objects(editor)).toHaveCount(initialCount + 2);
+	await expect(objects(editor, 'rectangle')).toHaveCount(2);
+	await page.keyboard.press('ControlOrMeta+x');
+	await expect(objects(editor)).toHaveCount(initialCount + 1);
+	await expect(objects(editor, 'rectangle')).toHaveCount(1);
+	await page.keyboard.press('ControlOrMeta+v');
+	await expect(objects(editor)).toHaveCount(initialCount + 2);
+	await expect(objects(editor, 'rectangle')).toHaveCount(2);
 	await editor.getByTestId('slide-duplicate').click();
 	await expect(objects(editor)).toHaveCount(initialCount + 3);
 	await page.keyboard.press('Delete');

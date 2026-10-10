@@ -97,6 +97,12 @@ The browser tests use the English locale. They select controls through stable
 - A representative deck can miss the interaction frame budget during drag.
 - Long tasks during drag can make desktop or mobile input visibly stall.
 - Firefox or WebKit can interpret pointer capture differently from Chromium.
+- WebKit can retain inspector input focus after object selection and ignore clipboard commands.
+- WebKit GTK can omit clipboard events for Ctrl+C, Ctrl+X, and Ctrl+V.
+- Native clipboard events and keyboard fallbacks can apply cut or paste twice.
+- A later paste shortcut can cancel an earlier clipboard read before it applies.
+- A delayed cut fallback can remove objects selected after the shortcut.
+- A failed rich clipboard read can hide text that remains available through `readText`.
 
 ## Browser scenarios
 
