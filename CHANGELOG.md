@@ -5,6 +5,13 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.0.1](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.0...v2.0.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* **ui:** correct saved status and stabilize search controls ([6e3a88b](https://github.com/ThomasCrouzet/mdsh/commit/6e3a88b9b9e6f43a43f32965e47501425ab81c1c))
+
 ## [2.0.0](https://github.com/ThomasCrouzet/mdsh/compare/v1.9.0...v2.0.0) (2026-10-10)
 
 
