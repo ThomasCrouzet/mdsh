@@ -12,7 +12,7 @@ import {
 	realpathSync,
 	writeFileSync
 } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, toNamespacedPath } from 'node:path';
 
 const invokeScript = `const done = arguments[arguments.length - 1];
 window.__TAURI__.core.invoke(arguments[0], arguments[1]).then(
@@ -190,7 +190,7 @@ export async function nativeProjects({
 	mkdirSync(gate, { recursive: true });
 	writeFileSync(
 		join(gate, 'armed.json'),
-		JSON.stringify({ path: realpathSync(notePath), stage: 'project-read' })
+		JSON.stringify({ path: toNamespacedPath(realpathSync(notePath)), stage: 'project-read' })
 	);
 	await execute(
 		`window.__projectReadRace = null;
@@ -248,7 +248,7 @@ export async function nativeProjects({
 		mkdirSync(gate, { recursive: true });
 		writeFileSync(
 			join(gate, 'armed.json'),
-			JSON.stringify({ path: realpathSync(notePath), stage: 'project-staged' })
+			JSON.stringify({ path: toNamespacedPath(realpathSync(notePath)), stage: 'project-staged' })
 		);
 		await execute(
 			`window.__projectRace = null;
@@ -287,7 +287,7 @@ export async function nativeProjects({
 	mkdirSync(gate, { recursive: true });
 	writeFileSync(
 		join(gate, 'armed.json'),
-		JSON.stringify({ path: realpathSync(notePath), stage: 'project-staged' })
+		JSON.stringify({ path: toNamespacedPath(realpathSync(notePath)), stage: 'project-staged' })
 	);
 	await execute(
 		`window.__projectSameBytesRace = null;
@@ -323,7 +323,7 @@ export async function nativeProjects({
 		mkdirSync(gate, { recursive: true });
 		writeFileSync(
 			join(gate, 'armed.json'),
-			JSON.stringify({ path: realpathSync(notePath), stage: 'project-staged' })
+			JSON.stringify({ path: toNamespacedPath(realpathSync(notePath)), stage: 'project-staged' })
 		);
 		await execute(
 			`window.__projectParentRace = null;

@@ -855,10 +855,8 @@ fn sync_cap_directory(_directory: &Dir) -> Result<(), String> {
     #[cfg(unix)]
     {
         _directory
-            .try_clone()
-            .map_err(|error| error.to_string())?
-            .into_std_file()
-            .sync_all()
+            .open(".")
+            .and_then(|directory| directory.sync_all())
             .map_err(|error| error.to_string())?;
     }
     Ok(())
