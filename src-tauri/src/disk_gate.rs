@@ -19,7 +19,19 @@ pub fn wait(path: &Path, stage: &str) -> Result<(), String> {
         return Ok(());
     };
     let gate: Gate = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
-    if path != Path::new(&gate.path) || stage != gate.stage {
+    if stage != gate.stage {
+        return Ok(());
+    }
+    let actual = std::fs::canonicalize(path)
+        .map_err(|error| format!("native disk gate actual path is unavailable: {error}"))?;
+    let armed = std::fs::canonicalize(&gate.path)
+        .map_err(|error| format!("native disk gate armed path is unavailable: {error}"))?;
+    if actual != armed {
+        eprintln!(
+            "[mdsh-native-disk-gate] stage={stage} actual={} armed={}",
+            actual.display(),
+            armed.display()
+        );
         return Ok(());
     }
     std::fs::remove_file(directory.join("armed.json")).map_err(|error| error.to_string())?;

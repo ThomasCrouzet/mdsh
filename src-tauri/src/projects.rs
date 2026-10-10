@@ -871,15 +871,33 @@ fn expected_child_identity(
     child: &ProjectChild,
     expected_revision: Option<&str>,
 ) -> Result<Option<FileIdentity>, String> {
-    match (expected_revision, child_state(child)?) {
-        (None, None) => Ok(None),
-        (None, Some(_)) => Err("native project create target already exists".to_string()),
-        (Some(_), None) => Err("native project write target is missing".to_string()),
-        (Some(expected), Some((identity, revision))) if revision == expected => Ok(Some(identity)),
-        (Some(_), Some(_)) => {
-            Err("native project conflict: entry changed since refresh".to_string())
+    open_expected_child(child, expected_revision).map(|(identity, _file)| identity)
+}
+
+fn open_expected_child(
+    child: &ProjectChild,
+    expected_revision: Option<&str>,
+) -> Result<(Option<FileIdentity>, Option<CapFile>), String> {
+    let file = match open_child_file(child) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return if expected_revision.is_none() {
+                Ok((None, None))
+            } else {
+                Err("native project write target is missing".to_string())
+            };
         }
+        Err(error) => return Err(error.to_string()),
+    };
+    let Some(expected_revision) = expected_revision else {
+        return Err("native project create target already exists".to_string());
+    };
+    let identity = cap_file_identity(&file)?;
+    let revision = revision_for_cap_file(file.try_clone().map_err(|error| error.to_string())?)?;
+    if revision != expected_revision {
+        return Err("native project conflict: entry changed since refresh".to_string());
     }
+    Ok((Some(identity), Some(file)))
 }
 
 fn atomic_project_replace(
@@ -890,18 +908,15 @@ fn atomic_project_replace(
 ) -> Result<(), String> {
     let child = open_child_parent(session, relative_path, expected_revision.is_none())?;
     let parent_identity = cap_dir_identity(&child.parent)?;
-    let expected_identity = expected_child_identity(&child, expected_revision)?;
-    let existing_permissions = if expected_identity.is_some() {
-        Some(
-            open_child_file(&child)
-                .map_err(|error| error.to_string())?
-                .metadata()
-                .map_err(|error| error.to_string())?
-                .permissions(),
-        )
-    } else {
-        None
-    };
+    let (expected_identity, expected_file) = open_expected_child(&child, expected_revision)?;
+    let existing_permissions = expected_file
+        .as_ref()
+        .map(|file| {
+            file.metadata()
+                .map_err(|error| error.to_string())
+                .map(|metadata| metadata.permissions())
+        })
+        .transpose()?;
     let temp_name = project_temp_name(&child.name)?;
     let result = (|| {
         let mut options = CapOpenOptions::new();
@@ -957,6 +972,7 @@ fn atomic_project_replace(
         }
         sync_cap_directory(&child.parent)
     })();
+    drop(expected_file);
     if result.is_err() {
         let _ = child.parent.remove_file(&temp_name);
     }
@@ -1043,8 +1059,9 @@ fn rename_entry(
     }
     let source = open_child_parent(session, from_path, false)?;
     let target = open_child_parent(session, to_path, true)?;
-    let source_identity = expected_child_identity(&source, Some(expected_revision))?
-        .ok_or("native project rename source is missing")?;
+    let (source_identity, source_file) = open_expected_child(&source, Some(expected_revision))?;
+    let source_identity = source_identity.ok_or("native project rename source is missing")?;
+    let source_file = source_file.ok_or("native project rename source is missing")?;
     let source_parent_identity = cap_dir_identity(&source.parent)?;
     let target_parent_identity = cap_dir_identity(&target.parent)?;
     if let Some((target_identity, _)) = child_state(&target)? {
@@ -1056,6 +1073,7 @@ fn rename_entry(
                 .rename(&source.name, &target.parent, &target.name)
                 .map_err(|error| error.to_string())?;
             sync_cap_directory(&source.parent)?;
+            drop(source_file);
             return read_entry(session, to_path);
         }
         return Err("native project create target already exists".to_string());
@@ -1103,6 +1121,7 @@ fn rename_entry(
     if result.is_err() {
         let _ = target.parent.remove_file(&target.name);
     }
+    drop(source_file);
     result?;
     read_entry(session, to_path)
 }
