@@ -70,7 +70,13 @@
 	});
 
 	let stats = $derived(computeStats(debouncedContent));
-	let saveLabel = $derived(filesStore.active ? formatSaveAge(filesStore.lastSavedAt, now) : '');
+	let saveLabel = $derived.by(() => {
+		if (!filesStore.active) return '';
+		// Restored drafts are durable before this session records a save time.
+		return filesStore.lastSavedAt === 0
+			? t('stats.saved')
+			: formatSaveAge(filesStore.lastSavedAt, now);
+	});
 </script>
 
 {#if filesStore.active || filesStore.saveErrorIds.length > 0}

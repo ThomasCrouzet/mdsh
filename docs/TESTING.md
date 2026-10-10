@@ -100,6 +100,9 @@ Its source metadata identifies the commit and working diff.
 
 ### Durability and resource pressure risks
 
+- A restored draft can appear unsaved after reload although its content is durable.
+  Check the saved label after content restoration. Keep pending writes and write failures visible.
+  Do not use an imported modification date as the local save time.
 - A process kill before the 400 ms timer can lose the in-memory revision. An
   unload event is not a durability barrier. Record the last committed revision
   separately from the text that existed only in the editor.
