@@ -29,7 +29,7 @@ Write browser scenarios before implementation. Test the following failures throu
 - A large comparison can block the interface. Bound comparison work and show any omitted context explicitly.
 - A replacement preview can become stale. Refuse changed inputs and rebuild the preview before applying changes.
 
-Feature scenarios cover [split view](testing/split-view.md), [comparisons](testing/diff-workflows.md), [project backups](testing/project-backup.md), and [native projects](testing/native-projects.md).
+Feature scenarios cover [split view](testing/split-view.md), [comparisons](testing/diff-workflows.md), [project backups](testing/project-backup.md), [native projects](testing/native-projects.md), and [presentations](testing/presentations.md).
 
 The browser filesystem workflow uses an OPFS file selected by its fixture.
 It verifies cancellation, stale comparison rejection, reload, and a retained local checkpoint.

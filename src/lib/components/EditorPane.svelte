@@ -20,6 +20,7 @@
 	import type { createModals } from '$lib/ui/modals.svelte';
 	import { t } from '$lib/i18n';
 	import { readPreference, writePreference } from '$lib/preferences';
+	import { isPresentation } from '$lib/presentation/detect';
 
 	interface Props {
 		libraryCount?: number;
@@ -126,7 +127,9 @@
 	{/if}
 	<div bind:this={contentRoot} class="relative min-h-0 flex-1">
 		{#if activeFile}
-			{#if mode === 'source'}
+			{#if modals.presentationOpen}
+				<div class="h-full"></div>
+			{:else if mode === 'source'}
 				{#key activeFile.id}
 					<div class="mdsh-source-mode">
 						<div class="mdsh-split-controls">
@@ -167,6 +170,14 @@
 						</div>
 					</div>
 				{/key}
+			{:else if isPresentation(activeFile.content)}
+				{#await import('$lib/presentation/entry') then module}
+					<module.PresentationDocument
+						fileId={activeFile.id}
+						content={activeFile.content}
+						onEdit={modals.openSlideEditor}
+					/>
+				{:catch}<p role="alert" class="p-4 text-danger">{t('slides.renderFailed')}</p>{/await}
 			{:else if mode === 'read'}
 				{#await import('./ReadView.svelte') then module}
 					<module.default fileId={activeFile.id} content={activeFile.content} {onArticleRef} />

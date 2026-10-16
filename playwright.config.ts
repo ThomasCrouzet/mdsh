@@ -44,16 +44,16 @@ export default defineConfig({
 			name: 'chromium',
 			use: { ...devices['Desktop Chrome'] },
 			// Mobile tests expect the Sidebar drawer. Exclude them from the desktop suite.
-			testIgnore: '**/mobile.spec.ts'
+			testIgnore: ['**/mobile.spec.ts', '**/presentation-mobile.spec.ts']
 		},
 		{
-			// Test the Sidebar drawer, touch targets, and responsive layout in mobile.spec.ts only.
+			// Test the Sidebar drawer and presentation touch paths in mobile specs only.
 			// The desktop project covers the other paths.
 			// Pixel 5 uses `defaultBrowserType: chromium`; iPhone 13 does not.
 			// CI installs Chromium with `npx playwright install --with-deps chromium`.
 			name: 'mobile-chromium',
 			use: { ...devices['Pixel 5'] },
-			testMatch: '**/mobile.spec.ts'
+			testMatch: ['**/mobile.spec.ts', '**/presentation-mobile.spec.ts']
 		},
 		{
 			name: 'firefox',
@@ -79,7 +79,10 @@ export default defineConfig({
 				'**/project-*.spec.ts',
 				'**/source-fidelity.spec.ts',
 				'**/split-view.spec.ts',
-				'**/diff-workflows.spec.ts'
+				'**/diff-workflows.spec.ts',
+				'**/presentation-editor.spec.ts',
+				'**/presentation-export.spec.ts',
+				'**/presentation-offline.spec.ts'
 			]
 		},
 		{
@@ -109,13 +112,15 @@ export default defineConfig({
 				'**/project-*.spec.ts',
 				'**/source-fidelity.spec.ts',
 				'**/split-view.spec.ts',
-				'**/diff-workflows.spec.ts'
+				'**/diff-workflows.spec.ts',
+				'**/presentation-editor.spec.ts',
+				'**/presentation-export.spec.ts'
 			]
 		},
 		{
 			name: 'mobile-webkit',
 			use: { ...devices['iPhone 13'] },
-			testMatch: '**/mobile.spec.ts'
+			testMatch: ['**/mobile.spec.ts', '**/presentation-mobile.spec.ts']
 		}
 	],
 	webServer: {
